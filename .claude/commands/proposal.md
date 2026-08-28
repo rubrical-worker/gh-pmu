@@ -1,5 +1,5 @@
 ---
-version: "v0.97.0"
+version: "v0.98.0"
 description: Create a proposal document and tracking issue (project)
 argument-hint: "<title> [--prior-art]"
 copyright: "Rubrical Works (c) 2026"
@@ -237,15 +237,18 @@ For modifications: `docs: update proposal — [Title] (Refs #$ISSUE_NUM)`
 
 **Note:** Use `Refs #` (not `Fixes #`) per workflow rules — proposal issue stays open.
 
-### Step 7: Report and STOP
-
+### Step 7: Cleanup, Report, and STOP
+Three parts, in order. The prune is **part of** this step, and this step is **numbered** — `One task per numbered step` now covers it, so an unpruned list surfaces as an unfinished task like any other. The halt is part (3) and lives nowhere earlier: while it sat in this step's TITLE a reader stopped at the title and never reached the prune (#2641).
+**(1) Prune the task list** (unconditional — every path, including early-exit paths where Phase 1 created tasks and later phases never ran):
+1. `TaskList` — enumerate all tasks.
+2. For every task owned by this `/proposal` invocation, `TaskUpdate status=deleted`.
+3. Do **not** delete tasks created outside this invocation (user TODOs).
+**(2) Emit the closing output:**
 Report the document path `Proposal/[Name].md`, the created issue number and title, Status `Backlog`, Label `proposal`, then offer `/review-proposal` or `/create-prd` with the issue number.
 
 <!-- USER-EXTENSION-START: post-create -->
 <!-- USER-EXTENSION-END: post-create -->
-
-**STOP.** Do not begin work unless user explicitly says "work", "implement the proposal", or "work issue".
-
+**(3) STOP.** Do not begin work unless user explicitly says "work", "implement the proposal", or "work issue".
 ## Error Handling
 
 | Situation | Response |
@@ -259,13 +262,4 @@ Report the document path `Proposal/[Name].md`, the created issue number and titl
 | Sweep: issue history unavailable (`gh` error) | Warn, emit `partialFormat` naming what ran and what failed, continue. Never claim a clean sweep. |
 | Sweep: **zero `searchSurfaces` resolved** | Warn, emit `partialFormat`, continue. A sweep that searched nothing is failed, not empty — never emit `noneFoundFormat` here. |
 | Sweep: `prior-art-sweep.json` missing/unreadable | Warn, skip sweep, emit no `**Prior Art:**` section. Absence correctly reads as "no sweep ran". |
-### Closing Cleanup
-Two parts, in order. The prune is **part of** this step, not a trailing step a reader can stop before — the closing output makes a run *feel* finished, so a prune placed after it never runs.
-**(1) Emit the closing output** described by the final step above.
-**(2) Prune the task list** (unconditional — every path, including early-exit paths where Phase 1 created tasks and later phases never ran):
-1. `TaskList` — enumerate all tasks.
-2. For every task owned by this `/proposal` invocation, `TaskUpdate status=deleted`.
-3. Do **not** delete tasks created outside this invocation (user TODOs).
-
-
 **End of /proposal Command**

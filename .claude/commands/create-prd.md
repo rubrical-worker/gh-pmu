@@ -1,5 +1,5 @@
 ---
-version: "v0.97.0"
+version: "v0.98.0"
 description: Transform proposal into Agile PRD
 argument-hint: "<issue-number> | extract [<directory>]"
 copyright: "Rubrical Works (c) 2026"
@@ -177,7 +177,7 @@ Store selection for Phase 5.5b.
 | Class | OFF | Data models, entities |
 | Component | OFF | System architecture |
 | State | OFF | State machines |
-**drawio style:** load `{frameworkPath}/Skills/drawio-generation/SKILL.md`. Generate UML as `.drawio.svg` at `PRD/{PRD-Name}/Diagrams/{Epic-Name}/{type}-{description}.drawio.svg`.
+**drawio style:** load `.claude/skills/drawio-generation/SKILL.md`. Generate UML as `.drawio.svg` at `PRD/{PRD-Name}/Diagrams/{Epic-Name}/{type}-{description}.drawio.svg`.
 **ASCII style:** generate UML **inline** in PRD markdown with box-drawing characters. Rules: wrap in ` ```text ... ``` ` for monospace; no plain-ASCII substitutes (`+`, `-`, `|`); proper monospace alignment (one col per char); place under `### Diagrams` per epic. No `Diagrams/` directory — all inline.
 **ASCII templates:**
 | Type | Key Elements |
@@ -332,12 +332,12 @@ For `/create-prd` (no arguments): prompt `1. From a proposal issue (enter issue 
 For `/create-prd extract` or `/create-prd extract <directory>`:
 
 ### Step 1: Check Prerequisites
-Verify `{frameworkPath}/Skills/codebase-analysis/SKILL.md` exists. Check `Inception/`.
+Verify `.claude/skills/codebase-analysis/SKILL.md` exists. Check `Inception/`.
 **If skill missing:** `codebase-analysis skill not installed. Install via px-manager or ask user to install.` -> **STOP**
 **If `Inception/` missing:** warn; offer `/charter` (non-blocking).
 
 ### Step 2: Load Skill
-Read `{frameworkPath}/Skills/codebase-analysis/SKILL.md` for analysis capabilities and workflow.
+Read `.claude/skills/codebase-analysis/SKILL.md` for analysis capabilities and workflow.
 
 ### Step 3: Run Codebase Analysis
 Delegate to codebase-analysis skill (entire project or specified directory). Skill handles tech stack, architecture inference, test parsing, NFR detection.
@@ -383,13 +383,12 @@ fi
 - [ ] Out of scope explicitly stated
 - [ ] Open questions flagged
 - [ ] PRD is Create-Backlog compatible
-### Closing Cleanup
-Two parts, in order. The prune is **part of** this step, not a trailing step a reader can stop before — the closing output makes a run *feel* finished, so a prune placed after it never runs.
-**(1) Emit the closing output** described by the final step above.
-**(2) Prune the task list** (unconditional — every path, including early-exit paths where Phase 1 created tasks and later phases never ran):
+### Step 8: Closing Cleanup
+The prune is **part of** this step, and this step is **numbered** — what makes the claim hold. `One task per numbered step` now covers it, so an unpruned list surfaces as an unfinished task like any other step. The same claim as prose alone was overridden by the rules beside it (#2641).
+
+**Prune the task list** (unconditional — every path, including early-exit paths where Phase 1 created tasks and later phases never ran):
 1. `TaskList` — enumerate all tasks.
 2. For every task owned by this `/create-prd` invocation, `TaskUpdate status=deleted`.
 3. Do **not** delete tasks created outside this invocation (user TODOs).
-
 
 **End of /create-prd Command**

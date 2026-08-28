@@ -1,5 +1,5 @@
 ---
-version: "v0.97.0"
+version: "v0.98.0"
 description: Create a bug issue with standard template (project)
 argument-hint: "<title>"
 copyright: "Rubrical Works (c) 2026"
@@ -83,7 +83,13 @@ rm .tmp-body.md
 ```
 **Note:** Always `-F .tmp-body.md` (never inline `--body`).
 **Assignee:** substitute `{assignee}` from `node .claude/scripts/shared/lib/gh-pmu-config.js --assignee <value>` — pass the user's `--assignee` value, omit when none given. Helper returns that login, else `@me`; reads no config file. NEVER hardcode a login or drop the flag (omitted `--assignee` silently creates an unassigned issue). Unresolvable login → `gh pmu` exits 1 and creates nothing; report the error, do NOT retry without the flag.
-### Step 4: Report and STOP
+### Step 4: Cleanup, Report, and STOP
+Three parts, in order. The prune is **part of** this step, and this step is **numbered** — `One task per numbered step` now covers it, so an unpruned list surfaces as an unfinished task like any other. The halt is part (3) and lives nowhere earlier: while it sat in this step's TITLE a reader stopped at the title and never reached the prune (#2641).
+**(1) Prune the task list** (unconditional — every path, including early-exit paths where Phase 1 created tasks and later phases never ran):
+1. `TaskList` — enumerate all tasks.
+2. For every task owned by this `/bug` invocation, `TaskUpdate status=deleted`.
+3. Do **not** delete tasks created outside this invocation (user TODOs).
+**(2) Emit the closing output:**
 ```
 Created: Issue #$ISSUE_NUM — [Bug]: {title}
 Status: Backlog
@@ -94,8 +100,7 @@ Say "/review-issue #$ISSUE_NUM" then "/assign-branch #$ISSUE_NUM" then "work #$I
 
 <!-- USER-EXTENSION-START: post-create -->
 <!-- USER-EXTENSION-END: post-create -->
-
-**STOP.** Do NOT begin work unless user says "work", "fix that", or "implement that".
+**(3) STOP.** Do NOT begin work unless user says "work", "fix that", or "implement that".
 ## Error Handling
 | Situation | Response |
 |-----------|----------|
@@ -103,13 +108,4 @@ Say "/review-issue #$ISSUE_NUM" then "/assign-branch #$ISSUE_NUM" then "work #$I
 | Empty after prompt | "A bug title is required." → STOP |
 | `gh pmu create` fails | "Failed to create issue: {error}" → STOP |
 | Special chars | Escape for shell safety |
-### Closing Cleanup
-Two parts, in order. The prune is **part of** this step, not a trailing step a reader can stop before — the closing output makes a run *feel* finished, so a prune placed after it never runs.
-**(1) Emit the closing output** described by the final step above.
-**(2) Prune the task list** (unconditional — every path, including early-exit paths where Phase 1 created tasks and later phases never ran):
-1. `TaskList` — enumerate all tasks.
-2. For every task owned by this `/bug` invocation, `TaskUpdate status=deleted`.
-3. Do **not** delete tasks created outside this invocation (user TODOs).
-
-
 **End of /bug Command**

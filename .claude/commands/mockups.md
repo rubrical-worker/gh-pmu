@@ -1,5 +1,5 @@
 ---
-version: "v0.97.0"
+version: "v0.98.0"
 description: Create text-based or diagrammatic screen mockups (project)
 argument-hint: "[#NN] [--from-image <path>] [--serve [{Name}]] [--port <N>] [--open] [--showcase] [--apply-decisions]"
 copyright: "Rubrical Works (c) 2026"
@@ -289,7 +289,7 @@ Mockup complete.
   Related: /catalog-screens to create or update screen specs.
 ```
 
-### Step 8: Satisfaction Check, Commit Offer, and STOP
+### Step 8: Satisfaction Check and Commit Offer
 
 If files were created/modified:
 
@@ -306,8 +306,6 @@ If files were created/modified:
   ```
   Use `Refs #NN` when issue context available — mockup creation does not close issues. No issue context: `"Add/update mockups for {Name}"`.
 - **No:** Skip — do not stage/commit.
-
-**STOP.** Do not proceed without user instruction.
 
 ### Step 9: Serve Mockups (when `--serve` passed)
 
@@ -338,6 +336,13 @@ Runs standalone or after Step 8. Steps:
 
 Server runs until user kills its shell; `/mockups --serve` itself does NOT block.
 
+### Step 10: Cleanup and STOP
+Two parts, in order. The prune is **part of** this step, and this step is **numbered** and final — `One task per numbered step` now covers it, so an unpruned list surfaces as an unfinished task like any other. The halt is part (2): while it sat in Step 8's TITLE a reader stopped there, before both the prune AND Step 9 (#2641).
+**(1) Prune the task list** (unconditional — every path, including early-exit paths where Phase 1 created tasks and later phases never ran):
+1. `TaskList` — enumerate all tasks.
+2. For every task owned by this `/mockups` invocation, `TaskUpdate status=deleted`.
+3. Do **not** delete tasks created outside this invocation (user TODOs).
+**(2) STOP.** Do not proceed without user instruction.
 ## Error Handling
 
 | Situation | Response |
@@ -355,13 +360,4 @@ Server runs until user kills its shell; `/mockups --serve` itself does NOT block
 | `--serve`: served root has no `index.html` | Expected, not an error. Helper renders a listing; report the root URL unchanged. |
 | `--serve`: path is neither file nor directory | Helper returns 404. Not a command failure; server keeps running. |
 | `--serve --open`: browser launch fails | Warn with launch exit code; leave server running; do NOT fail command |
-### Closing Cleanup
-Two parts, in order. The prune is **part of** this step, not a trailing step a reader can stop before — the closing output makes a run *feel* finished, so a prune placed after it never runs.
-**(1) Emit the closing output** described by the final step above.
-**(2) Prune the task list** (unconditional — every path, including early-exit paths where Phase 1 created tasks and later phases never ran):
-1. `TaskList` — enumerate all tasks.
-2. For every task owned by this `/mockups` invocation, `TaskUpdate status=deleted`.
-3. Do **not** delete tasks created outside this invocation (user TODOs).
-
-
 **End of /mockups Command**

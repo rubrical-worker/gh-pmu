@@ -1,5 +1,5 @@
 ---
-version: "v0.97.0"
+version: "v0.98.0"
 description: Prepare release with PR, merge to main, and tag
 argument-hint: "[version] [--skip-coverage] [--dry-run] [--help]"
 copyright: "Rubrical Works (c) 2026"
@@ -324,8 +324,13 @@ node .claude/scripts/shared/lib/active-label.js remove [TRACKER_NUMBER]
 
 ```bash
 git tag -a $VERSION -m "Release $VERSION"
-git push origin $VERSION
+echo "$VERSION | gates passed | $(git rev-parse HEAD)" > .release-authorized
+git push origin $VERSION; rc=$?
+rm -f .release-authorized
+exit $rc
 ```
+
+**Note:** `.release-authorized` is the marker `.claude/hooks/pre-push` requires before allowing a `v*` tag push. The hook only tests existence and echoes contents verbatim, so this line becomes the release audit record. Cleanup is unconditional — the exit code is captured **before** `rm -f` and propagated after. A plain echo/push/rm sequence is not sufficient: a failed push aborts before the `rm`, and the surviving marker authorizes the next tag push with no gate having run.
 
 ### Step 4.7: Wait for CI Workflow
 
@@ -468,13 +473,12 @@ Release $VERSION is complete:
 - Tracker issue closed
 - Working branch deleted
 - GitHub Release created
-### Closing Cleanup
-Two parts, in order. The prune is **part of** this step, not a trailing step a reader can stop before — the closing output makes a run *feel* finished, so a prune placed after it never runs.
-**(1) Emit the closing output** described by the final step above.
-**(2) Prune the task list** (unconditional — every path, including early-exit paths where Phase 1 created tasks and later phases never ran):
+### Step 6: Closing Cleanup
+The prune is **part of** this step, and this step is **numbered** — what makes the claim hold. `One task per numbered step` now covers it, so an unpruned list surfaces as an unfinished task like any other step. The same claim as prose alone was overridden by the rules beside it (#2641).
+
+**Prune the task list** (unconditional — every path, including early-exit paths where Phase 1 created tasks and later phases never ran):
 1. `TaskList` — enumerate all tasks.
 2. For every task owned by this `/prepare-release` invocation, `TaskUpdate status=deleted`.
 3. Do **not** delete tasks created outside this invocation (user TODOs).
-
 
 **End of Prepare Release**
