@@ -20,8 +20,8 @@
     "test-scaffold",
     "test-writing-patterns"
   ],
-  "frameworkVersion": "0.98.0",
-  "frameworkPath": "C:/ProgramData/praxis-hub/framework_root_0.98.0",
+  "frameworkVersion": "0.99.0",
+  "frameworkPath": "C:/ProgramData/praxis-hub/framework_root_0.99.0",
   "$schema": "framework-config.schema.json",
   "reviewSweep": "recommend"
 }

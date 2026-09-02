@@ -1,5 +1,5 @@
 ---
-version: "v0.98.0"
+version: "v0.99.0"
 description: Review a test plan against its PRD (project)
 argument-hint: "#issue [--mode ...] [--force]"
 copyright: "Rubrical Works (c) 2026"

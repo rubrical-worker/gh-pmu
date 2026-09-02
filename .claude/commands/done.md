@@ -1,5 +1,5 @@
 ---
-version: "v0.98.0"
+version: "v0.99.0"
 description: Complete issues with criteria verification and status transitions (project)
 argument-hint: "[#issue... | --all] [--yes|-y] (optional)"
 copyright: "Rubrical Works (c) 2026"
@@ -132,6 +132,29 @@ Multiple workflows → report per-workflow from `workflows[]`.
 
 ### Step 4: Cleanup
 **MUST DO:** Clear task list.
+---
+## Peer Announcements (#2663)
+Tells other sessions in this working directory that a push is happening, then how it resolved. Peers from `peers-check.js`, payloads from `peer-announce.js`, delivery by `SendMessage`.
+**Take `data.peers`, from the CLI (#2678)** — same access as `/work` Steps 3 and 6:
+```bash
+node .claude/scripts/shared/peers-check.js
+```
+```javascript
+const { buildAnnouncement, EVENTS } = require('.claude/scripts/shared/peer-announce.js');
+const a = buildAnnouncement({ event: EVENTS.PUSH_STARTED, issues, peers });   // peers === envelope.data.peers
+```
+**The two shapes are not interchangeable and picking wrong fails silently.** `checkPeers()` returns `peers` at the **top level**; the CLI wraps it as **`data.peers`**. Requiring the module and reading `data.peers` yields `undefined`, and an `|| []` beside it makes that a genuine empty array before `buildAnnouncement` sees it — after which nothing downstream can tell the mistake from an empty working directory. This section previously named the helper and not the shape, and the reported incident came from this path.
+**A non-array `peers` is now named as such** rather than reported as empty, naming `data.peers`. That guard cannot see an empty array a caller manufactured — hence the shape written here as well as enforced there.
+| Event | When |
+|---|---|
+| 3 — push started | Step 2, **immediately before** `git push`, **once per push** — not once per issue in a deferred batch |
+| 4 — terminal | Step 3, at **arming time**, emitted by `/done` |
+**Event 3 fires only when a push occurs** — Step 2.1 finding nothing to push emits nothing and arms no watch.
+**Every event 3 is followed by exactly one terminal event, on every path.** Both CI skips (`no push-triggered workflows`, `paths-ignore`) are terminal and emitted by `/done`, the only emitter — `ci-watch.js` is never launched on those paths.
+**The armed-monitor event is terminal too**, carrying the run URL and stating that no further announcement will follow. Consequence of the #2660 refutation: `ci-watch.js` is neither slash command nor hook so cannot call `SendMessage`, and the raw-socket send was refuted (six shapes accepted, none delivered). Nothing follows, so the event says so rather than leaving a peer waiting forever. Step 3 failing open over an unresolved range marks the payload **degraded**, reading differently from a clean one.
+**A rejected push emits a correction** to the same peers, stating the commits remain local. `/done` is never made to wait for CI; `wait-for-ci.js` is never invoked from the announcement path.
+**No receiving session runs git** — no pull offer, no `branch-sync-check.js` delegation, no working-tree mutation on receipt. **No announcement asserts a peer is "behind"**: a shared `HEAD` and index make that unreachable, and `branch-sync-check.js` reports `ahead` before the push and `up-to-date` after.
+**Advisory, never a gate.** A helper that throws inside Step 2 does not abort the push.
 ---
 ## Error Handling
 | Situation | Response |

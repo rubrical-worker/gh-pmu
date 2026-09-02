@@ -1,5 +1,5 @@
 ---
-version: "v0.98.0"
+version: "v0.99.0"
 description: Create a bug issue with standard template (project)
 argument-hint: "<title>"
 copyright: "Rubrical Works (c) 2026"
