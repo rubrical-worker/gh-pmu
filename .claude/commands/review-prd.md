@@ -1,5 +1,5 @@
 ---
-version: "v0.99.0"
+version: "v0.100.0"
 description: Review a PRD with tracked history (project)
 argument-hint: "#issue [--with ...] [--mode ...] [--force]"
 copyright: "Rubrical Works (c) 2026"
@@ -62,6 +62,11 @@ Load subjective from `prd-review-criteria.json`. **Decomposition preview:** extr
 
 **2c: Extension Criteria** (if `--with`)
 Auto-evaluate objective; ask subjective.
+**2c-ii: Security Finding Label**
+`--with security`/`--with all` + any ⚠️/❌ security finding → apply the label; all ✅ → apply nothing:
+```bash
+gh issue edit $ISSUE --add-label=security-finding
+```
 
 **2d: Recommendation**
 - **Ready for backlog creation** — No blocking
@@ -80,6 +85,7 @@ Extensions can **escalate** but not downgrade.
 | N | YYYY-MM-DD | Claude | [Brief one-line summary] |
 ```
 **Never edit or delete existing rows.**
+**Step 3a: Branch Auto-Assignment (#2657)** — trigger: issue carries a `test-plan` or `prd` label **and** has no branch assignment; `/create-prd` creates both unassigned, so until close the tracker does not know they exist and `/done --all` cannot discover an in-review test plan. **Reported, not prompted** (unlike `/create-prd` Step 3a): reviewing an issue is already working it on this branch, so no decision remains. Delegate, do not re-derive: `node .claude/scripts/shared/assign-branch.js "$ISSUE"`. **Ordering is load-bearing** — assign **here, before Step 4 finalize runs**, because `review-finalize.js` does its own read-modify-write to increment `**Reviews:** N`, so a write concurrent with or after it races that update, later write wins, loser vanishes with no error. **No open tracker for the current branch → report and continue** that the issue remains unassigned; **never create a branch from a review** — `/assign-branch` owns `gh pmu branch start`. **Already assigned → leave it**: an issue assigned to a different branch is **not moved**; report the existing assignment.
 ### Step 4: Finalize (Self-Contained)
 Write findings to `.tmp-$ISSUE-findings.json`, run:
 ```bash
@@ -99,8 +105,10 @@ Available: security, accessibility, performance, chaos, contract, qa, seo, priva
 ```bash
 node .claude/scripts/shared/review-ac-checkoff.js --issue $ISSUE --findings .tmp-$ISSUE-findings.json
 ```
-Script reads `type` from findings JSON. With `type: "prd"` it returns `skipped: true` and checks off **nothing** — a PRD tracker's checklist is a 3-item lifecycle gate, not the ~20 review criteria, so positional check-off would check whichever box aligned with a passing criterion (#2594).
-Report the skip, not a count: `"AC check-off skipped: #$ISSUE is a PRD tracker; its Y lifecycle gates are owned by the commands that close them."` NEVER report `X/Y checked off` here — X is always 0. No status transition — `/create-backlog` owns it, and owns "Ready for backlog creation" too.
+Script reads `type` and `recommendation` from findings JSON. With `type: "prd"` it returns `skipped: true` and checks off **no review criteria** — a PRD tracker's checklist is a 3-item lifecycle gate, not the ~20 review criteria, so positional check-off would check whichever box aligned with a passing criterion (#2594).
+It DOES check the one lifecycle gate this review owns — `PRD reviewed` — matched by label, fence-aware, never by position (#2694). Gates owned by other commands (`Test plan approved`, `Ready for backlog creation`) are untouched.
+Report both: `"AC check-off skipped: #$ISSUE is a PRD tracker; checked its PRD reviewed gate, other lifecycle gates left to the commands that close them."` NEVER report `X/Y checked off` here — X is always 0. Read `lifecycleGateChecked` for what was written (`null` = nothing). No status transition — `/create-backlog` owns it.
+**Gate predicate is stricter than the label predicate.** `determineLabel()` tests `startsWith("Ready")`, admitting `Ready with minor revisions`; this step tests `"Ready for"`, which does not. That value earns the `reviewed` label but NOT the gate — reviewed, not yet decomposable. Passing the recommendation rather than a boolean is what stops the two being conflated at the call site.
 **Otherwise:** skip entirely.
 
 <!-- USER-EXTENSION-START: post-review -->

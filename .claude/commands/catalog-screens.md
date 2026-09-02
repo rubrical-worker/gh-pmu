@@ -1,5 +1,5 @@
 ---
-version: "v0.99.0"
+version: "v0.100.0"
 description: Discover and catalog screen elements from source code (project)
 argument-hint: "[#NN]"
 copyright: "Rubrical Works (c) 2026"

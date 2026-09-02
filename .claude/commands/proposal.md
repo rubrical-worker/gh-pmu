@@ -1,5 +1,5 @@
 ---
-version: "v0.99.0"
+version: "v0.100.0"
 description: Create a proposal document and tracking issue (project)
 argument-hint: "<title> [--prior-art]"
 copyright: "Rubrical Works (c) 2026"
@@ -24,6 +24,7 @@ Creates a proposal document (`Proposal/[Name].md`) and a tracking issue with the
 | `<title>` | No | Proposal title (e.g., `Dark Mode Support`) |
 | `--prior-art` | No | Run prior-art sweep before composing proposal. Absent = current behavior, no sweep. |
 | `--assignee <value>` | No | GitHub login for the new issue. Omitted → `@me`. |
+| `--target <owner/name>` | No | File the issue against a registered companion repository instead of this one. |
 
 If no title provided, prompt the user. **Alias:** `idea:` is identical to `proposal:`.
 
@@ -119,6 +120,16 @@ Runs **before** the proposal document is composed, so findings change what gets 
 | `already-shipped` | **STOP.** Create neither the document nor the tracking issue. Report conflicting issue numbers and file paths. |
 | `found-but-warranted` | Continue. Record `**Prior Art:**` — what exists, how this differs. |
 | `none-found` | Continue. Record `noneFoundFormat` line including terms searched. |
+**Two marker forms are recognised on read (#2700).** Emission is unchanged — always the bold inline form from `prior-art-sweep.json` `bodyFormat`. Detection also accepts a markdown heading:
+
+| Form | Example | Recognised |
+|---|---|---|
+| Bold inline (emitted) | `**Prior Art:** found — …` | yes |
+| Markdown heading | `## Prior Art` / `### Prior Art:` — any level | yes |
+| Bare, neither | `Prior Art: found — …` | **no** |
+
+Before #2700 only the bold counted, so a researched `## Prior Art` read as one nobody wrote. Authoritative: `bodyFormat.recognisedForms`, pinned to `classifyMarker` by test.
+
 
 **Both artifacts carry the section.** Write `**Prior Art:**` into `Proposal/[Name].md` (Step 4) **and** the tracking issue body (Step 5) — a reader of either must see what was searched without opening the other.
 
@@ -204,6 +215,17 @@ Build issue body:
 
 ```bash
 gh pmu create --title "Proposal: {title}" --label proposal --status backlog --priority p2 --assignee {assignee} -F .tmp-body.md
+```
+
+**Cross-repo filing (`--target <owner/name>`, #2665):** resolve BEFORE composing the issue — a refusal after the body is written wastes the work and tempts a retry against the wrong repo.
+```javascript
+const { resolveFilingTarget, resolveBoardFields, formatUnresolvedBoardFields } = require('.claude/scripts/shared/lib/companion-projects.js');
+const target = resolveFilingTarget(charterContent, requestedRepo);
+```
+`ok:false` → report `reason` verbatim, **STOP**. Two refusals, never merged: not registered → register with `/charter update --register-proj`; registered with `fileIssues:false` → marked read-only on purpose, enable with `--register-proj`. Searchable-but-not-filable is the common case, so the second is usually correct rather than an oversight, and one combined message sends the user to the wrong remedy half the time.
+`ok:true` → add `-R <owner/name>` to `gh pmu create`; all other flags unchanged.
+**Board fields:** `resolveBoardFields(target.entry)`. `resolved:true` → set them. `resolved:false` → **create the issue anyway**, then print `formatUnresolvedBoardFields(repo, resolution)`, naming the unset fields and why. NEVER guess a field ID — a guess files onto the wrong board column silently, which is worse than an unset field plus a line saying so.
+```bash
 rm .tmp-body.md
 ```
 **Assignee:** substitute `{assignee}` from `node .claude/scripts/shared/lib/gh-pmu-config.js --assignee <value>` — pass the user's `--assignee` value, omit when none given. Helper returns that login, else `@me`; reads no config file. NEVER hardcode a login or drop the flag (omitted `--assignee` silently creates an unassigned issue). Unresolvable login → `gh pmu` exits 1 and creates nothing; report the error, do NOT retry without the flag.

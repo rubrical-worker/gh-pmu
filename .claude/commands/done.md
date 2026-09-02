@@ -1,5 +1,5 @@
 ---
-version: "v0.99.0"
+version: "v0.100.0"
 description: Complete issues with criteria verification and status transitions (project)
 argument-hint: "[#issue... | --all] [--yes|-y] (optional)"
 copyright: "Rubrical Works (c) 2026"
@@ -60,7 +60,12 @@ After preamble succeeds for a single issue, check `context.issue.labels` for `ep
 | `in_progress` | **Warn:** "Sub-issue #N is still in_progress — complete via /work first" |
 | `backlog`/`ready`/other | **Warn:** "Sub-issue #N is in {status} — was never started" |
 
-All `done` → skip processing, proceed to epic. `in_review` exist → process each through standard `/done` (Steps 1–3); per-sub-issue `Sub-issue #N: $TITLE → Done (M/T processed)`; push deferred until after epic. Then run preamble for the epic itself. Final report:
+All `done` → skip processing, proceed to epic. `in_review` exist → process each through standard `/done` (Steps 1–3); per-sub-issue `Sub-issue #N: $TITLE → Done (M/T processed)`; push deferred until after epic.
+**Complete the epic with an explicit close, NEVER the preamble:** `done-preamble.js` refuses to move an `epic`-labelled issue (guard #2367) and reports the refusal as `gates.skippedReason: "epic-guard"` plus a matching `warnings[]` entry (#2670), so running it for the epic cannot move it whatever flags are passed.
+```bash
+gh pmu move $ISSUE --status done --force
+```
+Final report — emit the `Epic: Done` line **only if the close succeeded**; on failure report the epic's actual status and the error instead, since a reported close that did not happen is the defect #2670 was filed against:
 ```
 Epic #$ISSUE: $TITLE — Done
   Sub-issues completed: N
@@ -145,6 +150,9 @@ const a = buildAnnouncement({ event: EVENTS.PUSH_STARTED, issues, peers });   //
 ```
 **The two shapes are not interchangeable and picking wrong fails silently.** `checkPeers()` returns `peers` at the **top level**; the CLI wraps it as **`data.peers`**. Requiring the module and reading `data.peers` yields `undefined`, and an `|| []` beside it makes that a genuine empty array before `buildAnnouncement` sees it — after which nothing downstream can tell the mistake from an empty working directory. This section previously named the helper and not the shape, and the reported incident came from this path.
 **A non-array `peers` is now named as such** rather than reported as empty, naming `data.peers`. That guard cannot see an empty array a caller manufactured — hence the shape written here as well as enforced there.
+**Gated by project config (#2702).** Resolve **once per `/done` invocation**, before event 3: `node .claude/scripts/shared/lib/cross-session-config.js`. `groups.push` false → events 3, 4 and 5 **all emit nothing**, no `SendMessage` and no skip notice; push, CI arming and the STOP sequence otherwise unchanged. `notices` false → dispatch unchanged, the dispatch-caveat and skip-reason lines not printed. Absent object, or any omitted key → enabled.
+**The three events are gated as ONE unit — the whole reason the setting is a group.** Every event 3 is followed by exactly one terminal event (4 or 5). A per-event toggle would make "push-started on, ci-terminal off" expressible in valid config, leaving a peer waiting forever for a message that never arrives. Grouping makes that **unrepresentable**, stronger than validating against it: never gate 3, 4 and 5 on separate reads, and never resolve twice within one invocation where the two reads could disagree.
+**Read the resolver; never re-derive the default inline** — a second copy here is how `/done` and `/work` drift apart. **No per-invocation skip notice, deliberately;** discoverability lives in the startup `Peers:` row and `/x-session-config`.
 | Event | When |
 |---|---|
 | 3 — push started | Step 2, **immediately before** `git push`, **once per push** — not once per issue in a deferred batch |

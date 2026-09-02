@@ -1,12 +1,12 @@
 ---
-version: "v0.99.0"
+version: "v0.100.0"
 description: Review a proposal with tracked history (project)
 argument-hint: "#issue [--with ...] [--mode ...] [--force]"
 copyright: "Rubrical Works (c) 2026"
 ---
 <!-- EXTENSIBLE -->
 # /review-proposal
-Reviews a proposal document linked from a GitHub issue. Delegates setup to `review-preamble.js`. Document file updates (Reviews metadata, Review Log) are handled inline; issue body updates, comment posting, label assignment are handled by the calling orchestrator.
+Reviews a proposal document linked from a GitHub issue. Delegates setup to `review-preamble.js` and cleanup to `review-finalize.js`. Self-contained: document updates, issue finalization and AC check-off handled directly (not delegated to calling orchestrator — restores behavior lost in #1810, matching `/review-prd` and `/review-test-plan`).
 **Extension Points:** `/extensions list --command review-proposal`
 
 ## Prerequisites
@@ -75,6 +75,11 @@ Load subjective criteria from `proposal-review-criteria.json`. **Scope Context D
 
 **Step 2c: Extension Criteria** (if `--with` specified)
 Evaluate extension criteria loaded by preamble. Auto-evaluate objective; ask subjective.
+**Step 2c-ii: Security Finding Label**
+If `--with security` or `--with all` was specified and any security extension finding is ⚠️ or ❌, apply the label; if all are ✅, apply nothing:
+```bash
+gh issue edit $ISSUE --add-label=security-finding
+```
 
 **Step 2d: Determine Recommendation** — one of: **Ready for implementation** (no blocking concerns) / **Ready with minor revisions** (small issues) / **Needs revision** (address first) / **Needs major rework** (fundamental issues).
 
@@ -91,8 +96,14 @@ Extension findings can **escalate** but cannot downgrade.
 ```
 Append only. **Never edit or delete existing rows.**
 
-### Step 4: Write Findings
-Write structured findings to `.tmp-$ISSUE-findings.json` for the calling orchestrator.
+### Step 4: Finalize (Self-Contained)
+Write structured findings to `.tmp-$ISSUE-findings.json`, then run finalize directly (not delegated to calling orchestrator — restores issue-side behavior lost in #1810). **Read** `.claude/scripts/shared/lib/findings-schema.json` for the contract.
+**`type` MUST be `"proposal"`** — `review-finalize.js` derives the header verb from it. Any other value emits `## Issue Review #N`, which `/resolve-review` cannot reconcile with a proposal: it reports `NO_REVIEW` against a review that exists.
+```bash
+node ./.claude/scripts/shared/review-finalize.js $ISSUE -F .tmp-$ISSUE-findings.json
+```
+Finalize handles body `**Reviews:** N` increment, review comment, and `reviewed`/`pending` per `determineLabel()` (anything not starting with `Ready` → `pending`). Clean up the temp file **after**, not before.
+This is also what makes `--force` operative: the preamble early-exits on `reviewed`, so until this step applied one, `hasReviewedLabel` was permanently false and repeat reviews succeeded silently.
 
 For non-`--with` runs, append discoverability tip:
 ```
@@ -104,7 +115,7 @@ Available: security, accessibility, performance, chaos, contract, qa, seo, priva
 <!-- USER-EXTENSION-END: post-review -->
 
 ### Step 5: Closing Notification and Cleanup
-Two parts in order; the prune is **part of** this step, not a trailing step a reader can stop before. **(1)** Output `closingNotification` from finalize script output. **(2) Prune the task list** (unconditional — every path, including redirect and early-exit paths where Phase 1 created a preamble task and Phase 2 never ran): `TaskList` to enumerate, then `TaskUpdate status=deleted` for every task owned by this `/review-proposal` invocation (Phase 1 preamble, Phase 2 step tasks, `USER-EXTENSION` tasks). Do **not** delete tasks created outside this invocation (user TODOs).
+Two parts in order; the prune is **part of** this step, not a trailing step a reader can stop before. **(1)** Output `closingNotification` from the Step 4 finalize run — performed by this spec, not read from a caller. **(2) Prune the task list** (unconditional — every path, including redirect and early-exit paths where Phase 1 created a preamble task and Phase 2 never ran): `TaskList` to enumerate, then `TaskUpdate status=deleted` for every task owned by this `/review-proposal` invocation (Phase 1 preamble, Phase 2 step tasks, `USER-EXTENSION` tasks). Do **not** delete tasks created outside this invocation (user TODOs).
 
 ## Error Handling
 | Situation | Response |

@@ -1,5 +1,5 @@
 ---
-version: "v0.99.0"
+version: "v0.100.0"
 description: Review issues with type-specific criteria (project)
 argument-hint: "#issue [#issue...] [--with ...] [--mode ...] [--force]"
 copyright: "Rubrical Works (c) 2026"
@@ -42,19 +42,19 @@ Parse JSON. Branches:
 - `ok: false` → report `errors[0].message` → **STOP** (skip to next in batch)
 - `context.redirect` set → invoke skill **dynamically** using `context.redirect` (strip leading `/`) — all three rows below are equally normative (#2428):
 
-  | `context.redirect` | Skill invocation |
-  |---|---|
-  | `/review-proposal` (label `proposal`) | `Skill("review-proposal", args: "#$ISSUE [--with ...] [--mode ...] [--force]")` |
-  | `/review-prd` (label `prd`) | `Skill("review-prd", args: "#$ISSUE [--with ...] [--mode ...] [--force]")` |
-  | `/review-test-plan` (label `test-plan`) | `Skill("review-test-plan", args: "#$ISSUE [--with ...] [--mode ...] [--force]")` |
-
-  Pass `--with`/`--mode`/`--force`. → **STOP**. Do not dispatch only for the proposal case.
+  Labels `proposal`/`prd`/`test-plan` → `Skill("review-proposal"|"review-prd"|"review-test-plan", args: "#$ISSUE [--with ...] [--mode ...] [--force]")`, name derived from `context.redirect`. → **STOP**. All three equally normative — do NOT dispatch only for the proposal case (#2428).
 - `context.issue.state === "closed"` → ask user to confirm before proceeding
 - `earlyExit: true` (has `reviewed` label, no `--force`) → report review count → **STOP**
 
 Extract: `context` (type, reviewNumber, title, labels, body), `criteria` (common from `.claude/metadata/review-mode-criteria.json`, typeSpecific from `.claude/metadata/review-criteria.json`), `extensions`, `warnings`.
 
 Extension loading handled by preamble via `.claude/metadata/review-extensions.json`. Unknown IDs warn; missing/malformed → standard review only.
+
+**Step 1c: Peer Announcement — review started (advisory, #2695).** After the preamble confirms the path (no `context.redirect`, no `earlyExit`) and **before** the first criterion. At Step 1 this would announce a review that a redirect or an early exit immediately invalidates — a peer told about a review that never happened is actionable and wrong (same rule as `/work` event 1). Run `node .claude/scripts/shared/peers-check.js`, then `buildAnnouncement({event: EVENTS.REVIEW_STARTED, issues: [$ISSUE], peers})` from `.claude/scripts/shared/peer-announce.js`.
+**Take `data.peers`**, never the whole envelope nor the module top-level `peers` — that mistake yields `undefined`, and an `|| []` beside it becomes a genuine empty array indistinguishable from an empty working directory (#2678; #2686 open on a further divergence).
+**Once per issue at its own turn.** `/review-issue 42 43 44` runs the preamble per issue and any one may redirect or early-exit, so never compose one message naming the whole argument list.
+**Suppressed entirely under `--force`.** `/resolve-review` Step 4 calls `Skill("review-issue", "#$ISSUE --force")`, so without this one run emits `review-resolved` then `review-started` seconds apart, the second describing a nested re-review. The cycle is already announced.
+**Gated by project config (#2702).** Resolve before composing: `node .claude/scripts/shared/lib/cross-session-config.js`. `groups.review` false → this event **emits nothing**, no `SendMessage` and no skip notice; the review itself unchanged. `notices` false → dispatch unchanged, the caveat and skip-reason lines not printed. Absent object, or any omitted key → enabled. **Read the resolver; never re-derive the default inline** — a second copy here is how this command and `/resolve-review` drift, and they are the two halves of one group. In the multi-issue form resolve the state **once**, not per issue: it is a project setting, and re-reading per issue invites two answers in one run. `shouldSend` true → `SendMessage` per `recipients` entry with `text`; false → report `notice` once, continue. **Advisory, fire-and-forget — nothing awaits delivery and a throwing helper must never abort the enclosing sequence.** Dispatch is not delivery (#2674).
 
 <!-- USER-EXTENSION-START: pre-review -->
 <!-- USER-EXTENSION-END: pre-review -->
@@ -99,10 +99,10 @@ Returns `{sweep, status, reason}`. Report the criterion with that `status`; act 
 **Recommendation:** prior art duplicating the issue's scope is blocking — `Needs revision` or stronger, not a passing note.
 **Missing config:** `prior-art-sweep.json` missing/unreadable → report criterion, warn, skip sweep. Do not fail the review.
 
+**2a-v: Branch Auto-Assignment for Test-Plan and PRD Issues (#2657)** — trigger: issue carries a `test-plan` or `prd` label **and** has no branch assignment; `/create-prd` creates both unassigned, so until close the tracker does not know they exist and `/done --all` cannot discover an in-review test plan. **Reported, not prompted** (unlike `/create-prd` Step 3a): reviewing an issue is already working it on this branch, so no decision remains. Delegate, do not re-derive: `node .claude/scripts/shared/assign-branch.js "$ISSUE"`. **Ordering is load-bearing** — same rule as 2a-ii and 2a-iv, same reason: assign **here, before Step 3 finalize runs**, because `review-finalize.js` does its own read-modify-write to increment `**Reviews:** N`, so a write concurrent with or after it races that update, later write wins, loser vanishes with no error. **No open tracker for the current branch → report and continue** that the issue remains unassigned; **never create a branch from a review** — `/assign-branch` owns `gh pmu branch start`. **Already assigned → leave it**: an issue assigned to a different branch is **not moved**; report the existing assignment.
 **2b: Ask Subjective Criteria** — for subjective criteria applicable to current reviewMode, use `AskUserQuestion`. Re-read `.claude/metadata/review-mode-criteria.json` from disk for question/options. Solo mode: skip entirely.
 
 **2c: Extension Criteria** (if `--with`) — evaluate domain criteria loaded by preamble.
-
 **2c-ii: Security Finding Label** — if `--with security`/`--with all` and any security finding ⚠️/❌:
 ```bash
 gh issue edit $ISSUE --add-label=security-finding
@@ -122,35 +122,35 @@ Finalize handles: body metadata (`**Reviews:** N` increment), structured comment
 
 For non-`--with` runs, append: `Tip: Use --with security,performance to add domain-specific review criteria. Available: security, accessibility, performance, chaos, contract, qa, seo, privacy (or --with all)`
 **Extensions Applied** in review comment lists only domains producing findings (omit empty). At least one domain section must appear when `--with` used; if none produce findings, fall back to standard review with warning.
+**Step 3b: Peer Announcement — review passed (terminal, #2722).** Sub-step of Step 3, firing per issue right after that issue's finalize returns — not `Step 3a`, which runs once after every issue. Compose as Step 1c, with `event: EVENTS.REVIEW_PASSED` and `peers` taken from `data.peers`.
+**Trigger: the finalize envelope reports `labelAssigned === 'reviewed'`.** Nothing else. `determineLabel()` returns exactly one of `pending` | `reviewed` and the swap replaces rather than adds, so that value *is* the specified success condition — `reviewed` applied, `pending` removed or never applied — with no second check needed.
+**The label, never the recommendation string.** `determineLabel()` tests `startsWith('Ready')`, which also admits `Ready with minor revisions`; this command's enum (2d) has exactly one `Ready*` value, so the label is an exact proxy here **and only here**. A recommendation-keyed trigger reads as equivalent and is wrong the moment it is copied — which is why `/review-prd`, `/review-proposal` and `/review-test-plan` deliberately do **not** emit this: same gap, wider enum, needing a stricter predicate rather than a copied trigger.
+**`pending` emits nothing, and nor does a failed swap.** `pending` is genuinely open-ended — `/resolve-review`, abandonment, or nothing may follow — the case the two non-terminal review events were written for, so it has no terminal counterpart by design. `labelAssigned: null` means the swap failed (#2694); emitting there would announce an outcome that did not happen.
+**Terminal, and the text says so** — nothing follows, so a peer can stop waiting; a `terminal` flag no reader of the message ever sees is not a closer.
+**NOT suppressed under `--force` — the opposite of Step 1c, deliberately.** There, suppression stops `/resolve-review` Step 4's nested `Skill("review-issue", "#$ISSUE --force")` announcing a re-review as fresh. Here it fires on **both entry paths**, because that nested re-review is exactly how a resolve cycle reaches `Ready for work`; suppressing it would silence the event on the path that most needs it.
+**No double-emission:** `/resolve-review` never emits this itself, and there is exactly one finalize call per issue per review — so once per issue at its own turn, never twice and never batched across the argument list.
+**Gated by `groups.review`, resolved once per invocation** — reuse Step 1c's resolution rather than re-reading `cross-session-config.js`, so one run cannot gate its opener and its closer differently; that read happens even when `--force` suppresses Step 1c's event, because `--force` suppresses an event, not a read. Group false → emits nothing, no `SendMessage` and no skip notice. `shouldSend` true → `SendMessage` per `recipients` entry with `text`; false → report `notice` once, continue. **Advisory, fire-and-forget — a throwing helper must never abort Step 3.** Dispatch is not delivery (#2674).
 
 <!-- USER-EXTENSION-START: post-review -->
 <!-- USER-EXTENSION-END: post-review -->
 
 ### Step 3a: Interdependence Analysis (Multi-Issue Only)
-Trigger: 2+ issues reviewed AND all eligible per `typeFilter` in `.claude/metadata/review-interdependence.json`. Eligible: `bug`, `enhancement`, `prd`, `test-plan`. Excluded: `proposal`, `epic` (excluded wins).
+Trigger: 2+ issues reviewed AND all eligible per `typeFilter` in `.claude/metadata/review-interdependence.json` — read the eligible/excluded sets from that file; excluded wins. Do not restate them here; a prose copy is data nothing keeps in sync (#2683).
 
 After all individual reviews complete:
 ```javascript
 const { analyzeInterdependence, isEligibleForInterdependence } = require('.claude/scripts/shared/review-interdependence.js');
+// `labels` accepts both shapes: ['story'] or [{name:'story'}] (#2682)
 const allEligible = reviewedIssues.every(i => isEligibleForInterdependence(i.labels));
 if (allEligible) {
   const result = analyzeInterdependence(reviewedIssues);
 }
 ```
-`reviewedIssues` = array of `{ number, title, type, labels, body }` collected during reviews.
+`reviewedIssues` = array of `{ number, title, type, labels, body }` collected during reviews. `labels` is normally `context.issue.labels` from that issue's preamble envelope, passed through unaltered — `{name}` objects, **not** strings; do not flatten. Input it cannot read warns rather than returning a bare `false` (#2682).
 
 Report: **Overlap** (shared scope), **Ordering** (suggested order + rationale), **Conflicts** (contradictory requirements), **Shared Criteria** (ACs in multiple issues).
 
-If findings exist, offer:
-```
-Interdependence findings for #42, #43, #44:
-[findings table]
-
-Suggested order: #43 → #42 → #44
-
-Update issues with cross-references? (y/n)
-```
-If accepted, add `Refs #N` notes to related issue bodies. No findings → `"No interdependence detected between reviewed issues."` and continue.
+If findings exist, report them with the suggested order and ask whether to update the issues with cross-references (y/n); on acceptance add `Refs #N` notes to related issue bodies. No findings → `"No interdependence detected between reviewed issues."` and continue.
 
 Configuration: dimensions and `typeFilter` in `.claude/metadata/review-interdependence.json` (config-driven; add to `eligible`/`excluded` to customize). Single-issue: skipped.
 
