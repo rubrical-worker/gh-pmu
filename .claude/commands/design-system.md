@@ -1,7 +1,7 @@
 ---
-version: "v0.100.0"
+version: "v0.100.2"
 description: Produce DTCG-compliant design tokens with pluggable adapter architecture (project)
-argument-hint: "[--init | --discover | --export <adapter> | --theme <name>]"
+argument-hint: "[--init | --discover | --export <adapter> | --theme <name> | --from-screenshot <path> | --diff | --showcase | --apply-decisions]"
 copyright: "Rubrical Works (c) 2026"
 ---
 <!-- EXTENSIBLE -->
@@ -37,6 +37,7 @@ Produce DTCG-compliant design token file (`Design-System/idpf-design.tokens.json
 /design-system --export all        # All detected formats
 /design-system --theme dark        # Dark theme override
 /design-system --from-screenshot ./design/home.png   # Bootstrap tokens from image
+/design-system --diff                        # Drift report against discovered tokens; no writes
 /design-system --showcase           # Browser-based design review (#2429)
 /design-system --apply-decisions    # Apply pending decisions headlessly
 ```

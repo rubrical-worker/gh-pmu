@@ -1,7 +1,7 @@
 ---
-version: "v0.100.0"
+version: "v0.100.2"
 description: Review a proposal with tracked history (project)
-argument-hint: "#issue [--with ...] [--mode ...] [--force]"
+argument-hint: "#issue [--with ...] [--mode ...] [--force] [--prior-art]"
 copyright: "Rubrical Works (c) 2026"
 ---
 <!-- EXTENSIBLE -->
@@ -21,6 +21,7 @@ Reviews a proposal document linked from a GitHub issue. Delegates setup to `revi
 | `--with` | No | Comma-separated domain extensions, or `--with all` |
 | `--mode` | No | Transient override: `solo`, `team`, `enterprise` |
 | `--force` | No | Force re-review even if `reviewed` label present |
+| `--prior-art` | No | Force the 2a-iv sweep whatever the `reviewSweep` mode (except `off`). Boolean, takes no value. Typed directly or passed through the `/review-issue` redirect (#2725) |
 
 ## Execution Instructions
 **REQUIRED:** Routed command — two-phase task creation:
@@ -55,26 +56,24 @@ Re-read `.claude/metadata/proposal-review-criteria.json` from disk (not memory).
 **Graceful degradation:** If missing/malformed, warn and use inline defaults: Required sections, Status field, Cross-references, Acceptance criteria, Prerequisites, No contradictions, Solution detail, Alternatives, Impact assessment, Criteria match solution, Edge cases, Self-contained, Writing clarity, Technical feasibility, Test coverage, Diagrams, Path Analysis, Screen coverage. If criteria array empty, warn and fall back. Per-criterion validation: skip criteria missing `autoCheckMethod`. All failures non-blocking.
 
 **Step 2a-gate: Path Analysis Gate**
-After evaluating `path-analysis-present`, if ⚠️ or ❌ (section missing):
-1. **STOP** evaluation
-2. `AskUserQuestion` with options:
-   - "Run /paths now (Recommended)" — invoke `/paths #N`, wait, re-read proposal, re-evaluate. Now present: ✅. Still missing: ⚠️.
-   - "Continue without" — record ⚠️ and resume
-3. If already ✅: no prompt, continue normally.
+After evaluating `path-analysis-present`, if ⚠️ or ❌ (section missing): (1) **STOP** evaluation; (2) `AskUserQuestion` with options "Run /paths now (Recommended)" — invoke `/paths #N`, wait, re-read proposal, re-evaluate (now present: ✅; still missing: ⚠️) — and "Continue without" — record ⚠️ and resume; (3) already ✅ → no prompt, continue normally.
 
 **Step 2a-iv: Prior-Art Sweep When Marker Absent (#2517)**
-Trigger: `prior-art-checked` ❌ (absent, or `PARTIAL` — incomplete sweep, treated as absent, re-swept). Covers `proposal`-labelled issues redirected here. Delegate, do not re-derive: `node -e "console.log(JSON.stringify(require('./.claude/scripts/shared/lib/prior-art-marker.js').decideSweep({body:BODY,createdAt:CREATED_AT,reviewSweep:REVIEW_SWEEP})))"` → `{sweep, status, reason}`; report the criterion with that `status`.
+Trigger: `prior-art-checked` ❌ (absent, or `PARTIAL` — incomplete sweep, treated as absent, re-swept), **OR `--prior-art` was passed** (#2725). Covers `proposal`-labelled issues redirected here, carrying the flag, which that redirect must not drop. Delegate, do not re-derive: `node -e "console.log(JSON.stringify(require('./.claude/scripts/shared/lib/prior-art-marker.js').decideSweep({body:BODY,createdAt:CREATED_AT,reviewSweep:REVIEW_SWEEP})))"` → `{sweep, status, reason}`; report the criterion with that `status`.
 `pass` = complete marker, no sweep/write. `fail` = absent/`PARTIAL` under mode `full`, sweep. `recommend` ⚠️ = absent/`PARTIAL` under mode `recommend` (default) — **no sweep/write**; report ⚠️ with the `formatSweepAdvisory()` text naming the runnable command, **not** ❌, which would downgrade nearly every review since `--prior-art` is opt-in and rarely passed. `skip` ⊘ = mode `flag-only`/`off`, no sweep/write — report ⊘, **not** ❌, which downgrades every review in an opted-out project. `not-applicable` = predates the feature (pinned cutoff).
-**Arguments — substitute from the named source; never a literal placeholder.** `BODY` ← `context.issue.body`; `CREATED_AT` ← **`context.issue.createdAt`** (ISO 8601, added #2539); `REVIEW_SWEEP` ← `framework-config.json` `reviewSweep` (absent = `recommend`, #2564; call `require('./.claude/scripts/shared/lib/framework-config.js').ensureReviewSweep(process.cwd())` first to materialize it — second writer alongside Praxis Hub Manager; fills a missing key only, leaves a legacy boolean for read-time migration). Reached through the preamble's redirect branch, which carries the same `context.issue`, so no second call is needed.
-**`createdAt` decides whether the criterion means anything.** `isExemptFromSweep` treats absent/unparseable as exempt — safe, but it makes `decideSweep` return `not-applicable` for *every* unmarked proposal; before #2539 the preamble emitted no such field, so that is what happened. Never substitute a hand-entered date. A `CREATED_AT_UNAVAILABLE` preamble warning → say so in the criterion rather than reporting a bare `not-applicable`.
+**Arguments — substitute from the named source; never a literal placeholder.** `BODY` ← `context.issue.body`; `CREATED_AT` ← **`context.issue.createdAt`** (ISO 8601, added #2539); `REVIEW_SWEEP` ← `framework-config.json` `reviewSweep` (absent = `recommend`, #2564; call `require('./.claude/scripts/shared/lib/framework-config.js').ensureReviewSweep(process.cwd())` first to materialize it — second writer alongside Praxis Hub Manager; fills a missing key only, leaves a legacy boolean for read-time migration). Reached through the preamble's redirect branch, which carries the same `context.issue`, so no second call is needed. **`createdAt` decides whether the criterion means anything.** `isExemptFromSweep` treats absent/unparseable as exempt — safe, but it makes `decideSweep` return `not-applicable` for *every* unmarked proposal; before #2539 the preamble emitted no such field, so that is what happened. Never substitute a hand-entered date. A `CREATED_AT_UNAVAILABLE` preamble warning → say so in the criterion rather than reporting a bare `not-applicable`. **Explicit `--prior-art` — this decides, not the statuses above (#2725).** `decideFlagSweep({reviewSweep:REVIEW_SWEEP})` from the same helper → `{sweep, refused, mode, message}`. `full`/`recommend`/`flag-only`/absent → **sweep**. `off` → no sweep, no write to either artifact; report ⊘ with `message` **verbatim**, then **continue the review** — never halt. A refusal the user cannot see is the silent no-op the flag exists to remove.
+**Three interactions, decided identically to `/review-issue`** — same command's semantics, reached by redirect — all following from `decideFlagSweep` taking **only** `reviewSweep`: it never receives the body or the timestamp, so no automatic short-circuit fires on the explicit path.
+| Interaction | Decision |
+|---|---|
+| **Marker** | **Forces a re-sweep** even when `classifyMarker(body)` is already `complete`. A stale marker is the main reason a human asks for a sweep |
+| **Cutoff** | **Overrides** `isExemptFromSweep(createdAt)`. That exemption stops *automatic* sweeping stamping markers into pre-feature proposals; an explicit request is not automatic |
+| **Criterion trigger** | **Sweeps regardless of issue type.** `prior-art-checked` exists for `enhancement` and, via this command, `proposal`; `bug`, `story`, `epic` and `generic` have no such criterion and so no ❌ to fire on. The flag does not depend on it |
 **Sweeping:** run the #2514 procedure reading `.claude/metadata/prior-art-sweep.json` (surfaces, excludes, terms, dispositions, formats) — not restated here. **Output:** findings in the review; write `**Prior Art:**` via `insertPriorArtSection` into both `Proposal/[Name].md` and the tracking issue body.
 **Ordering is load-bearing.** Write **here, before Step 3** updates `**Reviews:** N`; a write during or after Step 3 races it — both read-modify-write the same content, later wins, loser vanishes silently. **Recommendation:** prior art duplicating the proposal's scope is blocking — `Needs revision`+. **Missing config:** `prior-art-sweep.json` unreadable → report criterion, warn, skip sweep; do not fail the review.
 
-**Step 2b: Ask Subjective Criteria**
-Load subjective criteria from `proposal-review-criteria.json`. **Scope Context Display:** extract scope section and present inline before asking. Handle missing scope gracefully (not an error). Use `AskUserQuestion` with each criterion's `question`/`header`/`options`. Partial reviews valid — record skipped as "⊘ Skipped". **Solo mode:** skip entirely.
+**Step 2b: Ask Subjective Criteria** Load subjective criteria from `proposal-review-criteria.json`. **Scope Context Display:** extract scope section and present inline before asking. Handle missing scope gracefully (not an error). Use `AskUserQuestion` with each criterion's `question`/`header`/`options`. Partial reviews valid — record skipped as "⊘ Skipped". **Solo mode:** skip entirely.
 
-**Step 2c: Extension Criteria** (if `--with` specified)
-Evaluate extension criteria loaded by preamble. Auto-evaluate objective; ask subjective.
+**Step 2c: Extension Criteria** (if `--with` specified) Evaluate extension criteria loaded by preamble. Auto-evaluate objective; ask subjective.
 **Step 2c-ii: Security Finding Label**
 If `--with security` or `--with all` was specified and any security extension finding is ⚠️ or ❌, apply the label; if all are ✅, apply nothing:
 ```bash

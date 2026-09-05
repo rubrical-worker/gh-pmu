@@ -1,5 +1,5 @@
 ---
-version: "v0.100.0"
+version: "v0.100.2"
 description: Prepare release with PR, merge to main, and tag
 argument-hint: "[version] [--skip-coverage] [--dry-run] [--help]"
 copyright: "Rubrical Works (c) 2026"
@@ -406,6 +406,7 @@ Do NOT auto-close issues just because they shipped.
 - [ ] Tag pushed
 - [ ] CI workflow completed
 - [ ] Release notes updated
+- [ ] **Rules reach context in a freshly-installed project (#2736).** Install this release into a scratch project via PHM, start a session, and confirm a rule's content is actually loaded — ask for something only a rule states. **Do not accept the startup block as evidence:** it renders from the hook, a different channel, and rendered correctly throughout the period in which no rule reached context in any deployed project. `/context` reporting a Memory-files figure far below the rules on disk is the symptom. Manual — needs a real PHM install and a live session; `node .claude/scripts/framework/repro-rules-junction.js` builds the isolated fixture to bisect a failure
 
 <!-- USER-EXTENSION-START: checklist-after-tag -->
 - [ ] All CI jobs completed
