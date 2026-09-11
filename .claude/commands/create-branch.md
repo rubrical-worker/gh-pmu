@@ -1,5 +1,5 @@
 ---
-version: "v0.100.2"
+version: "v0.101.0"
 description: Create a branch with tracker issue (project)
 argument-hint: "<branch-name> (e.g., release/v0.16.0, my-feature, bugfix-123)"
 copyright: "Rubrical Works (c) 2026"
@@ -17,6 +17,7 @@ Create a new branch and associated tracker issue for any branch type.
 | Argument | Description |
 |----------|-------------|
 | `$1` | Branch name (valid git name) |
+| `--assignee <value>` | GitHub login for the tracker issue. Omitted → `@me`. |
 ---
 ## Execution Guidance
 Use 2-3 coarse tasks: "Validate and create", "Configure", "Report and commit". Validate inline. Chain independent commands with `&&` or parallel where noted.
@@ -69,7 +70,7 @@ Issues assigned to this branch appear as sub-issues below.
 gh pmu edit [TRACKER_NUMBER] -F .tmp-body.md && rm .tmp-body.md
 ```
 ### Step 3: Configure Branch (parallelizable)
-Switch, push, set labels, auto-assign — independent after creation.
+Switch, push, set labels, assign tracker to branch and to a person — independent after creation.
 ```bash
 git checkout "$BRANCH" && git push -u origin "$BRANCH"
 ```
@@ -80,6 +81,12 @@ node .claude/scripts/shared/lib/active-label.js ensure [TRACKER_NUMBER]
 ```bash
 gh pmu move [TRACKER_NUMBER] --branch "$BRANCH" && gh issue edit [TRACKER_NUMBER] --add-label assigned
 ```
+```bash
+gh issue edit [TRACKER_NUMBER] --add-assignee {assignee}
+```
+**Assignee:** substitute `{assignee}` from `node .claude/scripts/shared/lib/gh-pmu-config.js --assignee <value>` — pass the value the user supplied, omit it when they supplied none. The helper returns that login or `@me`, the branch creator by construction; it reads no config file. Never hardcode a login, never drop the flag: an omitted assignee silently leaves the tracker unassigned. An unresolvable login exits non-zero — report the error rather than retrying without the flag.
+
+**Why `--add-assignee` (#2658):** `gh pmu branch start` exposes only `--name` and `gh pmu edit` exposes no assignee flag (gh-pmu 1.5.3), so an already-created tracker can only be assigned via raw `gh issue edit`. The user-facing argument stays `--assignee <value>`, matching `/bug` and `/enhancement`.
 
 <!-- USER-EXTENSION-START: post-create -->
 <!-- USER-EXTENSION-END: post-create -->
@@ -90,6 +97,7 @@ Branch created.
 
 Branch: $BRANCH
 Tracker: #[tracker-issue-number]
+Assignee: [resolved-assignee]
 ```
 **If uncommitted changes in Step 1:** Report carried-over files from saved output.
 

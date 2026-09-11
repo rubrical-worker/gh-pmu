@@ -1,5 +1,5 @@
 ---
-version: "v0.100.2"
+version: "v0.101.0"
 description: Complete issues with criteria verification and status transitions (project)
 argument-hint: "[#issue... | --all] [--yes|-y] (optional)"
 copyright: "Rubrical Works (c) 2026"
@@ -79,7 +79,7 @@ Epic #$ISSUE: $TITLE — Done
 <!-- USER-EXTENSION-END: pre-done -->
 
 ### Step 1b: Post Work Summary Comment
-After each issue moves to done, post a summary comment IF commits referencing the issue exist. `git log --all --oneline --grep="Refs #$ISSUE\|Fixes #$ISSUE\|Closes #$ISSUE"`. No commits → skip (no-op close). Otherwise: get latest SHA + `git diff --name-only $FIRST_COMMIT~1..$LATEST_COMMIT`, construct repo URL from `.gh-pmu.json` `repositories[0]`, post comment via `-F` containing `**Work completed:**` heading, a `Files changed:` bulleted list of backticked paths, and a `Commit: https://github.com/{owner}/{repo}/commit/{sha}` URL line (multiple commits → link latest). **Non-blocking:** comment failure → log warning, continue.
+After each issue moves to done, post a summary comment IF commits referencing the issue exist. Select commits **attributed to** the issue, boundary-anchored so `#245` does not match `#2453` (#2467). Derive the pattern from the shared helper, never hand-rolled (#2753): `PATTERN=$(node -e "console.log(require('./.claude/scripts/shared/lib/issue-ref-match.js').issueRefGrepPattern(process.argv[1],{keywords:['Refs','Fixes','Closes']}))" "$ISSUE")` then `git log --all --format="%H" --grep="$PATTERN" --no-merges`. No commits → skip (no-op close). Otherwise accumulate changed files **per selected commit**, then deduplicate — never a positional range: `for sha in $SELECTED; do git show --name-only --format="" "$sha"; done | sort -u`. **A range attributes other issues' files to this one:** `$FIRST..$LATEST` spans every commit in the window whoever it belongs to, so interleaved work (normal under `--nonstop`) sweeps foreign commits in. Step 1 already selected the right set — do not discard it. Per-commit accumulation is a **union of touched files** — differing from a two-point diff whenever a file is touched then reverted inside the issue's own commits. **This selection is attribution, not the confirmation gate’s** — `done-verify.js` runs a deliberately wider keyword-less selection to decide whether to ask, and the two answer different questions (#2753). The pattern is no longer inlined: a spec reaches `issueRefGrepPattern()` through `node -e`, so the third independently-constructed form is retired. Then construct repo URL from `.gh-pmu.json` `repositories[0]`, post comment via `-F` containing `**Work completed:**` heading, a `Files changed:` bulleted list of backticked paths, and a `Commit: https://github.com/{owner}/{repo}/commit/{sha}` URL line (multiple commits → link latest). **Non-blocking:** comment failure → log warning, continue.
 
 ### Step 2: Push (Batch-Aware)
 Not last in batch → skip push → `"Push deferred (N remaining)"`. Single issue OR last in batch — four sub-steps, in order. The sync guard (#2635) sits between the no-commit check and the push: when another developer pushed this branch first, a bare push is rejected non-fast-forward and the only spec-less recovery is `--force`, which destroys their commits.
@@ -156,10 +156,25 @@ const a = buildAnnouncement({ event: EVENTS.PUSH_STARTED, issues, peers });   //
 | Event | When |
 |---|---|
 | 3 — push started | Step 2, **immediately before** `git push`, **once per push** — not once per issue in a deferred batch |
-| 4 — terminal | Step 3, at **arming time**, emitted by `/done` |
+| 4 — armed | Step 3, at **arming time**, by `/done` — **not terminal** since #2716 |
+| 6 — CI resolved | Step 3, when the watch completes, by the **arming session** — conditional, not promised |
 **Event 3 fires only when a push occurs** — Step 2.1 finding nothing to push emits nothing and arms no watch.
 **Every event 3 is followed by exactly one terminal event, on every path.** Both CI skips (`no push-triggered workflows`, `paths-ignore`) are terminal and emitted by `/done`, the only emitter — `ci-watch.js` is never launched on those paths.
-**The armed-monitor event is terminal too**, carrying the run URL and stating that no further announcement will follow. Consequence of the #2660 refutation: `ci-watch.js` is neither slash command nor hook so cannot call `SendMessage`, and the raw-socket send was refuted (six shapes accepted, none delivered). Nothing follows, so the event says so rather than leaving a peer waiting forever. Step 3 failing open over an unresolved range marks the payload **degraded**, reading differently from a clean one.
+**The armed-monitor event is NOT terminal (#2716).** It carries the run URL and states a result announcement
+*may* follow — never that one will. **#2660 stands:** `ci-watch.js` is neither slash command nor hook so cannot
+call `SendMessage`, and the raw-socket send was refuted (six shapes accepted, none delivered). The emitter is
+the **arming session**, back in a command context when its background task completes, emitting event 6
+(`ci-resolved`) with the `overall`/`workflows[]`/`failedSteps[]` payload `ci-watch.js` already returns.
+**Pass it under `ciResult` — one object, not top-level fields (#2764):** `buildAnnouncement({event: EVENTS.CI_RESOLVED, issues, peers, ciResult})`. `ci-watch.js` prints `{overall, workflows, failedSteps}`, and the line above names those three fields, so spreading them flat is the natural reading — and was **silently** wrong: `formatCiResolved` destructures `{issues, ciResult}`, so flat fields hit its fallback and **sent** *"the outcome could not be read"*, terminally, a green run reaching every peer as unreadable with no correction possible. Reproduced twice, caught both times only because a human read the text before sending. Since #2764 `buildAnnouncement` **refuses** that payload (`shouldSend: false`, notice naming this key) instead of announcing it, matching the guard `CI_TERMINAL` has always had.
+**Conditional, not promised.** The closer is emitted only if the arming session is re-invoked — measured for interactive, **not established** for headless `-p`. So the armed event says the
+follow-up is not guaranteed and that **the absence of one is not a verdict** (#2674, one level up). A peer reading silence as "green" has drawn the conclusion this channel must never license.
+**The two claims are mutually exclusive, and enforced.** Keeping "no further announcement will follow" while
+adding a follow-up is worse than the gap it closes — a peer told nothing follows, then sent something, learns
+the announcements cannot be trusted. `tests/commands/done-ci-announcement.test.js` fails if this spec names
+`ci-resolved` and claims finality for the armed event together.
+**The two CI skips stay terminal**: they arm no watch, so nothing can follow and their finality
+is honest. Step 3 failing open over an unresolved range marks the payload **degraded**, reading differently
+from a clean one.
 **A rejected push emits a correction** to the same peers, stating the commits remain local. `/done` is never made to wait for CI; `wait-for-ci.js` is never invoked from the announcement path.
 **No receiving session runs git** — no pull offer, no `branch-sync-check.js` delegation, no working-tree mutation on receipt. **No announcement asserts a peer is "behind"**: a shared `HEAD` and index make that unreachable, and `branch-sync-check.js` reports `ahead` before the push and `up-to-date` after.
 **Advisory, never a gate.** A helper that throws inside Step 2 does not abort the push.

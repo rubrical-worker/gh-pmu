@@ -1,7 +1,7 @@
 ---
-version: "v0.100.2"
+version: "v0.101.0"
 description: Create a proposal document and tracking issue (project)
-argument-hint: "<title> [--prior-art]"
+argument-hint: "<title> [--prior-art] [--update [changes]]"
 copyright: "Rubrical Works (c) 2026"
 ---
 
@@ -25,6 +25,7 @@ Creates a proposal document (`Proposal/[Name].md`) and a tracking issue with the
 | `--prior-art` | No | Run prior-art sweep before composing proposal. Absent = current behavior, no sweep. |
 | `--assignee <value>` | No | GitHub login for the new issue. Omitted → `@me`. |
 | `--target <owner/name>` | No | File the issue against a registered companion repository instead of this one. |
+| `--update [changes]` | No | Revise an existing `Proposal/[Name].md` instead of creating one. Following text is applied directly; a bare flag starts an interactive `AskUserQuestion` workflow. Requires the document to exist. |
 
 If no title provided, prompt the user. **Alias:** `idea:` is identical to `proposal:`.
 
@@ -45,9 +46,15 @@ Extract `<title>` from arguments. **If empty:** ask for title. **If special char
 
 **`--prior-art` token:** recognize anywhere in argument text, **remove it from the title**, set sweep flag. Absent → no sweep. Strip **before** name conversion, or the token lands in the filename (`Dark-Mode-Support---Prior-Art.md`). Required for direct slash-command invocation (no hook runs there); on the trigger-word path `workflow-trigger.js` already strips flag-shaped tokens by **shape**, not allowlist membership (#2515). A `--` that is not flag-shaped (bare separator, `---` rule, `--` in prose) is preserved verbatim.
 
+**`--update` token:** recognize anywhere in argument text, **remove it from the title**, set update mode. Strip **before** name conversion or the token lands in the filename (`Dark-Mode-Support---Update.md`). Text following the flag is the **change instruction**; an empty remainder selects the interactive form (Step 3b).
+**Text form is direct-invocation only (#2767).** On the trigger-word path a recognised flag claims **exactly one token** as its value (`02-github-workflow.md`), so `proposal: Dark Mode --update rename the risk section` cannot carry the remainder. Not a gap to patch: a rest-of-line variant would change value attachment for **every** command sharing the convention to suit one flag. There `--update` takes its **bare interactive form**, which needs no value.
+
 **Name conversion:** Replace spaces with hyphens, Title-Case each word. Example: `dark mode support` → `Dark-Mode-Support`.
 
 ### Step 2: Check for Existing Proposal
+
+**Under `--update` an existing document is the precondition, not a conflict — do NOT raise the overwrite prompt (#2767).** Overwrite is the destructive path this mode avoids: it discards `**Tracking Issue:**`, `**Diagrams:**` and any `**Prior Art:**` section, and its only alternative is STOP.
+**`--update` with no `Proposal/[Name].md` is an error.** Report `Proposal/[Name].md does not exist — nothing to update.` and **STOP**. Never fall through to create: a mistyped title would silently create a second proposal under the wrong name while the user believes they edited the first.
 
 If `Proposal/[Name].md` exists, ask `Proposal/[Name].md already exists. Overwrite? (yes/no)`. No → STOP.
 
@@ -99,6 +106,29 @@ AskUserQuestion({
 });
 ```
 
+### Step 3b: Apply the Update (`--update` only)
+**Trigger:** update mode from Step 1. **Replaces** Step 3's mode selection — Quick/Guided author a *new* proposal and have nothing to offer an existing one.
+**Text form (`--update <changes>`):** apply the described changes. **Preserve `**Tracking Issue:**`, `**Diagrams:**` and any `**Prior Art:**` verbatim** unless the instruction names them — they record history, not content.
+**Interactive form (bare `--update`):** offer the editable sections via `AskUserQuestion`, then prompt for each selected revision:
+```javascript
+AskUserQuestion({
+  questions: [{
+    question: "Which sections of this proposal do you want to revise?",
+    header: "Sections",
+    options: [
+      { label: "Problem Statement", description: "What problem this solves" },
+      { label: "Proposed Solution", description: "How it would be solved" },
+      { label: "Implementation Criteria", description: "What defines done" },
+      { label: "Alternatives Considered", description: "Options weighed and rejected" }
+    ],
+    multiSelect: true
+  }]
+});
+```
+**Impact Assessment** offered the same way when present. Per Guided-mode convention, a skipped section is left as-is, never reset to a placeholder.
+**Tracking-issue propagation:** the update reaches the tracking issue's `### Summary` and **nothing else** in that body. Resolve the number from `**Tracking Issue:**`, rewrite `### Summary` to match the revised Problem Statement and Proposed Solution via `gh pmu view $N --body-stdout` → edit → `gh pmu edit $N -F` → `rm`.
+**Preserve `**File:** Proposal/[Name].md` and `### Lifecycle` verbatim.** The `**File:**` marker is what `/create-prd` reads to locate the document; a rewrite that drops or reflows it breaks PRD conversion for a proposal whose only change was a reworded paragraph. Leaving the issue stale reintroduces the divergence this mode closes.
+**No resolvable tracking issue → report and continue** (`Document updated; tracking issue not updated — <reason>.`). The document is the artifact the user asked to change.
 ### Step 3a: Prior-Art Sweep (`--prior-art` only)
 
 **Trigger:** sweep flag from Step 1. Absent the flag, skip this step entirely.

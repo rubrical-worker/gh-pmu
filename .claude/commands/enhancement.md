@@ -1,5 +1,5 @@
 ---
-version: "v0.100.2"
+version: "v0.101.0"
 description: Create an enhancement issue with standard template (project)
 argument-hint: "<title> [--prior-art]"
 copyright: "Rubrical Works (c) 2026"

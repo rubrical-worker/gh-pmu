@@ -1,5 +1,5 @@
 ---
-version: "v0.100.2"
+version: "v0.101.0"
 description: Transform proposal into Agile PRD
 argument-hint: "<issue-number> | extract [<directory>]"
 copyright: "Rubrical Works (c) 2026"
@@ -207,7 +207,7 @@ Store selection for Phase 5.5b.
 
 ### Phase 6: Generate PRD
 Structure: `PRD/{PRD-Name}/PRD-{PRD-Name}.md` with `Diagrams/{Epic-Name}/{type}-{description}.drawio.svg` under it (drawio only). ASCII style: diagrams inline, no `Diagrams/`. Flat legacy PRDs (`PRD/PRD-{name}.md`) grandfathered.
-Create PRD at `PRD/{name}/PRD-{name}.md`. Load template `{frameworkPath}/Templates/artifacts/prd-template.md` and populate. **Graceful degradation:** template missing — warn `"PRD template file missing, using inline fallback."`, use sections: Overview, Epics, User Stories, Diagrams, Technical Notes, Out of Scope, Dependencies, Open Questions.
+Create PRD at `PRD/{name}/PRD-{name}.md`. Load template `{frameworkPath}/Templates/artifacts/prd-template.md` and populate. **Graceful degradation:** template missing — warn `"PRD template file missing, using inline fallback."`, use sections: Overview, Epics, User Stories, Diagrams, Technical Notes, Non-Functional Requirements, Out of Scope, Dependencies, Open Questions.
 
 <!-- USER-EXTENSION-START: post-generation -->
 <!-- USER-EXTENSION-END: post-generation -->

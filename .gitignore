@@ -118,3 +118,7 @@ runa_claude.cmd
 
 # IDPF Framework (managed by Praxis Hub Manager)
 .claude/commands/x-session-config.md
+
+# IDPF Framework (managed by Praxis Hub Manager)
+.claude/commands/hall-monitor.md
+.claude/commands/review-issue.md
