@@ -1,5 +1,5 @@
 ---
-version: "v0.101.0"
+version: "v0.102.0"
 description: Create a proposal document and tracking issue (project)
 argument-hint: "<title> [--prior-art] [--update [changes]]"
 copyright: "Rubrical Works (c) 2026"
@@ -47,7 +47,7 @@ Extract `<title>` from arguments. **If empty:** ask for title. **If special char
 **`--prior-art` token:** recognize anywhere in argument text, **remove it from the title**, set sweep flag. Absent → no sweep. Strip **before** name conversion, or the token lands in the filename (`Dark-Mode-Support---Prior-Art.md`). Required for direct slash-command invocation (no hook runs there); on the trigger-word path `workflow-trigger.js` already strips flag-shaped tokens by **shape**, not allowlist membership (#2515). A `--` that is not flag-shaped (bare separator, `---` rule, `--` in prose) is preserved verbatim.
 
 **`--update` token:** recognize anywhere in argument text, **remove it from the title**, set update mode. Strip **before** name conversion or the token lands in the filename (`Dark-Mode-Support---Update.md`). Text following the flag is the **change instruction**; an empty remainder selects the interactive form (Step 3b).
-**Text form is direct-invocation only (#2767).** On the trigger-word path a recognised flag claims **exactly one token** as its value (`02-github-workflow.md`), so `proposal: Dark Mode --update rename the risk section` cannot carry the remainder. Not a gap to patch: a rest-of-line variant would change value attachment for **every** command sharing the convention to suit one flag. There `--update` takes its **bare interactive form**, which needs no value.
+**Text form works on both paths since #2770.** It was direct-invocation-only under #2767, when a recognised flag claimed **exactly one token**, so `proposal: Dark Mode --update rename the risk section` bound only `rename` and returned the rest to the title. #2767 declined to patch that because a rest-of-line variant would change attachment for **every** command sharing the convention to suit one flag — correct, and why #2770 made attachment **per flag**: `trigger-flag-allowlist.json` declares `--update` as `{"flag": "--update", "attach": "rest-of-line"}` and every other flag keeps the one-token default. A rest-of-line value **stops at the next flag-shaped token**, so `--update rewrite the intro --assignee octocat` binds `rewrite the intro` and leaves `--assignee` its own value — preserving `02-github-workflow.md`'s guarantee that no flag-shaped token is silently discarded. The **bare interactive form** is unchanged on both paths.
 
 **Name conversion:** Replace spaces with hyphens, Title-Case each word. Example: `dark mode support` → `Dark-Mode-Support`.
 

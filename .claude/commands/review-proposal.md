@@ -1,5 +1,5 @@
 ---
-version: "v0.101.0"
+version: "v0.102.0"
 description: Review a proposal with tracked history (project)
 argument-hint: "#issue [--with ...] [--mode ...] [--force] [--prior-art]"
 copyright: "Rubrical Works (c) 2026"
@@ -26,7 +26,7 @@ Reviews a proposal document linked from a GitHub issue. Delegates setup to `revi
 ## Execution Instructions
 **REQUIRED:** Routed command — two-phase task creation:
 1. **Phase 1 — Preamble task only:** Create one task for preamble/setup via `TaskCreate`.
-2. **Phase 2 — Bulk create after routing:** After preamble confirms no redirect/early exit, bulk-create remaining tasks.
+2. **Phase 2 — Bulk create after routing:** After preamble confirms no redirect/early exit, bulk-create remaining tasks, **emitted in one message as parallel tool calls** — not one call per message (`07-task-creation-timing.md` § Emission).
 3. **On redirect or early exit:** Mark preamble completed, prune the task list per Closing Notification and Cleanup part (2), then stop. Do NOT create remaining tasks.
 4. **Include Extensions:** Each non-empty `USER-EXTENSION` block → task in Phase 2.
 5. **Track Progress:** `in_progress` → `completed`.
@@ -104,11 +104,7 @@ node ./.claude/scripts/shared/review-finalize.js $ISSUE -F .tmp-$ISSUE-findings.
 Finalize handles body `**Reviews:** N` increment, review comment, and `reviewed`/`pending` per `determineLabel()` (anything not starting with `Ready` → `pending`). Clean up the temp file **after**, not before.
 This is also what makes `--force` operative: the preamble early-exits on `reviewed`, so until this step applied one, `hasReviewedLabel` was permanently false and repeat reviews succeeded silently.
 
-For non-`--with` runs, append discoverability tip:
-```
-Tip: Use --with security,performance to add domain-specific review criteria.
-Available: security, accessibility, performance, chaos, contract, qa, seo, privacy (or --with all)
-```
+For non-`--with` runs, append the preamble's `criteria.availableTip` **verbatim** — composed from registry keys, so this spec names no domain ids and cannot go stale against the registry (#2812); three prose copies each listed 8 against a registry of 11, leaving the surplus three accepted if typed and advertised nowhere. `null` = no readable registry: emit nothing, not an empty list. **Never re-introduce the list, not even as an example** — `tests/reference/review-extensions-registry.test.js` fails on any line naming three or more ids, in the source and in every generated copy.
 
 <!-- USER-EXTENSION-START: post-review -->
 <!-- USER-EXTENSION-END: post-review -->

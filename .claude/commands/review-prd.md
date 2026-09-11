@@ -1,5 +1,5 @@
 ---
-version: "v0.101.0"
+version: "v0.102.0"
 description: Review a PRD with tracked history (project)
 argument-hint: "#issue [--with ...] [--mode ...] [--force]"
 copyright: "Rubrical Works (c) 2026"
@@ -25,7 +25,7 @@ Review a PRD document linked from a GitHub issue. Delegates setup to `review-pre
 ## Execution Instructions
 **REQUIRED — routed command, two-phase task creation:**
 1. **Phase 1 — Preamble task only:** `TaskCreate` single preamble task.
-2. **Phase 2 — Bulk after routing:** After preamble confirms path, bulk-create remaining.
+2. **Phase 2 — Bulk after routing:** After preamble confirms path, bulk-create remaining, **emitted in one message as parallel tool calls** — not one call per message (`07-task-creation-timing.md` § Emission).
 3. **Redirect or early exit:** Mark preamble done, prune the task list per Closing Notification and Cleanup part (2), stop.
 4. **Extensions:** Active `USER-EXTENSION` block → Phase 2 task
 5. Mark `in_progress` → `completed`
@@ -95,11 +95,7 @@ Finalize handles: body metadata (`**Reviews:** N` increment), structured comment
 **`type` MUST be `"prd"`** — not `"story"`, `"generic"`, omitted (#2594). Drives two behaviours:
 - **Header verb.** `review-finalize.js` derives `## PRD Review #N`. Any other value emits `## Issue Review #N`, which `/resolve-review` cannot reconcile with a PRD — reports `NO_REVIEW` against a review that exists.
 - **AC check-off suppression.** `prd` is tracker-shaped, so Step 5 leaves the tracker's lifecycle checklist alone instead of checking boxes positionally.
-Non-`--with`: append:
-```
-Tip: Use --with security,performance to add domain-specific review criteria.
-Available: security, accessibility, performance, chaos, contract, qa, seo, privacy (or --with all)
-```
+Non-`--with`: append the preamble's `criteria.availableTip` **verbatim** — composed from registry keys, so this spec names no domain ids and cannot go stale against the registry (#2812); three prose copies each listed 8 against a registry of 11, leaving the surplus three accepted if typed and advertised nowhere. `null` = no readable registry: emit nothing, not an empty list. **Never re-introduce the list, not even as an example** — `tests/reference/review-extensions-registry.test.js` fails on any line naming three or more ids, in the source and in every generated copy.
 ### Step 5: AC Check-Off (Conditional)
 **Only if recommendation starts with "Ready for":**
 ```bash

@@ -1,5 +1,5 @@
 ---
-version: "v0.101.0"
+version: "v0.102.0"
 description: Create an enhancement issue with standard template (project)
 argument-hint: "<title> [--prior-art]"
 copyright: "Rubrical Works (c) 2026"
@@ -122,8 +122,27 @@ const { resolveFilingTarget, resolveBoardFields, formatUnresolvedBoardFields } =
 const target = resolveFilingTarget(charterContent, requestedRepo);
 ```
 `ok:false` → report `reason` verbatim, **STOP**. Two refusals, never merged: not registered → register with `/charter update --register-proj`; registered with `fileIssues:false` → marked read-only on purpose, enable with `--register-proj`. Searchable-but-not-filable is the common case, so the second is usually correct rather than an oversight, and one combined message sends the user to the wrong remedy half the time.
-`ok:true` → add `-R <owner/name>` to `gh pmu create`; all other flags unchanged.
-**Board fields:** `resolveBoardFields(target.entry)`. `resolved:true` → set them. `resolved:false` → **create the issue anyway**, then print `formatUnresolvedBoardFields(repo, resolution)`, naming the unset fields and why. NEVER guess a field ID — a guess files onto the wrong board column silently, which is worse than an unset field plus a line saying so.
+`ok: true` → **do NOT add `-R` to `gh pmu create`.** Delegate the cross-repo filing to the shared helper:
+```javascript
+const { fileCompanionIssue } = require('.claude/scripts/shared/file-companion-issue.js');
+const resolution = resolveBoardFields(target.entry);   // { resolved, fields, board, reason }
+const result = fileCompanionIssue({
+  repo: target.entry.repo, title, bodyFile: '.tmp-body.md',
+  labels: [LABEL], assignee, status: STATUS, priority: PRIORITY,
+  board: target.entry.board || null, fields: resolution.fields,
+});
+```
+**Why not `gh pmu create -R` (#2775).** gh-pmu takes the *repository* from `-R` but the *project* from the **local** `.gh-pmu.json`, with no override — so it files into the companion and adds the issue to **this** repo's board (observed: px-manager#1155 landed on Project-Varia, reporting fields unset, which concealed the pollution).
+The helper creates the issue with the **bare `gh issue create`** form, then adds it to the *companion's* board explicitly — the one case where the bare form is correct: rule 02 prohibits it because it reaches no board, and here the **local** board is what must not be reached. Membership is redirected, not abandoned.
+**Report the envelope; re-derive none of it.** `{ok, issue:{number,url}, board:{added, owner, number, fields:{set,unset}}, errors}`.
+| Envelope | Report |
+|---|---|
+| `ok: false` | The `errors` verbatim; nothing was created, or the failure is named |
+| `board.added: true`, `fields.unset` empty | Issue number/URL, the board joined, the fields set |
+| `board.added: true`, `fields.unset` non-empty | The same **plus every `errors` entry** — an unset field must never pass for a set one |
+| `board.added: false` with a board registered | Issue created, board-add failed; print `errors`. The issue **exists** — do not file it again |
+| No board registered | Issue created, no board touched. Print `formatUnresolvedBoardFields(repo, resolution)` unchanged |
+**Never guess a field or option id.** The helper resolves them from the companion's own `gh project field-list` and reports anything unresolvable as unset; a guess files onto the wrong column silently.
 ```bash
 rm .tmp-body.md
 ```

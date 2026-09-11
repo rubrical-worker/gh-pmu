@@ -1,5 +1,5 @@
 ---
-version: "v0.101.0"
+version: "v0.102.0"
 description: Prepare release with PR, merge to main, and tag
 argument-hint: "[version] [--skip-coverage] [--dry-run] [--help]"
 copyright: "Rubrical Works (c) 2026"
@@ -231,10 +231,17 @@ E2E tests validate complete workflows against the test project.
 
 | File | Action |
 |------|--------|
-| `CHANGELOG.md` | Add new section following Keep a Changelog format |
+| `CHANGELOG.md` | Add new section following Keep a Changelog format. **Lead contract — see below.** |
 | `README.md` | Update version badge or header |
 | `README-DIST.md` | **If present** — verify skill/specialist counts match actuals, license populated. Absent in most consuming projects |
 | `framework-config.json` | (Self-hosted only) Update `frameworkVersion` and `installedDate` |
+
+**CHANGELOG lead contract (#2777).** The *lead* is the prose between the version heading and `**Upgrade notes:**`. `update-release-notes.js` copies it verbatim into the GitHub release body, so it is the first thing a user installing this release reads. Write it as a user would read it on the releases page:
+- **One short paragraph, about three to five sentences**, saying what is new and what changed for the user.
+- **No bug narrative, no root-cause explanation, no post-mortem of the release run itself.** Those have homes — `Construction/Design-Decisions/` and the release test plan — and repeating them at the top of the release page adds length and reads as an incident report.
+- **Validation findings from Phase 2 go in the release test plan**, with at most a one-line pointer from the changelog.
+- **Do not repeat the counts.** `update-release-notes.js` prepends its own `Feature release with N new features, M changes, and K fixes.` summary, so a lead opening with the same counts publishes them twice.
+Structured parts unchanged: `**Upgrade notes:**` bullets and the `### Added` / `### Changed` / `### Fixed` lists already carry the detail and are what a reader scans.
 <!-- USER-EXTENSION-START: pre-commit -->
 ### Update Version Constant
 

@@ -1,5 +1,5 @@
 ---
-version: "v0.101.0"
+version: "v0.102.0"
 description: Complete issues with criteria verification and status transitions (project)
 argument-hint: "[#issue... | --all] [--yes|-y] (optional)"
 copyright: "Rubrical Works (c) 2026"
@@ -23,7 +23,7 @@ Move issues from `in_review` → `done` with a STOP boundary. Final transition o
 | *(none)* | Query `in_review` issues for selection |
 
 ## Execution Instructions
-**REQUIRED:** Routed command — two-phase task creation. Phase 1: one preamble task. Phase 2 (after preamble confirms no redirect/early exit): bulk-create remaining tasks. Redirect/early exit → mark preamble complete, stop. For each non-empty `USER-EXTENSION`, add a Phase 2 task. Track `in_progress` → `completed`. Post-compaction: re-read spec, resume from first incomplete task — no re-routing.
+**REQUIRED:** Routed command — two-phase task creation. Phase 1: one preamble task. Phase 2 (after preamble confirms no redirect/early exit): bulk-create remaining tasks, **emitted in one message as parallel tool calls** — not one call per message (`07-task-creation-timing.md` § Emission). Redirect/early exit → mark preamble complete, stop. For each non-empty `USER-EXTENSION`, add a Phase 2 task. Track `in_progress` → `completed`. Post-compaction: re-read spec, resume from first incomplete task — no re-routing.
 ---
 ## Workflow
 ### Step 1: Context Gathering (Preamble Script)
@@ -58,7 +58,9 @@ After preamble succeeds for a single issue, check `context.issue.labels` for `ep
 | `done` | Skip — already complete |
 | `in_review` | Queue for done processing |
 | `in_progress` | **Warn:** "Sub-issue #N is still in_progress — complete via /work first" |
+| `qa_required` | **Warn:** "Sub-issue #N is qa_required — QA gate open, run /qa #N" |
 | `backlog`/`ready`/other | **Warn:** "Sub-issue #N is in {status} — was never started" |
+**`qa_required` is its own row, not `other` (#2821).** A QA sub-issue sits there deliberately — its gate is open and a human must run the check — so "was never started" is both false and unactionable: it names no command, and the epic stalls with no route forward. The row above names the one command that closes the gate.
 
 All `done` → skip processing, proceed to epic. `in_review` exist → process each through standard `/done` (Steps 1–3); per-sub-issue `Sub-issue #N: $TITLE → Done (M/T processed)`; push deferred until after epic.
 **Complete the epic with an explicit close, NEVER the preamble:** `done-preamble.js` refuses to move an `epic`-labelled issue (guard #2367) and reports the refusal as `gates.skippedReason: "epic-guard"` plus a matching `warnings[]` entry (#2670), so running it for the epic cannot move it whatever flags are passed.
@@ -111,7 +113,7 @@ Report `Pushed.` Rejected (non-fast-forward — a push landed between 2.2 and no
 ### Step 3: Background CI Monitoring (Batch-Aware)
 **Only after push (Step 2 actually pushed).** Deferred/skipped → skip CI monitoring for this issue.
 
-`sha=$(git rev-parse HEAD)`. Check `context.ci.hasPushWorkflows`: `false` → skip, report `"CI skipped (no push-triggered workflows)"`. **Pre-check paths-ignore:** `shouldSkipMonitoring(changedFiles, pathsIgnore)` is synchronous, returns `boolean`. `pathsIgnore` from workflow YAML; `changedFiles` from the **whole pushed range** — what GitHub evaluates `paths-ignore` against: `git diff --name-only "$(cat .tmp-push-base-$ISSUE.txt)..@{u}" && rm .tmp-push-base-$ISSUE.txt`. The base is the remote tip Step 2.2 pinned after its fetch and before its push, so the range is exactly this run's push, rebased or not. Read it from the file, never a variable: Step 2's post-compaction contract carries no variables; the file does. Remove it once read. All match → skip, `"CI skipped (paths-ignore)"`.
+`sha=$(git rev-parse HEAD)`. Check `context.ci.hasPushWorkflows`: `false` → skip, report `"CI skipped (no push-triggered workflows)"`. **Pre-check paths-ignore:** `shouldSkipMonitoring(changedFiles, pathsIgnore)` is synchronous, returns `boolean`. `pathsIgnore` from workflow YAML; `changedFiles` from the **whole pushed range** — what GitHub evaluates `paths-ignore` against: `git diff --name-only "$(cat .tmp-push-base-$ISSUE.txt)..@{u}"`. The base is the remote tip Step 2.2 pinned after its fetch and before its push, so the range is exactly this run's push, rebased or not. Read it from the file, never a variable: Step 2's post-compaction contract carries no variables; the file does. **Do NOT remove the file here (#2772).** Event 6 fires later, when the background watch completes and this session is re-invoked; if compaction lands in that window the derived set is gone from context **and** the base from disk, leaving event 6 nothing to re-derive from. The file must outlive Step 3 — whichever terminal event fires removes it. Accepted cost: a watch that never resolves leaves the file behind, bounded by the #2771 startup sweep, and a stale base is inert where a missing one is not. All match → skip, `"CI skipped (paths-ignore)"`.
 **Fail open whenever that range cannot be resolved** — skip the pre-check, arm the monitor, report the degradation. Guard the general condition, not a list; known causes: a branch's first push (`upstreamSha` null → empty file), no configured upstream, missing file (Step 2 never reached 2.2). **No `HEAD~1` fallback** — it reinstates the defect exactly where it would fire. Unnecessary monitor is harmless; a missed failure is not.
 **Why not the tip commit:** `/work` commits per AC and defers push to `/done`, so even a single-issue `/done` pushes several commits and `HEAD~1` sees only the last. A docs-only tip → skip reported, no monitor armed, real CI failure never surfaced.
 **Why a pinned file, not the reflog (#2635):** the reflog's previous ref value is this run's push only while nothing else moves the ref in between — and a push by **any other process sharing the same `.git`** (second agent session, terminal, editor integration) does. (Step 2.2's own fetch does not break it: it moves the ref to exactly the base wanted, or finds nothing new and leaves no entry.) The earlier trade-off accepted that fragility because a SHA in a variable did not survive compaction. A SHA in a file survives both — compaction-proof and immune to concurrent ref movement — which is why 2.2 writes one.
@@ -148,6 +150,16 @@ node .claude/scripts/shared/peers-check.js
 const { buildAnnouncement, EVENTS } = require('.claude/scripts/shared/peer-announce.js');
 const a = buildAnnouncement({ event: EVENTS.PUSH_STARTED, issues, peers });   // peers === envelope.data.peers
 ```
+**`issues` comes from the PUSHED RANGE, not the batch (#2772).** Resolve **once**, before event 3, and reuse unchanged for events 4 and 6:
+```javascript
+const { deriveAnnouncementIssues } = require('.claude/scripts/shared/lib/announcement-issues.js');
+// base = the tip Step 2.2 pinned in .tmp-push-base-$ISSUE.txt; head = @{u} after the push.
+const issues = deriveAnnouncementIssues({ base, head, batch });
+```
+**Why the batch is wrong.** `/work` commits per AC and defers every push to `/done`, so one push routinely carries several issues' commits. Any unpushed commit whose `Refs #N` is absent from the batch ships **unannounced**, undetectable from either side: the sender composes a well-formed message and the receiver cannot know a name is missing. Observed 2026-09-04 — a peer closed #2766 between the discovery and batch calls, so the batch correctly skipped it while its four commits went out in the same atomic push; all three announcements named only #2763 and #2765.
+**It is a union.** A batch member with no commits in the range is still named — "we closed this" is worth announcing even when nothing landed.
+**Do not restate the derivation.** It lives in the helper because a derivation carried only in a spec can be asserted as *text* and never *exercised*, and the helper inherits the boundary anchoring stopping `#245` matching `#2453` rather than reimplementing it. Precedent: `branch-review-gate.js`, `decideSweep`/`decideFlagSweep`, `decideStart`.
+**Resolve once, not per event** — the three are gated as one unit so a peer is never left holding an opener with no closer; deriving twice reintroduces that risk by another route.
 **The two shapes are not interchangeable and picking wrong fails silently.** `checkPeers()` returns `peers` at the **top level**; the CLI wraps it as **`data.peers`**. Requiring the module and reading `data.peers` yields `undefined`, and an `|| []` beside it makes that a genuine empty array before `buildAnnouncement` sees it — after which nothing downstream can tell the mistake from an empty working directory. This section previously named the helper and not the shape, and the reported incident came from this path.
 **A non-array `peers` is now named as such** rather than reported as empty, naming `data.peers`. That guard cannot see an empty array a caller manufactured — hence the shape written here as well as enforced there.
 **Gated by project config (#2702).** Resolve **once per `/done` invocation**, before event 3: `node .claude/scripts/shared/lib/cross-session-config.js`. `groups.push` false → events 3, 4 and 5 **all emit nothing**, no `SendMessage` and no skip notice; push, CI arming and the STOP sequence otherwise unchanged. `notices` false → dispatch unchanged, the dispatch-caveat and skip-reason lines not printed. Absent object, or any omitted key → enabled.
@@ -165,6 +177,8 @@ const a = buildAnnouncement({ event: EVENTS.PUSH_STARTED, issues, peers });   //
 call `SendMessage`, and the raw-socket send was refuted (six shapes accepted, none delivered). The emitter is
 the **arming session**, back in a command context when its background task completes, emitting event 6
 (`ci-resolved`) with the `overall`/`workflows[]`/`failedSteps[]` payload `ci-watch.js` already returns.
+**The terminal event owns the cleanup (#2772).** Whichever fires — event 4 on a CI skip, event 6 when the watch resolves — removes the pinned base after reading it: `rm -f .tmp-push-base-$ISSUE.txt`.
+**Re-derive before emitting event 6 if the set has left context.** The watch resolves long after Step 3 and compaction may land between; the base is on disk for exactly this reason, so `deriveAnnouncementIssues({base, head, batch})` reconstructs the set rather than the event falling back to the batch and reintroducing the defect at the last hop. Base file gone → name the batch and say the set could not be re-derived: a narrower answer stated as narrow, never a silent one.
 **Pass it under `ciResult` — one object, not top-level fields (#2764):** `buildAnnouncement({event: EVENTS.CI_RESOLVED, issues, peers, ciResult})`. `ci-watch.js` prints `{overall, workflows, failedSteps}`, and the line above names those three fields, so spreading them flat is the natural reading — and was **silently** wrong: `formatCiResolved` destructures `{issues, ciResult}`, so flat fields hit its fallback and **sent** *"the outcome could not be read"*, terminally, a green run reaching every peer as unreadable with no correction possible. Reproduced twice, caught both times only because a human read the text before sending. Since #2764 `buildAnnouncement` **refuses** that payload (`shouldSend: false`, notice naming this key) instead of announcing it, matching the guard `CI_TERMINAL` has always had.
 **Conditional, not promised.** The closer is emitted only if the arming session is re-invoked — measured for interactive, **not established** for headless `-p`. So the armed event says the
 follow-up is not guaranteed and that **the absence of one is not a verdict** (#2674, one level up). A peer reading silence as "green" has drawn the conclusion this channel must never license.

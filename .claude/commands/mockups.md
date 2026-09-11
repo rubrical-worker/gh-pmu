@@ -1,5 +1,5 @@
 ---
-version: "v0.101.0"
+version: "v0.102.0"
 description: Create text-based or diagrammatic screen mockups (project)
 argument-hint: "[#NN] [--from-image <path>] [--serve [{Name}]] [--port <N>] [--open] [--showcase] [--apply-decisions]"
 copyright: "Rubrical Works (c) 2026"
