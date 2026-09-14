@@ -16,7 +16,7 @@ func TestRunIntake_Integration_NoUntracked(t *testing.T) {
 	testutil.RequireTestEnv(t)
 
 	// All seed issues are already in the project, so intake should show no untracked
-	result := testutil.RunCommand(t, "intake")
+	result := testutil.RunCommand(t, "intake", "--list")
 
 	testutil.AssertExitCode(t, result, 0)
 	// Should indicate all issues tracked (seed issues #1-6 are in project)
@@ -129,7 +129,7 @@ func TestRunIntake_Integration_JSONOutput(t *testing.T) {
 	defer testutil.DeleteTestIssue(t, issueNum)
 
 	// Run intake --json
-	result := testutil.RunCommand(t, "intake", "--json")
+	result := testutil.RunCommand(t, "intake", "--list", "--json")
 
 	testutil.AssertExitCode(t, result, 0)
 
@@ -165,7 +165,7 @@ func TestRunIntake_Integration_JSONEmpty(t *testing.T) {
 	testutil.RunCommand(t, "intake", "--apply", "")
 
 	// Run intake --json
-	result := testutil.RunCommand(t, "intake", "--json")
+	result := testutil.RunCommand(t, "intake", "--list", "--json")
 
 	testutil.AssertExitCode(t, result, 0)
 
@@ -205,7 +205,7 @@ func TestRunIntake_Integration_ListUntracked(t *testing.T) {
 	defer testutil.DeleteTestIssue(t, issueNum)
 
 	// Run intake (no flags - just list)
-	result := testutil.RunCommand(t, "intake")
+	result := testutil.RunCommand(t, "intake", "--list")
 
 	testutil.AssertExitCode(t, result, 0)
 	testutil.AssertContains(t, result.Stdout, "untracked issue")

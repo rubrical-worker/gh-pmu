@@ -551,6 +551,9 @@ See [Batch Operations Guide](batch-operations.md) for detailed workflows.
 Find and add untracked issues to project.
 
 ```bash
+# List untracked issues
+gh pmu intake --list
+
 # Preview untracked issues
 gh pmu intake --dry-run
 
@@ -560,6 +563,10 @@ gh pmu intake --apply
 # Only issues assigned to you
 gh pmu intake --assignee @me --dry-run
 ```
+
+A mode is required: `--list`, `--dry-run` or `--apply`. With none, `intake` prints
+its help and makes no API calls. `--json`, `--label` and `--assignee` modify a mode
+but do not select one. `--list` and `--apply` cannot be combined.
 
 `--assignee` is repeatable and matches issues carrying **any** of the supplied
 logins. `@me` resolves to your authenticated login — see
