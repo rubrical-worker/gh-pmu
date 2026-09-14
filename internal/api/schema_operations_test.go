@@ -112,6 +112,7 @@ func namedOperationInvocations() []func(c *Client) {
 		func(c *Client) { _, _ = c.GetSubIssues("owner", "repo", 1) },
 		func(c *Client) { _, _, _ = c.getRepositoryIssuesPage("owner", "repo", states, &cursor) },
 		func(c *Client) { _, _, _ = c.searchIssuesPage("repo:o/r is:issue", 50, &cursor) },
+		func(c *Client) { _, _, _ = c.searchIntakeCandidatesPage("repo:o/r is:issue is:open", &cursor) },
 		func(c *Client) { _, _ = c.GetOpenIssuesByLabels("owner", "repo", []string{"bug"}) },
 		func(c *Client) { _, _, _ = c.getIssuesByLabelPage("owner", "repo", "bug", states, &cursor) },
 		func(c *Client) { _, _ = c.GetParentIssue("owner", "repo", 1) },

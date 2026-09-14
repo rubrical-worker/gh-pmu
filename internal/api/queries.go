@@ -2116,6 +2116,172 @@ func (c *Client) searchIssuesPage(query string, pageSize int, cursor *string) ([
 	}, nil
 }
 
+// IntakeCandidate is an open issue with its membership in one project resolved.
+type IntakeCandidate struct {
+	Issue Issue
+	// InProject reports whether the issue is already an item on the project.
+	InProject bool
+	// MembershipUnknown is true when the issue belongs to more projects than a
+	// single projectItems page returns and the project was not among them, so
+	// neither "tracked" nor "untracked" can be claimed (#918, #860).
+	MembershipUnknown bool
+}
+
+// intakeSearchNode is one search result as intake needs it: the fields intake
+// outputs or filters on, plus the issue's project memberships. Body, author and
+// milestone are deliberately absent (#918).
+type intakeSearchNode struct {
+	TypeName string `graphql:"__typename"`
+	Issue    struct {
+		ID         string
+		Number     int
+		Title      string
+		State      string
+		URL        string `graphql:"url"`
+		Repository struct {
+			NameWithOwner string
+		}
+		Assignees struct {
+			Nodes []struct {
+				Login string
+			}
+		} `graphql:"assignees(first: 10)"`
+		Labels struct {
+			Nodes []struct {
+				Name string
+			}
+		} `graphql:"labels(first: 20)"`
+		ProjectItems struct {
+			Nodes []struct {
+				Project struct {
+					ID string
+				}
+			}
+			PageInfo struct {
+				HasNextPage bool
+			}
+		} `graphql:"projectItems(first: 20)"`
+	} `graphql:"... on Issue"`
+}
+
+// SearchIntakeCandidates returns the open issues in a repository together with
+// whether each is already on the given project.
+//
+// Membership is read from each issue's own projectItems rather than by scanning
+// the project board, so the cost scales with open issues instead of with every
+// item ever added to the board (#918). An issue on more than one page of
+// projects that does not show the project on the first page is reported as
+// MembershipUnknown rather than guessed at.
+func (c *Client) SearchIntakeCandidates(owner, repo string, labels []string, projectID string) ([]IntakeCandidate, error) {
+	if err := validateOwnerRepo(owner, repo); err != nil {
+		return nil, err
+	}
+	if projectID == "" {
+		return nil, fmt.Errorf("project ID is required")
+	}
+	for i, label := range labels {
+		if err := validateLabelName(label); err != nil {
+			return nil, fmt.Errorf("labels[%d]: %w", i, err)
+		}
+	}
+
+	queryParts := []string{
+		fmt.Sprintf("repo:%s/%s", owner, repo),
+		"is:issue",
+		"is:open",
+	}
+	for _, label := range labels {
+		queryParts = append(queryParts, fmt.Sprintf("label:%q", label))
+	}
+	searchQuery := strings.Join(queryParts, " ")
+
+	var candidates []IntakeCandidate
+	var cursor *string
+	for {
+		nodes, page, err := c.searchIntakeCandidatesPage(searchQuery, cursor)
+		if err != nil {
+			return nil, err
+		}
+		for _, node := range nodes {
+			if node.TypeName != "Issue" {
+				continue
+			}
+			candidates = append(candidates, intakeCandidateFromNode(node, projectID, owner, repo))
+		}
+		if !page.HasNextPage {
+			break
+		}
+		endCursor := page.EndCursor
+		cursor = &endCursor
+	}
+
+	return candidates, nil
+}
+
+// searchIntakeCandidatesPage fetches one page of intake search results.
+func (c *Client) searchIntakeCandidatesPage(searchQuery string, cursor *string) ([]intakeSearchNode, pageInfo, error) {
+	var gqlQuery struct {
+		Search struct {
+			Nodes    []intakeSearchNode
+			PageInfo struct {
+				HasNextPage bool
+				EndCursor   string
+			}
+		} `graphql:"search(query: $query, type: ISSUE, first: 100, after: $cursor)"`
+	}
+
+	variables := map[string]interface{}{
+		"query":  graphql.String(searchQuery),
+		"cursor": (*graphql.String)(nil),
+	}
+	if cursor != nil {
+		variables["cursor"] = graphql.String(*cursor)
+	}
+
+	if err := c.gql.Query("SearchIntakeCandidates", &gqlQuery, variables); err != nil {
+		return nil, pageInfo{}, fmt.Errorf("failed to search intake candidates: %w", err)
+	}
+
+	return gqlQuery.Search.Nodes, pageInfo{
+		HasNextPage: gqlQuery.Search.PageInfo.HasNextPage,
+		EndCursor:   gqlQuery.Search.PageInfo.EndCursor,
+	}, nil
+}
+
+// intakeCandidateFromNode maps a search node to a candidate and resolves its
+// membership in projectID.
+func intakeCandidateFromNode(node intakeSearchNode, projectID, owner, repo string) IntakeCandidate {
+	issue := Issue{
+		ID:         node.Issue.ID,
+		Number:     node.Issue.Number,
+		Title:      node.Issue.Title,
+		State:      node.Issue.State,
+		URL:        node.Issue.URL,
+		Repository: Repository{Owner: owner, Name: repo},
+	}
+	if parts := splitRepoName(node.Issue.Repository.NameWithOwner); len(parts) == 2 {
+		issue.Repository = Repository{Owner: parts[0], Name: parts[1]}
+	}
+	for _, a := range node.Issue.Assignees.Nodes {
+		issue.Assignees = append(issue.Assignees, Actor{Login: a.Login})
+	}
+	for _, l := range node.Issue.Labels.Nodes {
+		issue.Labels = append(issue.Labels, Label{Name: l.Name})
+	}
+
+	candidate := IntakeCandidate{Issue: issue}
+	for _, item := range node.Issue.ProjectItems.Nodes {
+		if item.Project.ID == projectID {
+			candidate.InProject = true
+			break
+		}
+	}
+	if !candidate.InProject && node.Issue.ProjectItems.PageInfo.HasNextPage {
+		candidate.MembershipUnknown = true
+	}
+	return candidate
+}
+
 // GetOpenIssuesByLabel fetches open issues with a specific label
 func (c *Client) GetOpenIssuesByLabel(owner, repo, label string) ([]Issue, error) {
 	if err := validateOwnerRepo(owner, repo); err != nil {
