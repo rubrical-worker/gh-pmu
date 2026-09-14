@@ -17,11 +17,12 @@ type Acceptance struct {
 // RequiresReAcceptance returns true if the user needs to (re-)accept terms.
 // Re-acceptance is required when:
 //   - No prior acceptance (empty acceptedVersion)
-//   - Major or minor version changed
+//   - Major version changed, in either direction
 //   - Prior acceptance was on a dev build
+//   - Either version cannot be parsed
 //
 // Re-acceptance is NOT required when:
-//   - Only patch version changed
+//   - Only the minor or patch version changed (#919)
 //   - Current build is "dev"
 //   - Versions are identical
 func RequiresReAcceptance(acceptedVersion, currentVersion string) bool {
@@ -39,20 +40,22 @@ func RequiresReAcceptance(acceptedVersion, currentVersion string) bool {
 		return true
 	}
 
-	acceptedMajor, acceptedMinor, err := parseMajorMinor(acceptedVersion)
+	acceptedMajor, _, err := parseMajorMinor(acceptedVersion)
 	if err != nil {
 		return true
 	}
 
-	currentMajor, currentMinor, err := parseMajorMinor(currentVersion)
+	currentMajor, _, err := parseMajorMinor(currentVersion)
 	if err != nil {
 		return true
 	}
 
-	return acceptedMajor != currentMajor || acceptedMinor != currentMinor
+	return acceptedMajor != currentMajor
 }
 
 // parseMajorMinor extracts major and minor version numbers from a semver string.
+// Both components must be numeric for the version to count as parseable, even
+// though only the major is compared.
 func parseMajorMinor(version string) (int, int, error) {
 	parts := strings.SplitN(version, ".", 3)
 	if len(parts) < 2 {

@@ -1756,7 +1756,9 @@ func TestWriteConfigWithMetadata_ClearsAcceptance_MajorVersion(t *testing.T) {
 	}
 }
 
-func TestWriteConfigWithMetadata_ClearsAcceptance_MinorVersion(t *testing.T) {
+// TestWriteConfigWithMetadata_PreservesAcceptance_MinorVersion (#919): re-init
+// keeps acceptance recorded on a different minor version of the same major.
+func TestWriteConfigWithMetadata_PreservesAcceptance_MinorVersion(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	// Seed with a version that differs in minor from current.
@@ -1800,8 +1802,8 @@ func TestWriteConfigWithMetadata_ClearsAcceptance_MinorVersion(t *testing.T) {
 		t.Fatalf("JSON is not valid: %v", err)
 	}
 
-	if _, ok := parsed["acceptance"]; ok {
-		t.Error("Expected acceptance to be cleared on minor version change, but it was present")
+	if _, ok := parsed["acceptance"]; !ok {
+		t.Error("Expected acceptance to be preserved on a minor version change (#919), but it was cleared")
 	}
 }
 
