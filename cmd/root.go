@@ -93,6 +93,7 @@ Use 'gh pmu <command> --help' for more information about a command.`,
 	cmd.AddCommand(newAcceptCommand())
 	cmd.AddCommand(newLabelCommand())
 	cmd.AddCommand(newConfigCommand())
+	cmd.AddCommand(newStatusCommand())
 
 	return cmd
 }

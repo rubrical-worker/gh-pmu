@@ -2,11 +2,200 @@ package cmd
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/rubrical-works/gh-pmu/internal/api"
+	"github.com/rubrical-works/gh-pmu/internal/config"
 	"github.com/rubrical-works/gh-pmu/internal/defaults"
+	"github.com/rubrical-works/gh-pmu/internal/integrity"
+	"github.com/spf13/cobra"
 )
+
+type statusOptions struct {
+	update bool
+}
+
+// statusUpdateClient is the API surface `gh pmu status --update` uses.
+type statusUpdateClient interface {
+	GetProject(owner string, number int) (*api.Project, error)
+	GetProjectFields(projectID string) ([]api.ProjectField, error)
+	UpdateProjectFieldOptions(fieldID string, options []api.FieldOptionUpdate) ([]api.FieldOption, error)
+}
+
+func newStatusCommand() *cobra.Command {
+	opts := &statusOptions{}
+
+	cmd := &cobra.Command{
+		Use:   "status",
+		Short: "Manage the project's Status field values",
+		Long: `Manage the project's Status field values.
+
+--update brings the Status field up to the 9 values every gh-pmu project
+carries (Backlog, Up next, Ready, In progress, In review, QA required, Done,
+Parking Lot, Notes):
+  - adds missing values next to their template neighbors
+  - renames values that differ only in capitalization, keeping their items
+  - sets each of the 9 values to its default color
+  - fills an empty description with the default (non-empty ones are kept)
+
+Nothing is deleted or reordered, and values outside the 9 are left untouched.
+The Status aliases in .gh-pmu.json are refreshed afterwards.`,
+		Example: `  # Add missing Status values and apply default colors
+  gh pmu status --update`,
+		Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runStatus(cmd, opts)
+		},
+	}
+
+	cmd.Flags().BoolVar(&opts.update, "update", false, "Add missing Status values, fix capitalization, and apply default colors")
+
+	return cmd
+}
+
+func runStatus(cmd *cobra.Command, opts *statusOptions) error {
+	if !opts.update {
+		return cmd.Help()
+	}
+
+	cwd, err := os.Getwd()
+	if err != nil {
+		return fmt.Errorf("failed to get current directory: %w", err)
+	}
+	configPath, err := config.FindConfigFile(cwd)
+	if err != nil {
+		return fmt.Errorf("failed to load configuration: %w\nRun 'gh pmu init' to create a configuration file", err)
+	}
+	cfg, err := config.Load(configPath)
+	if err != nil {
+		return fmt.Errorf("failed to load configuration: %w", err)
+	}
+	if err := cfg.Validate(); err != nil {
+		return fmt.Errorf("invalid configuration: %w", err)
+	}
+
+	client, err := api.NewClient()
+	if err != nil {
+		return err
+	}
+
+	return runStatusUpdateWithDeps(cmd, cfg, filepath.Dir(configPath), client)
+}
+
+// runStatusUpdateWithDeps is the testable implementation of `status --update`.
+func runStatusUpdateWithDeps(cmd *cobra.Command, cfg *config.Config, configDir string, client statusUpdateClient) error {
+	defs, err := defaults.Load()
+	if err != nil {
+		return fmt.Errorf("failed to load embedded defaults: %w", err)
+	}
+	var canonical []defaults.OptionDef
+	for _, f := range defs.Fields.Required {
+		if f.Name == "Status" {
+			canonical = f.OptionDefs
+		}
+	}
+
+	project, err := client.GetProject(cfg.Project.Owner, cfg.Project.Number)
+	if err != nil {
+		return fmt.Errorf("failed to get project: %w", err)
+	}
+	fields, err := client.GetProjectFields(project.ID)
+	if err != nil {
+		return fmt.Errorf("failed to get project fields: %w", err)
+	}
+	field := findFieldByName(fields, "Status")
+	if field == nil {
+		return fmt.Errorf("project has no Status field")
+	}
+	if field.FromCache {
+		return fmt.Errorf("live field data is unavailable (the ProjectV2 field resolver failed and only cached metadata could be read); Status options were not updated — retry once GitHub recovers")
+	}
+
+	plan, err := planStatusReconcile(field.Options, canonical, statusReconcileUpdate)
+	if err != nil {
+		return err
+	}
+
+	out := cmd.OutOrStdout()
+	current := field.Options
+	if plan.Changed {
+		updated, err := client.UpdateProjectFieldOptions(field.ID, plan.Options)
+		if err != nil {
+			return err
+		}
+		current = updated
+		fmt.Fprintf(out, "Updated Status field on %s:\n", project.Title)
+	} else {
+		fmt.Fprintf(out, "Status field on %s already has the required values and default colors.\n", project.Title)
+	}
+	for _, entry := range plan.Entries {
+		line := fmt.Sprintf("  %-18s %s", entry.Name, strings.Join(entry.Actions, ", "))
+		if entry.Previous != "" {
+			line += fmt.Sprintf(" (was %q)", entry.Previous)
+		}
+		fmt.Fprintln(out, line)
+	}
+
+	refreshStatusConfig(cfg, field, current, plan)
+	if err := cfg.Save(configDir); err != nil {
+		return fmt.Errorf("status field updated but .gh-pmu.json could not be saved: %w", err)
+	}
+	_ = integrity.UpdateChecksumForConfig(filepath.Join(configDir, config.ConfigFileName))
+	return nil
+}
+
+// refreshStatusConfig brings .gh-pmu.json in line with the Status options now
+// on the board: every value gets its derived alias, aliases that pointed at a
+// renamed value follow the rename, and the cached Status metadata is replaced.
+// Aliases for values not on the board are left alone — they may be deliberate.
+func refreshStatusConfig(cfg *config.Config, field *api.ProjectField, current []api.FieldOption, plan statusPlan) {
+	if cfg.Fields == nil {
+		cfg.Fields = map[string]config.Field{}
+	}
+	mapping := cfg.Fields["status"]
+	if mapping.Field == "" {
+		mapping.Field = field.Name
+	}
+	if mapping.Values == nil {
+		mapping.Values = map[string]string{}
+	}
+
+	renamed := map[string]string{}
+	for _, entry := range plan.Entries {
+		if entry.Previous != "" {
+			renamed[entry.Previous] = entry.Name
+		}
+	}
+	for alias, value := range mapping.Values {
+		if to, ok := renamed[value]; ok {
+			mapping.Values[alias] = to
+		}
+	}
+
+	names := make([]string, 0, len(current))
+	for _, opt := range current {
+		names = append(names, opt.Name)
+	}
+	if len(names) == 0 {
+		for _, u := range plan.Options {
+			names = append(names, u.Name)
+		}
+	}
+	for _, name := range names {
+		mapping.Values[optionNameToAlias(name)] = name
+	}
+	cfg.Fields["status"] = mapping
+
+	if len(current) > 0 {
+		meta := config.FieldMetadata{Name: field.Name, ID: field.ID, DataType: field.DataType}
+		for _, opt := range current {
+			meta.Options = append(meta.Options, config.OptionMetadata{Name: opt.Name, ID: opt.ID})
+		}
+		cfg.AddFieldMetadata(meta)
+	}
+}
 
 // statusReconcileMode selects how far a Status reconcile goes (#917).
 type statusReconcileMode int
