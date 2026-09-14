@@ -17,8 +17,7 @@ import (
 type intakeClient interface {
 	assigneeResolver
 	GetProject(owner string, number int) (*api.Project, error)
-	GetProjectItems(projectID string, filter *api.ProjectItemsFilter) ([]api.ProjectItem, error)
-	SearchRepositoryIssues(owner, repo string, filters api.SearchFilters, limit int) ([]api.Issue, error)
+	SearchIntakeCandidates(owner, repo string, labels []string, projectID string) ([]api.IntakeCandidate, error)
 	AddIssueToProject(projectID, issueID string) (string, error)
 	SetProjectItemField(projectID, itemID, fieldName, value string) error
 	GetProjectFields(projectID string) ([]api.ProjectField, error)
@@ -119,26 +118,8 @@ func runIntakeWithDeps(cmd *cobra.Command, opts *intakeOptions, cfg *config.Conf
 		return fmt.Errorf("failed to get project: %w", err)
 	}
 
-	// Get issues currently in the project
-	// Optimization: when single repo configured, use repository filter to reduce data transfer
-	var filter *api.ProjectItemsFilter
-	if len(cfg.Repositories) == 1 {
-		filter = &api.ProjectItemsFilter{Repository: cfg.Repositories[0]}
-	}
-	projectItems, err := client.GetProjectItems(project.ID, filter)
-	if err != nil {
-		return fmt.Errorf("failed to get project items: %w", err)
-	}
-
-	// Build set of issue IDs already in project
-	trackedIssues := make(map[string]bool)
-	for _, item := range projectItems {
-		if item.Issue != nil {
-			trackedIssues[item.Issue.ID] = true
-		}
-	}
-
-	// Find untracked issues from each repository
+	// Find untracked issues from each repository. Membership comes from each open
+	// issue's own projectItems, never from paging the project board (#918).
 	var untrackedIssues []api.Issue
 	for _, repoFullName := range cfg.Repositories {
 		parts := strings.SplitN(repoFullName, "/", 2)
@@ -148,29 +129,26 @@ func runIntakeWithDeps(cmd *cobra.Command, opts *intakeOptions, cfg *config.Conf
 		}
 		owner, repo := parts[0], parts[1]
 
-		// Build search filters - use Search API for server-side filtering
-		searchFilters := api.SearchFilters{
-			State:  "open",
-			Labels: opts.label, // Server-side label filtering when --label specified
-		}
-
-		// Get open issues from repository via Search API
-		issues, err := client.SearchRepositoryIssues(owner, repo, searchFilters, 0)
+		// Label filtering happens server-side in the search query
+		candidates, err := client.SearchIntakeCandidates(owner, repo, opts.label, project.ID)
 		if err != nil {
 			cmd.PrintErrf("Warning: failed to get issues from %s: %v\n", repoFullName, err)
 			continue
 		}
 
-		// Filter to untracked issues
-		for _, issue := range issues {
-			if !trackedIssues[issue.ID] {
+		for _, candidate := range candidates {
+			issue := candidate.Issue
+			if candidate.MembershipUnknown {
+				cmd.PrintErrf("Warning: #%d in %s belongs to more than 20 projects; could not confirm whether it is on this project, so it is not listed\n",
+					issue.Number, repoFullName)
+				continue
+			}
+			if !candidate.InProject {
 				issue.Repository = api.Repository{Owner: owner, Name: repo}
 				untrackedIssues = append(untrackedIssues, issue)
 			}
 		}
 	}
-
-	// Note: Label filtering is now done server-side via SearchFilters.Labels
 
 	// Apply assignee filter if specified. Resolve first — filterIntakeByAssignee
 	// compares logins literally, so @me would match nothing.
