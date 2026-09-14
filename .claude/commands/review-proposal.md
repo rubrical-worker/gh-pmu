@@ -1,5 +1,5 @@
 ---
-version: "v0.102.0"
+version: "v0.103.0"
 description: Review a proposal with tracked history (project)
 argument-hint: "#issue [--with ...] [--mode ...] [--force] [--prior-art]"
 copyright: "Rubrical Works (c) 2026"

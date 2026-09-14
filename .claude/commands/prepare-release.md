@@ -1,5 +1,5 @@
 ---
-version: "v0.102.0"
+version: "v0.103.0"
 description: Prepare release with PR, merge to main, and tag
 argument-hint: "[version] [--skip-coverage] [--dry-run] [--help]"
 copyright: "Rubrical Works (c) 2026"
@@ -85,11 +85,19 @@ Record as `$BRANCH`.
 
 ### Check for Incomplete Issues
 
+Preview what Step 4.3's close will move, by the close's own rule (#2878):
+
 ```bash
-gh pmu list --branch current --status backlog,in_progress,in_review
+gh pmu branch close "$BRANCH" --dry-run
 ```
 
-**Do not add `--json`** — `status` is not a valid JSON field for `gh pmu list`.
+Name `$BRANCH` explicitly (required when more than one branch is active). **Show the output verbatim; do not parse it or add `--json`.** It prints `Would move N incomplete issue(s) to backlog:` then one `#N - title` line per issue, and changes nothing. The close moves every open tracker sub-issue except Parking Lot, keyed on open/closed and tracker membership — not board Status — so a `gh pmu list --status` filter answers a different question; `--status` also takes one value, and the comma-separated query this step used to run matched nothing while Step 4.3 moved everything.
+
+- **No issues listed:** say so explicitly — "No incomplete issues: Step 4.3's close will move nothing." — and proceed. Never infer an empty result from silence.
+- **Issues listed:** **ASK USER** via `AskUserQuestion`, naming them:
+  - **Transfer** — `/transfer-issue` to another branch, re-run the dry-run, ask again.
+  - **Continue anyway** — first state: "Step 4.3 will move #N, #N… to Backlog and clear their Branch field." Then proceed.
+  - **Stop** — halt now, before Phase 1; nothing has changed.
 
 <!-- USER-EXTENSION-START: pre-phase-1 -->
 <!-- USER-EXTENSION-END: pre-phase-1 -->
@@ -305,8 +313,16 @@ gh pr merge --merge
 
 ### Step 4.3: Close Branch Tracker
 
+Preview again — work may have landed or been transferred since Check for Incomplete Issues — and show the output verbatim:
+
 ```bash
-gh pmu branch close --yes
+gh pmu branch close "$BRANCH" --dry-run
+```
+
+Then close. `--yes` stays (stdin is not interactive) but runs only after the list above was shown; the close never moves an issue the user has not seen.
+
+```bash
+gh pmu branch close "$BRANCH" --yes
 ```
 
 ### Step 4.4: Switch to Main

@@ -1,5 +1,5 @@
 ---
-version: "v0.102.0"
+version: "v0.103.0"
 description: Merge branch to main with gated checks (project)
 argument-hint: "[--skip-gates] [--dry-run]"
 copyright: "Rubrical Works (c) 2026"
@@ -84,11 +84,11 @@ E2E tests validate complete workflows against the test project.
 
 ---
 ## Phase 2: Create and Merge PR
-### 2.1: Push
+### Step 2.1: Push
 ```bash
 git push origin $(git branch --show-current)
 ```
-### 2.2: Create PR
+### Step 2.2: Create PR
 ```bash
 gh pr create --base main --head $(git branch --show-current) \
   --title "Merge: $(git branch --show-current)"
@@ -102,7 +102,7 @@ node .claude/scripts/framework/wait-for-ci.js
 ```
 <!-- USER-EXTENSION-END: post-pr-create -->
 
-### 2.2a: Mergeability Gate
+### Step 2.2a: Mergeability Gate
 Ask GitHub whether the PR *can* merge before asking a human to review it. A conflicting branch otherwise surfaces at 2.5, after a reviewer approved a PR that could never merge.
 ```bash
 gh pr view --json mergeable,mergeStateStatus
@@ -117,14 +117,14 @@ gh pr view --json mergeable,mergeStateStatus
 **On `UNKNOWN`:** re-query at most **5** times, **2** seconds apart (~10s worst case). GitHub computes mergeability asynchronously, so a just-created PR very often returns `UNKNOWN`; treating that as failure makes the gate flaky on the fast path it protects. Still `UNKNOWN` after the final attempt → emit `⚠️ Mergeability unknown after 5 attempts — proceeding` and **continue**. Never block.
 Read-only: no local merge, no `git fetch`, no working-tree change. `mergeable` reflects the merge GitHub would perform. Local dry-run merge was rejected (#2141); #2524 measured it at 197/351 pairings (56% false positives).
 
-### 2.3: Wait for Approval
+### Step 2.3: Wait for Approval
 **ASK USER:** Review and approve the PR.
 ```bash
 gh pr view --json reviewDecision
 ```
 #### Gate 2.4: PR Approved
 **FAIL if not approved** (unless `--skip-gates`).
-### 2.5: Merge
+### Step 2.5: Merge
 ```bash
 gh pr merge --merge
 git checkout main
@@ -135,7 +135,7 @@ git pull origin main
 <!-- Post-merge: actions after PR is merged -->
 <!-- USER-EXTENSION-END: post-merge -->
 
-### 2.6: Workstream Detection (Post-Merge)
+### Step 2.6: Workstream Detection (Post-Merge)
 After merge, check workstream plan:
 1. **Read from disk:** `loadWorkstreamsMetadata('.workstreams.json')`. Not found → skip.
 2. **Check:** `postMergeWorkstreamCheck(metadata, mergedBranch)`. `isWorkstream: false` → skip. Returns report data only (`activeSiblings`, `allMerged`, `sharedModules`) — nothing in `plan-workstreams.js` writes `.workstreams.json`.
@@ -145,16 +145,16 @@ After merge, check workstream plan:
 6. **All merged:** `allMerged: true` → "All workstreams merged. Consider removing `.workstreams.json`."
 ---
 ## Phase 3: Cleanup
-### 3.1: Close Tracker (if exists)
+### Step 3.1: Close Tracker (if exists)
 ```bash
 node .claude/scripts/shared/lib/active-label.js remove [TRACKER_NUMBER]
 gh issue close [TRACKER_NUMBER] --comment "Branch merged to main"
 ```
-### 3.2: Close Branch in Project
+### Step 3.2: Close Branch in Project
 ```bash
 gh pmu branch close 2>/dev/null || echo "No branch to close"
 ```
-### 3.3: Delete Branch
+### Step 3.3: Delete Branch
 ```bash
 git push origin --delete $BRANCH
 git branch -d $BRANCH
