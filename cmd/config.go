@@ -11,6 +11,7 @@ import (
 
 	"github.com/rubrical-works/gh-pmu/internal/api"
 	"github.com/rubrical-works/gh-pmu/internal/config"
+	"github.com/rubrical-works/gh-pmu/internal/defaults"
 	"github.com/rubrical-works/gh-pmu/internal/integrity"
 	"github.com/spf13/cobra"
 )
@@ -206,6 +207,13 @@ func runConfigVerify(cmd *cobra.Command, opts *configVerifyOptions) error {
 		}
 	}
 
+	// Required Status values (#917). Read from the local config only, so verify
+	// stays offline and needs no auth. Advisory: never affects the exit code,
+	// including in strict mode.
+	if missing := missingRequiredStatusValues(localContent); len(missing) > 0 {
+		writeMissingStatusAlert(cmd.ErrOrStderr(), missing)
+	}
+
 	// Strict mode check — decided from HEAD-or-local so removing the strict key
 	// locally cannot disable enforcement while HEAD still declares it.
 	if (result.Drifted || hasCriticalDrift) && isStrictModeEither(localContent, committedContent) {
@@ -335,6 +343,72 @@ func compareCriticalFields(local, reference []byte) []criticalFieldChange {
 	}
 
 	return changes
+}
+
+// missingRequiredStatusValues returns the required Status values from the
+// embedded defaults that have no case-insensitive match among the config's
+// fields.status.values, in template order. Unparseable content reports nothing:
+// verify's drift checks already cover a broken file.
+func missingRequiredStatusValues(content []byte) []string {
+	var cfg struct {
+		Fields map[string]struct {
+			Values map[string]string `json:"values"`
+		} `json:"fields"`
+	}
+	if err := json.Unmarshal(content, &cfg); err != nil {
+		return nil
+	}
+	defs, err := defaults.Load()
+	if err != nil {
+		return nil
+	}
+
+	present := map[string]bool{}
+	for _, value := range cfg.Fields["status"].Values {
+		present[strings.ToLower(value)] = true
+	}
+
+	var missing []string
+	for _, f := range defs.Fields.Required {
+		if f.Name != "Status" {
+			continue
+		}
+		for _, name := range f.Options {
+			if !present[strings.ToLower(name)] {
+				missing = append(missing, name)
+			}
+		}
+	}
+	return missing
+}
+
+// writeMissingStatusAlert writes a boxed warning naming each missing required
+// Status value and the command that adds them. Same box as writeCriticalAlert.
+func writeMissingStatusAlert(w io.Writer, missing []string) {
+	const width = 63
+	border := strings.Repeat("─", width)
+	row := func(text string) {
+		padding := width + 2 - len([]rune(text))
+		if padding < 1 {
+			padding = 1
+		}
+		fmt.Fprintf(w, "│%s%s│\n", text, strings.Repeat(" ", padding))
+	}
+
+	fmt.Fprintf(w, "\n┌─%s─┐\n", border)
+	row("  ⚠ REQUIRED STATUS VALUES MISSING")
+	fmt.Fprintf(w, "├─%s─┤\n", border)
+	row("")
+	row("  .gh-pmu.json has no Status alias for these required values:")
+	row("")
+	for _, name := range missing {
+		row("    • " + name)
+	}
+	row("")
+	row("  Add them to the project board and refresh the aliases with:")
+	row("    gh pmu status --update")
+	row("")
+	fmt.Fprintf(w, "└─%s─┘\n", border)
 }
 
 // writeCriticalAlert writes a boxed warning to the given writer for critical field changes.
