@@ -23,5 +23,5 @@
   "frameworkVersion": "0.103.0",
   "frameworkPath": "C:/ProgramData/praxis-hub/framework_root_0.103.0",
   "$schema": "framework-config.schema.json",
-  "reviewSweep": "recommend"
+  "reviewSweep": "full"
 }
