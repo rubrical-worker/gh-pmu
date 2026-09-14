@@ -25,6 +25,7 @@ type intakeClient interface {
 }
 
 type intakeOptions struct {
+	list     bool
 	apply    string
 	dryRun   bool
 	json     bool
@@ -41,16 +42,17 @@ func newIntakeCommand() *cobra.Command {
 		Long: `Find open issues in configured repositories that are not yet tracked in the project.
 
 This helps ensure all work is captured on your project board.
-Use --apply to automatically add discovered issues to the project.`,
+Choose a mode: --list to list untracked issues, --dry-run to preview what
+--apply would add, or --apply to add them. Without a mode, this help is shown.`,
 		Aliases: []string{"in"},
 		Example: `  # List untracked issues
-  gh pmu intake
+  gh pmu intake --list
 
   # Filter by label
-  gh pmu intake --label bug --label urgent
+  gh pmu intake --list --label bug --label urgent
 
   # Filter by assignee
-  gh pmu intake --assignee username
+  gh pmu intake --list --assignee username
 
   # Preview what would be added
   gh pmu intake --dry-run
@@ -62,7 +64,7 @@ Use --apply to automatically add discovered issues to the project.`,
   gh pmu intake --apply=status:backlog,priority:p1
 
   # Output as JSON
-  gh pmu intake --json`,
+  gh pmu intake --list --json`,
 		// --apply uses NoOptDefVal so `--apply value` treats value as a positional.
 		// NoArgs rejects such stray positionals loudly instead of silently ignoring them.
 		Args: cobra.NoArgs,
@@ -71,17 +73,25 @@ Use --apply to automatically add discovered issues to the project.`,
 		},
 	}
 
+	cmd.Flags().BoolVar(&opts.list, "list", false, "List untracked issues")
 	cmd.Flags().StringVarP(&opts.apply, "apply", "a", "", "Add untracked issues to project (optionally set fields: status:backlog,priority:p1)")
 	cmd.Flags().Lookup("apply").NoOptDefVal = " " // Allow --apply without a value (uses config defaults)
 	cmd.Flags().BoolVar(&opts.dryRun, "dry-run", false, "Show what would be added without making changes")
 	cmd.Flags().BoolVar(&opts.json, "json", false, "Output in JSON format")
 	cmd.Flags().StringArrayVarP(&opts.label, "label", "l", nil, "Filter issues by label (can be specified multiple times)")
 	cmd.Flags().StringArrayVar(&opts.assignee, "assignee", nil, "Filter issues by assignee (can be specified multiple times)")
+	cmd.MarkFlagsMutuallyExclusive("list", "apply")
 
 	return cmd
 }
 
 func runIntake(cmd *cobra.Command, opts *intakeOptions) error {
+	// No mode selected: show help before any config load or API traffic (#918).
+	// --json, --label and --assignee only modify a mode, they do not select one.
+	if !opts.list && !opts.dryRun && !cmd.Flags().Changed("apply") {
+		return cmd.Help()
+	}
+
 	// Load configuration
 	cwd, err := os.Getwd()
 	if err != nil {

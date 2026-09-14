@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
+	"os"
 	"reflect"
 	"strings"
 	"testing"
@@ -187,6 +189,47 @@ func TestIntakeCommand(t *testing.T) {
 		assigneeFlag := cmd.Flags().Lookup("assignee")
 		if assigneeFlag == nil {
 			t.Error("expected --assignee flag")
+		}
+
+		// Check --list flag (#918): long form only, since -l is --label
+		listFlag := cmd.Flags().Lookup("list")
+		if listFlag == nil {
+			t.Fatal("expected --list flag")
+		}
+		if listFlag.Shorthand != "" {
+			t.Errorf("--list must have no shorthand (-l is --label), got %q", listFlag.Shorthand)
+		}
+		if listFlag.Value.Type() != "bool" {
+			t.Errorf("--list should be a boolean flag, got %s", listFlag.Value.Type())
+		}
+	})
+
+	t.Run("--list and --apply are mutually exclusive", func(t *testing.T) {
+		root := NewRootCommand()
+		root.SetOut(new(bytes.Buffer))
+		root.SetErr(new(bytes.Buffer))
+		root.SetArgs([]string{"intake", "--list", "--apply"})
+		err := root.Execute()
+		if err == nil {
+			t.Fatal("expected an error for --list with --apply")
+		}
+		if !strings.Contains(err.Error(), "list") || !strings.Contains(err.Error(), "apply") {
+			t.Errorf("error should name both flags, got: %v", err)
+		}
+	})
+
+	t.Run("examples list with --list, never the bare form", func(t *testing.T) {
+		cmd := newIntakeCommand()
+		if !strings.Contains(cmd.Example, "gh pmu intake --list\n") {
+			t.Errorf("Example should show `gh pmu intake --list`, got:\n%s", cmd.Example)
+		}
+		for _, line := range strings.Split(cmd.Example, "\n") {
+			if strings.TrimSpace(line) == "gh pmu intake" {
+				t.Error("Example must not show bare `gh pmu intake` — it prints help")
+			}
+		}
+		if strings.Contains(cmd.Example, "gh pmu intake --json") {
+			t.Error("Example must pair --json with a mode (e.g. --list --json)")
 		}
 	})
 
@@ -723,6 +766,58 @@ func TestRunIntakeWithDeps_SearchErrorWarnsAndContinues(t *testing.T) {
 	}
 	if !strings.Contains(stderr.String(), "failed to get issues from owner/repo") {
 		t.Errorf("expected per-repository warning, got: %s", stderr.String())
+	}
+}
+
+// countingTransport counts HTTP requests so a test can assert none were made.
+type countingTransport struct{ requests int }
+
+func (c *countingTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	c.requests++
+	return nil, errors.New("unexpected API request: " + req.URL.String())
+}
+
+// TestRunIntake_NoModePrintsHelp (#918): without --list, --dry-run or --apply,
+// intake prints its help and returns before loading config or creating a client.
+// The temp dir has no .gh-pmu.json, so reaching config load would error, and the
+// counting transport would record any API traffic.
+func TestRunIntake_NoModePrintsHelp(t *testing.T) {
+	cases := map[string]*intakeOptions{
+		"no flags":        {},
+		"json only":       {json: true},
+		"label only":      {label: []string{"bug"}},
+		"assignee + json": {assignee: []string{"@me"}, json: true},
+	}
+	for name, opts := range cases {
+		t.Run(name, func(t *testing.T) {
+			transport := &countingTransport{}
+			api.SetTestTransport(transport)
+			api.SetTestAuthToken("test-token")
+			defer func() {
+				api.SetTestTransport(nil)
+				api.SetTestAuthToken("")
+			}()
+			origDir, _ := os.Getwd()
+			if err := os.Chdir(t.TempDir()); err != nil {
+				t.Fatalf("chdir: %v", err)
+			}
+			defer func() { _ = os.Chdir(origDir) }()
+
+			cmd := newIntakeCommand()
+			var out bytes.Buffer
+			cmd.SetOut(&out)
+			cmd.SetErr(&out)
+
+			if err := runIntake(cmd, opts); err != nil {
+				t.Fatalf("expected help and nil error, got: %v", err)
+			}
+			if !strings.Contains(out.String(), "Usage:") || !strings.Contains(out.String(), "--list") {
+				t.Errorf("expected intake help text, got: %s", out.String())
+			}
+			if transport.requests != 0 {
+				t.Errorf("expected no API requests, got %d", transport.requests)
+			}
+		})
 	}
 }
 
