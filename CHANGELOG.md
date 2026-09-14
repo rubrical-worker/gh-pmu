@@ -7,6 +7,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.6.0] - 2026-09-14
+
+`gh pmu intake` is now much faster: it reads each issue's project membership
+directly instead of scanning the whole board, and `--apply` adds issues and sets
+their fields in batches. A new `gh pmu status --update` brings a project's Status
+field up to the nine standard values with their default colors, and `gh pmu init`
+now adds missing Status values instead of refusing to continue. Terms acceptance
+now carries across minor and patch upgrades and is asked for again only when the
+major version changes.
+
+**Upgrade notes:**
+- `gh pmu intake` with no mode flag now prints help instead of listing issues. Scripts that ran bare `gh pmu intake` must add `--list` (#918)
+- An existing terms acceptance recorded on 1.x stays valid through this and later 1.x releases; no `gh pmu accept` is needed after upgrading (#919)
+
+### Added
+- `gh pmu status --update` adds missing required Status values, fixes capitalization-only name differences in place, applies default colors and fills empty descriptions. It never deletes, reorders or touches custom values, and refuses to run on cached field metadata (#917)
+- `gh pmu intake --list` as an explicit listing mode; `--list` and `--apply` are mutually exclusive (#918)
+- `config verify` prints an advisory `REQUIRED STATUS VALUES MISSING` alert when `.gh-pmu.json` lacks any of the 9 required Status values. It reads the local config only and never changes the exit code (#917)
+- `auto-filed` standard label for issues filed by the hall-monitor, created by `gh pmu label sync` (#915)
+- Default Status field definitions (`Backlog`, `Up next`, `Ready`, `In progress`, `In review`, `QA required`, `Done`, `Parking Lot`, `Notes`) with colors and descriptions in `internal/defaults/defaults.yml` (#917)
+
+### Changed
+- `gh pmu intake` finds candidates with a repository-scoped search that reports each issue's project membership, replacing a full board scan filtered client-side. Measured on this project: 12.2s → 1.2s (#918)
+- `gh pmu intake --apply` adds issues with aliased batch mutations (50 per request) and applies field values in batches, reporting `Added N issue(s) to project (M failed)` (#918)
+- An issue belonging to more than 20 projects is excluded from intake with a warning, since its membership cannot be confirmed from the first page (#918)
+- `gh pmu init` on an existing project adds missing required Status values and fixes capitalization instead of failing validation; a failure rolls back the init (#917)
+- Terms re-acceptance is required only on a major version change, in either direction. Missing acceptance, dev-build acceptance and unparseable versions still require acceptance (#919)
+- `docs/configuration.md` documents all 9 Status aliases (#917)
+
+### Documentation
+- Proposals: MCP Server Front End (#913) and Fail-Loud CLI Contract (#914)
+- Design decisions for intake membership from issue project items (#918) and Status option reconcile (#917)
+- Charter refresh: Key Entities, updated Architecture, Tech-Stack and Test-Strategy, declared test suites
+- IDPF-Praxis framework upgraded to 0.103.0
+
 ## [1.5.3] - 2026-08-25
 
 Released as a patch rather than the minor `recommend-version.js` suggested, for

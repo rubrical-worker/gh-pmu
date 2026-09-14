@@ -114,7 +114,7 @@ Sub-Issues: sub add, sub create, sub list, sub remove
 Batch:      intake, triage, split
 Labels:     label sync, label list, label add, label update, label delete
 Workflows:  branch, validation, accept
-Config:     config verify
+Config:     config verify, status --update
 Utilities:  filter, history
 ```
 
