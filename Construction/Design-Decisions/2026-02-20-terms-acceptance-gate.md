@@ -23,14 +23,14 @@ Acceptance is stored in `.gh-pmu.yml` (committed to repo), so one person's accep
 Follows the existing pattern from `internal/defaults/defaults.yml`. Terms text lives in `internal/defaults/terms.txt` and is compiled into the binary. No external dependencies at acceptance time.
 
 ### 5. Version-based re-acceptance
-Compares major.minor only (ignores patch). Uses simple string parsing rather than a semver library. Dev versions are handled specially: dev current skips re-acceptance, dev accepted always triggers re-acceptance on real versions.
+Compares the major version only (ignores minor and patch) — amended by #919, 2026-09-14; the original decision compared major.minor. Re-acceptance on every minor release blocked collaborators out of proportion to the change, so it is now tied to major releases; a terms change that must be re-accepted ships in a major release. Uses simple string parsing rather than a semver library. Dev versions are handled specially: dev current skips re-acceptance, dev accepted always triggers re-acceptance on real versions.
 
 ## Alternatives Considered
 
 - **Global config (~/.config/gh-pmu/)**: Rejected because requirement specified per-repo detection
 - **Middleware pattern**: Rejected in favor of Cobra's built-in PersistentPreRunE
 - **Interactive-only acceptance**: Added `--yes` flag for Claude Code / CI support
-- **Semver library**: Rejected — simple string split is sufficient for major.minor comparison
+- **Semver library**: Rejected — simple string split is sufficient for the version comparison
 
 ## Consequences
 

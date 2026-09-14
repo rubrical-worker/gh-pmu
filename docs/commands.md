@@ -835,7 +835,7 @@ gh pmu accept --dir /path/to/repo
 
 **Notes:**
 - Acceptance is stored in `.gh-pmu.json` and shared across collaborators
-- Re-acceptance is required when the major or minor version changes (patch updates do not require re-acceptance)
+- Re-acceptance is required only when the major version changes (minor and patch updates do not require re-acceptance)
 - The `init`, `accept`, `--help`, and `--version` commands are exempt from the acceptance gate
 
 **Output:**
