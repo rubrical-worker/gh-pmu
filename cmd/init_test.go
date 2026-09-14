@@ -1756,7 +1756,9 @@ func TestWriteConfigWithMetadata_ClearsAcceptance_MajorVersion(t *testing.T) {
 	}
 }
 
-func TestWriteConfigWithMetadata_ClearsAcceptance_MinorVersion(t *testing.T) {
+// TestWriteConfigWithMetadata_PreservesAcceptance_MinorVersion (#919): re-init
+// keeps acceptance recorded on a different minor version of the same major.
+func TestWriteConfigWithMetadata_PreservesAcceptance_MinorVersion(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	// Seed with a version that differs in minor from current.
@@ -1800,8 +1802,8 @@ func TestWriteConfigWithMetadata_ClearsAcceptance_MinorVersion(t *testing.T) {
 		t.Fatalf("JSON is not valid: %v", err)
 	}
 
-	if _, ok := parsed["acceptance"]; ok {
-		t.Error("Expected acceptance to be cleared on minor version change, but it was present")
+	if _, ok := parsed["acceptance"]; !ok {
+		t.Error("Expected acceptance to be preserved on a minor version change (#919), but it was cleared")
 	}
 }
 
@@ -2417,6 +2419,14 @@ type fakeInitClient struct {
 
 	deleteProjectErr   error
 	deleteProjectCalls []string
+
+	updateOptionsErr   error
+	updateOptionsCalls [][]api.FieldOptionUpdate
+}
+
+func (f *fakeInitClient) UpdateProjectFieldOptions(fieldID string, options []api.FieldOptionUpdate) ([]api.FieldOption, error) {
+	f.updateOptionsCalls = append(f.updateOptionsCalls, options)
+	return nil, f.updateOptionsErr
 }
 
 func (f *fakeInitClient) GetProjectFields(projectID string) ([]api.ProjectField, error) {
@@ -2544,6 +2554,73 @@ func TestRunInitPostCreate_LabelLoopFailure_DoesNotRollBack(t *testing.T) {
 	out := errBuf.String()
 	if !strings.Contains(out, "Warning: failed to check label") {
 		t.Errorf("Expected warning to be emitted for label failure, got: %s", out)
+	}
+}
+
+// TestRunInitPostCreate_ReconcilesStatus (#917): a copied project missing
+// required Status values gets them added instead of being rolled back, and the
+// written config carries an alias for every Status value.
+func TestRunInitPostCreate_ReconcilesStatus(t *testing.T) {
+	errBuf := &bytes.Buffer{}
+	defs, err := defaults.Load()
+	if err != nil {
+		t.Fatalf("load defaults: %v", err)
+	}
+	var full []api.FieldOption
+	for i, def := range canonicalStatusDefs(t) {
+		full = append(full, api.FieldOption{ID: fmt.Sprintf("o%d", i), Name: def.Name, Color: def.Color})
+	}
+	client := &fakeInitClient{
+		getFieldsResult: []api.ProjectField{{ID: "F", Name: "Status", DataType: "SINGLE_SELECT", Options: project11Status()}},
+		refetchResult:   []api.ProjectField{{ID: "F", Name: "Status", DataType: "SINGLE_SELECT", Options: full}},
+	}
+	in := newAtomicityInputs(t, errBuf)
+	in.Framework = "IDPF"
+	in.Defs = &defaults.Defaults{Fields: defs.Fields}
+
+	if err := runInitPostCreate(client, in); err != nil {
+		t.Fatalf("missing Status values must be added, not fail init: %v\n%s", err, errBuf.String())
+	}
+	if len(client.deleteProjectCalls) != 0 {
+		t.Errorf("expected no rollback, got %v", client.deleteProjectCalls)
+	}
+	if len(client.updateOptionsCalls) != 1 {
+		t.Fatalf("expected one Status options update, got %d", len(client.updateOptionsCalls))
+	}
+
+	cfg, err := config.Load(filepath.Join(in.Cwd, ".gh-pmu.json"))
+	if err != nil {
+		t.Fatalf("load written config: %v", err)
+	}
+	for _, alias := range []string{"backlog", "up_next", "ready", "in_progress", "in_review", "qa_required", "done", "parking_lot", "notes"} {
+		if _, ok := cfg.Fields["status"].Values[alias]; !ok {
+			t.Errorf("written config missing status alias %q: %v", alias, cfg.Fields["status"].Values)
+		}
+	}
+}
+
+func TestRunInitPostCreate_StatusUpdateFailure_RollsBack(t *testing.T) {
+	errBuf := &bytes.Buffer{}
+	defs, err := defaults.Load()
+	if err != nil {
+		t.Fatalf("load defaults: %v", err)
+	}
+	client := &fakeInitClient{
+		getFieldsResult:  []api.ProjectField{{ID: "F", Name: "Status", DataType: "SINGLE_SELECT", Options: project11Status()}},
+		updateOptionsErr: fmt.Errorf("forbidden"),
+	}
+	in := newAtomicityInputs(t, errBuf)
+	in.Framework = "IDPF"
+	in.Defs = &defaults.Defaults{Fields: defs.Fields}
+
+	if err := runInitPostCreate(client, in); err == nil {
+		t.Fatal("expected the Status update failure to fail init")
+	}
+	if len(client.deleteProjectCalls) != 1 {
+		t.Errorf("expected rollback of the new project, got %v", client.deleteProjectCalls)
+	}
+	if !strings.Contains(errBuf.String(), "failedStep=validate-required-fields") {
+		t.Errorf("expected the required-fields failure step in the trailer, got: %s", errBuf.String())
 	}
 }
 

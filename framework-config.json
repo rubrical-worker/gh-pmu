@@ -20,8 +20,35 @@
     "test-scaffold",
     "test-writing-patterns"
   ],
-  "frameworkVersion": "0.97.0",
-  "frameworkPath": "C:/ProgramData/praxis-hub/framework_root_0.97.0",
+  "frameworkVersion": "0.103.0",
+  "frameworkPath": "C:/ProgramData/praxis-hub/framework_root_0.103.0",
   "$schema": "framework-config.schema.json",
-  "reviewSweep": "recommend"
+  "reviewSweep": "full",
+  "testing": {
+    "suites": [
+      {
+        "id": "go-test",
+        "role": "unit",
+        "kind": "framework",
+        "match": [
+          "**/*.go"
+        ],
+        "full": "go test ./...",
+        "scoped": {
+          "mode": "package"
+        }
+      },
+      {
+        "id": "go-subprocess-e2e",
+        "role": "e2e",
+        "kind": "framework",
+        "execution": "manual-only",
+        "match": [
+          "test/e2e/**/*.go"
+        ],
+        "full": "go test -tags e2e ./test/e2e/ -v",
+        "note": "Live GitHub API; requires gh auth. Run locally before release, never from CI or /work (#876)."
+      }
+    ]
+  }
 }

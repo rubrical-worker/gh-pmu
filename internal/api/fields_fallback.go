@@ -149,6 +149,9 @@ func loadCachedProjectFieldsOrError(origErr error) ([]ProjectField, error) {
 			errors.Join(ErrFieldResolverUnavailable, origErr))
 	}
 	emitFieldsCacheWarning(len(fields))
+	for i := range fields {
+		fields[i].FromCache = true
+	}
 	return fields, nil
 }
 

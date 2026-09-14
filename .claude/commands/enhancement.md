@@ -1,5 +1,5 @@
 ---
-version: "v0.97.0"
+version: "v0.103.0"
 description: Create an enhancement issue with standard template (project)
 argument-hint: "<title> [--prior-art]"
 copyright: "Rubrical Works (c) 2026"
@@ -19,6 +19,7 @@ Create a labeled enhancement issue with standard template and add to project boa
 | `<title>` | Enhancement title (e.g., `add dark mode`) |
 | `--prior-art` | Run prior-art sweep before composing body. Absent = current behavior, no sweep. |
 | `--assignee <value>` | GitHub login for the new issue. Omitted → `@me`. |
+| `--target <owner/name>` | File the issue against a registered companion repository instead of this one. |
 
 If not provided, prompt user.
 ---
@@ -44,6 +45,12 @@ Describe the enhancement (what it does, why it's useful):
 **Description provided:** use as body. **Declined/"skip":** minimal body.
 ### Step 2a: AC Feasibility Quick-Check (#2424)
 If AC text in description mentions a verification mechanism (see `.claude/metadata/ac-feasibility-prompts.json` `verificationGate.triggerPhrases`), apply the `verificationGate` prompt. Append warning to issue body's Scope section; do **not** block. Trigger list is heuristic.
+**Also apply `phaseFeasibility` (#2726)** — the question `verificationGate` does not ask: can this AC close inside the phase that owns it? A named mechanism can exist and the AC still be unsatisfiable ("user-reviewed and approved before merge" names a real review whose output does not exist when the box must be checked). Ask whether the condition is knowably true when `/work` reaches Step 5. Apply `phaseFeasibility.actionIfOutOfPhase`:
+| Disposition | When | Result |
+|---|---|---|
+| **Drop** | Work appears in `phaseFeasibility.ownedElsewhere` — CHANGELOG, tagging, release publication belong to `/prepare-release` | Do not author the AC; tell the user which command owns it |
+| **Annotate** | Gate is genuinely load-bearing (required human review or sign-off) | `- [ ] {acText} → GATE: {phase}` per `annotationFormat`, and **name the event that resolves it** — a token that cannot name one is not a gate |
+Prefer annotation over deletion when the requirement is real: the goal is to stop the gate deadlocking `in_review`, not to remove the requirement. **Warning-only, as `verificationGate` is** — do **not** block creation. `/bug` and `/enhancement` take free text and often carry no ACs, so blocking would stop capture over an AC nobody wrote.
 ### Step 2b: Prior-Art Sweep (`--prior-art` only)
 **Trigger:** sweep flag from Step 1. Absent the flag, skip this step entirely.
 Runs **before** the body is composed, so findings change what gets written rather than annotating a body already wrong.
@@ -59,6 +66,16 @@ Runs **before** the body is composed, so findings change what gets written rathe
 | `already-shipped` | **STOP.** Create no issue. Report conflicting issue numbers and file paths. |
 | `found-but-warranted` | Continue. Record `**Prior Art:**` — what exists, how this differs. |
 | `none-found` | Continue. Record `noneFoundFormat` line including terms searched. |
+**Two marker forms are recognised on read (#2700).** Emission is unchanged — always the bold inline form from `prior-art-sweep.json` `bodyFormat`. Detection also accepts a markdown heading:
+
+| Form | Example | Recognised |
+|---|---|---|
+| Bold inline (emitted) | `**Prior Art:** found — …` | yes |
+| Markdown heading | `## Prior Art` / `### Prior Art:` — any level | yes |
+| Bare, neither | `Prior Art: found — …` | **no** |
+
+Before #2700 only the bold counted, so a researched `## Prior Art` read as one nobody wrote. Authoritative: `bodyFormat.recognisedForms`, pinned to `classifyMarker` by test.
+
 
 **Emit the section on every `--prior-art` invocation, including a nil result.** Presence records the sweep ran; absence means none ran. Omitting on nil makes "nothing found" indistinguishable from "nobody looked".
 Use exact `bodyFormat` strings (`heading`, `noneFoundFormat`, `foundEntryFormat`, `partialFormat`) — never paraphrase, so consumers test the marker without parsing prose. `PARTIAL` is treated as equivalent to an absent marker and triggers re-sweep.
@@ -97,17 +114,52 @@ Populate from user input where possible. Use "To be documented" only where insuf
 Create:
 ```bash
 gh pmu create --title "[Enhancement]: {title}" --label enhancement --status backlog --priority p2 --assignee {assignee} -F .tmp-body.md
+```
+
+**Cross-repo filing (`--target <owner/name>`, #2665):** resolve BEFORE composing the issue — a refusal after the body is written wastes the work and tempts a retry against the wrong repo.
+```javascript
+const { resolveFilingTarget, resolveBoardFields, formatUnresolvedBoardFields } = require('.claude/scripts/shared/lib/companion-projects.js');
+const target = resolveFilingTarget(charterContent, requestedRepo);
+```
+`ok:false` → report `reason` verbatim, **STOP**. Two refusals, never merged: not registered → register with `/charter update --register-proj`; registered with `fileIssues:false` → marked read-only on purpose, enable with `--register-proj`. Searchable-but-not-filable is the common case, so the second is usually correct rather than an oversight, and one combined message sends the user to the wrong remedy half the time.
+`ok: true` → **do NOT add `-R` to `gh pmu create`.** Delegate the cross-repo filing to the shared helper:
+```javascript
+const { fileCompanionIssue } = require('.claude/scripts/shared/file-companion-issue.js');
+const resolution = resolveBoardFields(target.entry);   // { resolved, fields, board, reason }
+const result = fileCompanionIssue({
+  repo: target.entry.repo, title, bodyFile: '.tmp-body.md',
+  labels: [LABEL], assignee, status: STATUS, priority: PRIORITY,
+  board: target.entry.board || null, fields: resolution.fields,
+});
+```
+**Why not `gh pmu create -R` (#2775).** gh-pmu takes the *repository* from `-R` but the *project* from the **local** `.gh-pmu.json`, with no override — so it files into the companion and adds the issue to **this** repo's board (observed: px-manager#1155 landed on Project-Varia, reporting fields unset, which concealed the pollution).
+The helper creates the issue with the **bare `gh issue create`** form, then adds it to the *companion's* board explicitly — the one case where the bare form is correct: rule 02 prohibits it because it reaches no board, and here the **local** board is what must not be reached. Membership is redirected, not abandoned.
+**Report the envelope; re-derive none of it.** `{ok, issue:{number,url}, board:{added, owner, number, fields:{set,unset}}, errors}`.
+| Envelope | Report |
+|---|---|
+| `ok: false` | The `errors` verbatim; nothing was created, or the failure is named |
+| `board.added: true`, `fields.unset` empty | Issue number/URL, the board joined, the fields set |
+| `board.added: true`, `fields.unset` non-empty | The same **plus every `errors` entry** — an unset field must never pass for a set one |
+| `board.added: false` with a board registered | Issue created, board-add failed; print `errors`. The issue **exists** — do not file it again |
+| No board registered | Issue created, no board touched. Print `formatUnresolvedBoardFields(repo, resolution)` unchanged |
+**Never guess a field or option id.** The helper resolves them from the companion's own `gh project field-list` and reports anything unresolvable as unset; a guess files onto the wrong column silently.
+```bash
 rm .tmp-body.md
 ```
 **Note:** Always `-F .tmp-body.md` (never inline `--body`).
 **Assignee:** substitute `{assignee}` from `node .claude/scripts/shared/lib/gh-pmu-config.js --assignee <value>` — pass the user's `--assignee` value, omit when none given. Helper returns that login, else `@me`; reads no config file. NEVER hardcode a login or drop the flag (omitted `--assignee` silently creates an unassigned issue). Unresolvable login → `gh pmu` exits 1 and creates nothing; report the error, do NOT retry without the flag.
-### Step 4: Report and STOP
+### Step 4: Cleanup, Report, and STOP
+Three parts, in order. The prune is **part of** this step, and this step is **numbered** — `One task per numbered step` now covers it, so an unpruned list surfaces as an unfinished task like any other. The halt is part (3) and lives nowhere earlier: while it sat in this step's TITLE a reader stopped at the title and never reached the prune (#2641).
+**(1) Prune the task list** (unconditional — every path, including early-exit paths where Phase 1 created tasks and later phases never ran):
+1. `TaskList` — enumerate all tasks.
+2. For every task owned by this `/enhancement` invocation, `TaskUpdate status=deleted`.
+3. Do **not** delete tasks created outside this invocation (user TODOs).
+**(2) Emit the closing output:**
 Report the created issue number and title, Status `Backlog`, Label `enhancement`, then the follow-on sequence: `/review-issue`, `/assign-branch`, `work` with the issue number.
 
 <!-- USER-EXTENSION-START: post-create -->
 <!-- USER-EXTENSION-END: post-create -->
-
-**STOP.** Do NOT begin work unless user says "work", "fix that", or "implement that".
+**(3) STOP.** Do NOT begin work unless user says "work", "fix that", or "implement that".
 ---
 ## Error Handling
 | Situation | Response |
@@ -119,13 +171,5 @@ Report the created issue number and title, Status `Backlog`, Label `enhancement`
 | Sweep: issue history unavailable (`gh` error) | Warn, emit `partialFormat` naming what ran and what failed, continue. Never claim a clean sweep. |
 | Sweep: **zero `searchSurfaces` resolved** | Warn, emit `partialFormat`, continue. A sweep that searched nothing is failed, not empty — never emit `noneFoundFormat` here. |
 | Sweep: `prior-art-sweep.json` missing/unreadable | Warn, skip sweep, emit no `**Prior Art:**` section. Absence correctly reads as "no sweep ran". |
-### Closing Cleanup
-Two parts, in order. The prune is **part of** this step, not a trailing step a reader can stop before — the closing output makes a run *feel* finished, so a prune placed after it never runs.
-**(1) Emit the closing output** described by the final step above.
-**(2) Prune the task list** (unconditional — every path, including early-exit paths where Phase 1 created tasks and later phases never ran):
-1. `TaskList` — enumerate all tasks.
-2. For every task owned by this `/enhancement` invocation, `TaskUpdate status=deleted`.
-3. Do **not** delete tasks created outside this invocation (user TODOs).
-
 ---
 **End of /enhancement Command**

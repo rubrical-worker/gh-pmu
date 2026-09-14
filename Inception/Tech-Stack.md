@@ -1,6 +1,6 @@
 # Tech Stack: gh-pmu
 
-**Last Updated:** 2026-03-27
+**Last Updated:** 2026-09-14
 
 ---
 
@@ -24,7 +24,8 @@
 | Build Tool | go build / GoReleaser | - | Binary compilation, releases |
 | Linter | golangci-lint | Latest | Code quality |
 | Formatter | gofmt | Built-in | Code formatting |
-| Test Framework | go test | Built-in | Unit and integration tests |
+| Test Framework | go test | Built-in | Unit, integration (`-tags integration`) and e2e (`-tags e2e`) tests |
+| Security Scanning | gosec, CodeQL | GitHub Actions | Static security analysis (`gosec.yml`, `codeql.yml`) |
 
 ---
 
@@ -48,15 +49,17 @@
 | github.com/cli/go-gh/v2 | 2.12.1 | GitHub CLI SDK |
 | github.com/cli/shurcooL-graphql | 0.0.4 | GraphQL client |
 | github.com/spf13/cobra | 1.10.1 | CLI framework |
-| gopkg.in/yaml.v3 | 3.0.1 | YAML config parsing |
+| gopkg.in/yaml.v3 | 3.0.1 | YAML parsing (embedded defaults) |
+| github.com/charmbracelet/lipgloss | 1.1.1 (pre-release) | Terminal styling |
+| github.com/vektah/gqlparser/v2 | 2.5.36 | Offline GraphQL validation against the vendored schema |
+| golang.org/x/term | 0.30.0 | Terminal detection |
 
-### Development Dependencies
+### Notable Indirect Dependencies
 
 | Package | Version | Purpose |
 |---------|---------|---------|
-| charmbracelet/lipgloss | 1.1.0+ | Terminal styling |
-| charmbracelet/x/ansi | 0.8.0 | ANSI escape codes |
-| mattn/go-isatty | 0.20.0 | TTY detection |
+| charmbracelet/x/ansi | 0.8.0 | ANSI escape codes (indirect) |
+| mattn/go-isatty | 0.20.0 | TTY detection (indirect) |
 
 ---
 

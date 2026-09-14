@@ -162,6 +162,37 @@ func TestRunLabelSync_CreatesMissing(t *testing.T) {
 	}
 }
 
+// TestRunLabelSync_CreatesAutoFiledFromDefaults (#915): syncing the embedded
+// defaults into a repository without the label creates auto-filed.
+func TestRunLabelSync_CreatesAutoFiledFromDefaults(t *testing.T) {
+	cleanup := setupLabelTestDir(t)
+	defer cleanup()
+
+	defs, err := defaults.Load()
+	if err != nil {
+		t.Fatalf("load defaults: %v", err)
+	}
+	mock := newMockLabelClient()
+
+	var buf bytes.Buffer
+	if err := SyncLabels(&buf, ui.New(&buf), mock, "owner", "repo", defs.Labels, false, false); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var created *createLabelCall
+	for i := range mock.createCalls {
+		if mock.createCalls[i].name == "auto-filed" {
+			created = &mock.createCalls[i]
+		}
+	}
+	if created == nil {
+		t.Fatalf("expected CreateLabel for auto-filed, got %+v", mock.createCalls)
+	}
+	if created.color != "116329" || created.description != "Issue filed by the hall-monitor" {
+		t.Errorf("auto-filed created as %+v, want color 116329 and the hall-monitor description", *created)
+	}
+}
+
 func TestRunLabelSync_SkipsExisting(t *testing.T) {
 	cleanup := setupLabelTestDir(t)
 	defer cleanup()

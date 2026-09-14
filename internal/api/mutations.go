@@ -572,6 +572,89 @@ type ProjectV2SingleSelectFieldOptionInput struct {
 	Description graphql.String `json:"description,omitempty"`
 }
 
+// FieldOptionUpdate is one option in the full list sent to
+// UpdateProjectFieldOptions. ID is empty for a new option and must be set for
+// every existing option, or GitHub clears that option on every item.
+type FieldOptionUpdate struct {
+	ID          string
+	Name        string
+	Color       string
+	Description string
+}
+
+// UpdateProjectV2FieldInput represents the input for updating a project field.
+type UpdateProjectV2FieldInput struct {
+	FieldID             graphql.ID                                    `json:"fieldId"`
+	SingleSelectOptions []ProjectV2SingleSelectFieldOptionUpdateInput `json:"singleSelectOptions"`
+}
+
+// ProjectV2SingleSelectFieldOptionUpdateInput is an option in an update.
+// Color and Description deliberately have no omitempty: both are non-null in
+// the schema and provided values overwrite existing ones, so an empty
+// description must be sent as "" rather than dropped (#917).
+type ProjectV2SingleSelectFieldOptionUpdateInput struct {
+	ID          *graphql.String `json:"id,omitempty"`
+	Name        graphql.String  `json:"name"`
+	Color       graphql.String  `json:"color"`
+	Description graphql.String  `json:"description"`
+}
+
+// UpdateProjectFieldOptions replaces a single-select field's option list via
+// updateProjectV2Field and returns the options GitHub reports afterwards.
+//
+// singleSelectOptions replaces the whole list: the caller must send every
+// option to keep, each existing one with its ID. An empty list is refused
+// because it would clear the field's options.
+func (c *Client) UpdateProjectFieldOptions(fieldID string, options []FieldOptionUpdate) ([]FieldOption, error) {
+	if fieldID == "" {
+		return nil, fmt.Errorf("field ID is required")
+	}
+	if len(options) == 0 {
+		return nil, fmt.Errorf("refusing to update field %s with an empty option list", fieldID)
+	}
+
+	var mutation struct {
+		UpdateProjectV2Field struct {
+			ProjectV2Field struct {
+				ProjectV2SingleSelectField struct {
+					ID      string
+					Name    string
+					Options []struct {
+						ID          string
+						Name        string
+						Color       string
+						Description string
+					}
+				} `graphql:"... on ProjectV2SingleSelectField"`
+			} `graphql:"projectV2Field"`
+		} `graphql:"updateProjectV2Field(input: $input)"`
+	}
+
+	input := UpdateProjectV2FieldInput{FieldID: graphql.ID(fieldID)}
+	for _, opt := range options {
+		in := ProjectV2SingleSelectFieldOptionUpdateInput{
+			Name:        graphql.String(opt.Name),
+			Color:       graphql.String(opt.Color),
+			Description: graphql.String(opt.Description),
+		}
+		if opt.ID != "" {
+			in.ID = graphql.NewString(graphql.String(opt.ID))
+		}
+		input.SingleSelectOptions = append(input.SingleSelectOptions, in)
+	}
+
+	variables := map[string]interface{}{"input": input}
+	if err := c.gql.Mutate("UpdateProjectV2Field", &mutation, variables); err != nil {
+		return nil, fmt.Errorf("failed to update field options: %w", err)
+	}
+
+	var result []FieldOption
+	for _, opt := range mutation.UpdateProjectV2Field.ProjectV2Field.ProjectV2SingleSelectField.Options {
+		result = append(result, FieldOption{ID: opt.ID, Name: opt.Name, Color: opt.Color, Description: opt.Description})
+	}
+	return result, nil
+}
+
 // DeleteProjectV2FieldInput represents the input for deleting a project field
 type DeleteProjectV2FieldInput struct {
 	FieldID graphql.ID `json:"fieldId"`
@@ -1975,6 +2058,160 @@ func parseBatchMutationResponse(output []byte, updates []FieldUpdate) ([]BatchUp
 			if len(response.Errors) > 0 {
 				result.Success = false
 				result.Error = response.Errors[0].Message
+			}
+		}
+
+		results = append(results, result)
+	}
+
+	return results, nil
+}
+
+// BatchAddResult is the outcome of adding one issue in BatchAddIssuesToProject.
+type BatchAddResult struct {
+	IssueID string
+	ItemID  string // Project item ID; empty unless Success
+	Success bool
+	Error   string
+}
+
+// batchAddChunkSize is the number of aliased addProjectV2ItemById mutations
+// sent per request, matching BatchUpdateProjectItemFields.
+const batchAddChunkSize = 50
+
+// BatchAddIssuesToProject adds issues to a project using aliased mutations,
+// batchAddChunkSize per request, instead of one round trip per issue (#918).
+//
+// A failure is reported per issue: an alias-scoped GraphQL error marks only its
+// own issue, and a request that fails outright marks every issue in that chunk.
+// The returned error is reserved for inputs that cannot be sent at all.
+func (c *Client) BatchAddIssuesToProject(projectID string, issueIDs []string) ([]BatchAddResult, error) {
+	results := make([]BatchAddResult, 0, len(issueIDs))
+	if len(issueIDs) == 0 {
+		return results, nil
+	}
+	if projectID == "" {
+		return nil, fmt.Errorf("project ID is required")
+	}
+
+	for start := 0; start < len(issueIDs); start += batchAddChunkSize {
+		end := start + batchAddChunkSize
+		if end > len(issueIDs) {
+			end = len(issueIDs)
+		}
+		chunk := issueIDs[start:end]
+
+		chunkResults, err := c.executeBatchAdd(projectID, chunk)
+		if err != nil {
+			for _, id := range chunk {
+				results = append(results, BatchAddResult{IssueID: id, Error: err.Error()})
+			}
+			continue
+		}
+		results = append(results, chunkResults...)
+	}
+
+	return results, nil
+}
+
+// executeBatchAdd sends one chunk of aliased add mutations.
+func (c *Client) executeBatchAdd(projectID string, issueIDs []string) ([]BatchAddResult, error) {
+	_, requestBody, err := buildBatchAddRequest(projectID, issueIDs)
+	if err != nil {
+		return nil, err
+	}
+
+	output, err := c.doRawGraphQLBody([]byte(requestBody), nil)
+	if err != nil {
+		return nil, fmt.Errorf("batch add failed: %w", err)
+	}
+
+	return parseBatchAddResponse(output, issueIDs)
+}
+
+// buildBatchAddRequest constructs the aliased addProjectV2ItemById mutation and
+// its JSON request body. Alias aN carries issueIDs[N]. Extracted for testability,
+// mirroring buildBatchMutationRequest.
+func buildBatchAddRequest(projectID string, issueIDs []string) (mutation string, requestBody string, err error) {
+	if len(issueIDs) == 0 {
+		return "", "", nil
+	}
+
+	varDecls := make([]string, 0, len(issueIDs))
+	parts := make([]string, 0, len(issueIDs))
+	variables := make(map[string]interface{}, len(issueIDs))
+
+	for i, id := range issueIDs {
+		if err := validateNodeID(id); err != nil {
+			return "", "", fmt.Errorf("issueIDs[%d]: %w", i, err)
+		}
+		varName := fmt.Sprintf("input%d", i)
+		varDecls = append(varDecls, fmt.Sprintf("$%s: AddProjectV2ItemByIdInput!", varName))
+		parts = append(parts, fmt.Sprintf("a%d: addProjectV2ItemById(input: $%s) { item { id } }", i, varName))
+		variables[varName] = map[string]interface{}{
+			"projectId": projectID,
+			"contentId": id,
+		}
+	}
+
+	mutation = fmt.Sprintf("mutation BatchAddItems(%s) { %s }",
+		strings.Join(varDecls, ", "),
+		strings.Join(parts, " "))
+
+	bodyBytes, err := json.Marshal(map[string]interface{}{
+		"query":     mutation,
+		"variables": variables,
+	})
+	if err != nil {
+		return "", "", fmt.Errorf("failed to marshal request body: %w", err)
+	}
+
+	return mutation, string(bodyBytes), nil
+}
+
+// parseBatchAddResponse decodes a batch add response into one result per issue.
+// An issue succeeds only when its alias returned an item ID — without one the
+// caller has nothing to set fields on.
+func parseBatchAddResponse(output []byte, issueIDs []string) ([]BatchAddResult, error) {
+	var response struct {
+		Data map[string]*struct {
+			Item struct {
+				ID string `json:"id"`
+			} `json:"item"`
+		} `json:"data"`
+		Errors []struct {
+			Message string `json:"message"`
+			// Segments may be strings (aliases) or integers (list indices) (#861).
+			Path []interface{} `json:"path"`
+		} `json:"errors"`
+	}
+
+	if err := json.Unmarshal(output, &response); err != nil {
+		return nil, fmt.Errorf("failed to parse batch add response: %w", err)
+	}
+
+	results := make([]BatchAddResult, 0, len(issueIDs))
+	for i, id := range issueIDs {
+		alias := fmt.Sprintf("a%d", i)
+		result := BatchAddResult{IssueID: id}
+
+		for _, graphErr := range response.Errors {
+			if len(graphErr.Path) > 0 {
+				if seg, ok := graphErr.Path[0].(string); ok && seg == alias {
+					result.Error = graphErr.Message
+					break
+				}
+			}
+		}
+
+		if result.Error == "" {
+			if node := response.Data[alias]; node != nil && node.Item.ID != "" {
+				result.ItemID = node.Item.ID
+				result.Success = true
+			} else if len(response.Errors) > 0 {
+				result.Error = response.Errors[0].Message
+			} else {
+				result.Error = "no project item returned"
 			}
 		}
 

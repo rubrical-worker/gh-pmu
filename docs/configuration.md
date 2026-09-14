@@ -73,10 +73,14 @@ fields:
     field: Status
     values:
       backlog: Backlog
+      up_next: Up next
       ready: Ready
       in_progress: In progress
       in_review: In review
+      qa_required: QA required
       done: Done
+      parking_lot: Parking Lot
+      notes: Notes
 ```
 
 **Usage:**
@@ -208,7 +212,7 @@ acceptance:
 **Notes:**
 - Acceptance is required before using any command (except `init`, `accept`, `--help`, `--version`)
 - Stored in `.gh-pmu.json` so acceptance is shared across collaborators
-- Re-acceptance is triggered on major or minor version bumps (not patch)
+- Re-acceptance is triggered only by major version changes (not minor or patch)
 - Run `gh pmu accept` to accept or re-accept terms
 
 ### Metadata (Auto-Generated)
@@ -262,10 +266,14 @@ fields:
     field: Status
     values:
       backlog: Backlog
+      up_next: Up next
       ready: Ready
       in_progress: In progress
       in_review: In review
+      qa_required: QA required
       done: Done
+      parking_lot: Parking Lot
+      notes: Notes
   size:
     field: Size
     values:

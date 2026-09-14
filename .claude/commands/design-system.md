@@ -1,7 +1,7 @@
 ---
-version: "v0.97.0"
+version: "v0.103.0"
 description: Produce DTCG-compliant design tokens with pluggable adapter architecture (project)
-argument-hint: "[--init | --discover | --export <adapter> | --theme <name>]"
+argument-hint: "[--init | --discover | --export <adapter> | --theme <name> | --from-screenshot <path> | --diff | --showcase | --apply-decisions]"
 copyright: "Rubrical Works (c) 2026"
 ---
 <!-- EXTENSIBLE -->
@@ -37,6 +37,7 @@ Produce DTCG-compliant design token file (`Design-System/idpf-design.tokens.json
 /design-system --export all        # All detected formats
 /design-system --theme dark        # Dark theme override
 /design-system --from-screenshot ./design/home.png   # Bootstrap tokens from image
+/design-system --diff                        # Drift report against discovered tokens; no writes
 /design-system --showcase           # Browser-based design review (#2429)
 /design-system --apply-decisions    # Apply pending decisions headlessly
 ```
@@ -156,10 +157,10 @@ Design-System/
 | Adapter crash | Warn, continue with others |
 | Unknown DTCG type | Error with valid type list |
 | Circular alias | Report cycle path, block write |
-### Closing Cleanup
-Two parts, in order. The prune is **part of** this step, not a trailing step a reader can stop before — the closing output makes a run *feel* finished, so a prune placed after it never runs.
-**(1) Emit the closing output** described by the final step above.
-**(2) Prune the task list** (unconditional — every path, including early-exit paths where Phase 1 created tasks and later phases never ran):
+### Step 9: Closing Cleanup
+The prune is **part of** this step, and this step is **numbered** — what makes the claim hold. `One task per numbered step` now covers it, so an unpruned list surfaces as an unfinished task like any other step. The same claim as prose alone was overridden by the rules beside it (#2641).
+
+**Prune the task list** (unconditional — every path, including early-exit paths where Phase 1 created tasks and later phases never ran):
 1. `TaskList` — enumerate all tasks.
 2. For every task owned by this `/design-system` invocation, `TaskUpdate status=deleted`.
 3. Do **not** delete tasks created outside this invocation (user TODOs).

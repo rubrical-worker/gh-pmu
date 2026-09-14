@@ -17,6 +17,7 @@ type initPostCreateClient interface {
 	DeleteProject(projectID string) error
 	FieldExists(projectID, name string) (bool, error)
 	CreateProjectField(projectID, name, dataType string, singleSelectOptions []string) (*api.ProjectField, error)
+	UpdateProjectFieldOptions(fieldID string, options []api.FieldOptionUpdate) ([]api.FieldOption, error)
 }
 
 // initPostCreateInputs bundles the data runInitPostCreate needs after the
@@ -58,6 +59,10 @@ func runInitPostCreate(client initPostCreateClient, in *initPostCreateInputs) er
 		// The stderr hint is intentionally discarded: this path reports failures
 		// through the rollback trailer, not a bare stderr line (#874).
 		if _, err := validateRequiredFields(projectFields, in.Defs.Fields.Required); err != nil {
+			return rollback(FailedStepValidateRequiredFields, err, false)
+		}
+		// Missing required Status values are added, not rejected (#917).
+		if err := reconcileInitStatus(client, projectFields, in.Defs.Fields.Required, in.ErrOut); err != nil {
 			return rollback(FailedStepValidateRequiredFields, err, false)
 		}
 

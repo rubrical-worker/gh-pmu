@@ -466,6 +466,7 @@ func TestSaveCallSiteInventoryIsUnchanged(t *testing.T) {
 		"cmd/accept.go":             1, // gh pmu accept
 		"cmd/field.go":              1, // gh pmu field mutations
 		"cmd/config.go":             1, // resolveAndPersistView
+		"cmd/status.go":             1, // gh pmu status --update (saves the Config runStatus loaded, #917)
 		"internal/config/config.go": 2, // LoadFromDirectoryAndNormalize, RefreshVersion
 	}
 

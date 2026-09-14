@@ -14,6 +14,15 @@ Process multiple issues at once with intake, triage, and split commands.
 
 Find and add untracked issues to your project board.
 
+`intake` needs a mode: `--list`, `--dry-run` or `--apply`. Run without one, it prints its help instead of querying GitHub.
+
+### List Untracked Issues
+
+```bash
+gh pmu intake --list
+gh pmu intake --list --json
+```
+
 ### Preview Untracked Issues
 
 ```bash

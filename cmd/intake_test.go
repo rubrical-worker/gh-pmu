@@ -4,6 +4,11 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
+	"net/http"
+	"os"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -17,32 +22,62 @@ type mockIntakeClient struct {
 	project          *api.Project
 	projectItems     []api.ProjectItem
 	repositoryIssues []api.Issue
-	addedItemID      string
+
+	// unknownMembership marks issue IDs whose project membership could not be
+	// confirmed (member of more projects than one projectItems page returns).
+	unknownMembership map[string]bool
 
 	// Call tracking
-	getProjectItemsCalls []getProjectItemsCallIntake
-	searchIssuesCalled   bool
-	lastSearchFilters    api.SearchFilters
+	intakeSearchCalls []intakeSearchCall
 
 	// Error injection
 	getProjectErr             error
-	getProjectItemsErr        error
 	searchRepositoryIssuesErr error
-	addIssueToProjectErr      error
-	setProjectItemFieldErr    error
 	getProjectFieldsErr       error
 
 	// Bulk field-setting tracking (#833)
-	projectFields                      []api.ProjectField
-	getProjectFieldsCalls              int
-	setProjectItemFieldCalls           int
-	setProjectItemFieldWithFieldsCalls int
-	lastFieldsPassed                   []api.ProjectField
+	projectFields         []api.ProjectField
+	getProjectFieldsCalls int
+	lastFieldsPassed      []api.ProjectField
+
+	// Batched apply (#918). Added items get ID "item-<issueID>".
+	batchAddCalls    [][]string
+	batchUpdateCalls [][]api.FieldUpdate
+	addFailures      map[string]string // issueID -> error
+	updateFailures   map[string]string // itemID -> error
 }
 
-type getProjectItemsCallIntake struct {
-	projectID string
-	filter    *api.ProjectItemsFilter
+func (m *mockIntakeClient) BatchAddIssuesToProject(projectID string, issueIDs []string) ([]api.BatchAddResult, error) {
+	m.batchAddCalls = append(m.batchAddCalls, issueIDs)
+	results := make([]api.BatchAddResult, 0, len(issueIDs))
+	for _, id := range issueIDs {
+		if msg, failed := m.addFailures[id]; failed {
+			results = append(results, api.BatchAddResult{IssueID: id, Error: msg})
+			continue
+		}
+		results = append(results, api.BatchAddResult{IssueID: id, ItemID: "item-" + id, Success: true})
+	}
+	return results, nil
+}
+
+func (m *mockIntakeClient) BatchUpdateProjectItemFields(projectID string, updates []api.FieldUpdate, fields []api.ProjectField) ([]api.BatchUpdateResult, error) {
+	m.batchUpdateCalls = append(m.batchUpdateCalls, updates)
+	m.lastFieldsPassed = fields
+	results := make([]api.BatchUpdateResult, 0, len(updates))
+	for _, u := range updates {
+		if msg, failed := m.updateFailures[u.ItemID]; failed {
+			results = append(results, api.BatchUpdateResult{ItemID: u.ItemID, FieldName: u.FieldName, Error: msg})
+			continue
+		}
+		results = append(results, api.BatchUpdateResult{ItemID: u.ItemID, FieldName: u.FieldName, Success: true})
+	}
+	return results, nil
+}
+
+type intakeSearchCall struct {
+	owner, repo string
+	labels      []string
+	projectID   string
 }
 
 func newMockIntakeClient() *mockIntakeClient {
@@ -53,7 +88,6 @@ func newMockIntakeClient() *mockIntakeClient {
 		},
 		projectItems:     []api.ProjectItem{},
 		repositoryIssues: []api.Issue{},
-		addedItemID:      "item-123",
 	}
 }
 
@@ -64,36 +98,28 @@ func (m *mockIntakeClient) GetProject(owner string, number int) (*api.Project, e
 	return m.project, nil
 }
 
-func (m *mockIntakeClient) GetProjectItems(projectID string, filter *api.ProjectItemsFilter) ([]api.ProjectItem, error) {
-	m.getProjectItemsCalls = append(m.getProjectItemsCalls, getProjectItemsCallIntake{
-		projectID: projectID,
-		filter:    filter,
-	})
-	if m.getProjectItemsErr != nil {
-		return nil, m.getProjectItemsErr
-	}
-	return m.projectItems, nil
-}
-
-func (m *mockIntakeClient) SearchRepositoryIssues(owner, repo string, filters api.SearchFilters, limit int) ([]api.Issue, error) {
-	m.searchIssuesCalled = true
-	m.lastSearchFilters = filters
+// SearchIntakeCandidates answers from repositoryIssues, treating an issue as on
+// the project when projectItems (the simulated board) contains it.
+func (m *mockIntakeClient) SearchIntakeCandidates(owner, repo string, labels []string, projectID string) ([]api.IntakeCandidate, error) {
+	m.intakeSearchCalls = append(m.intakeSearchCalls, intakeSearchCall{owner: owner, repo: repo, labels: labels, projectID: projectID})
 	if m.searchRepositoryIssuesErr != nil {
 		return nil, m.searchRepositoryIssuesErr
 	}
-	return m.repositoryIssues, nil
-}
-
-func (m *mockIntakeClient) AddIssueToProject(projectID, issueID string) (string, error) {
-	if m.addIssueToProjectErr != nil {
-		return "", m.addIssueToProjectErr
+	onBoard := make(map[string]bool)
+	for _, item := range m.projectItems {
+		if item.Issue != nil {
+			onBoard[item.Issue.ID] = true
+		}
 	}
-	return m.addedItemID, nil
-}
-
-func (m *mockIntakeClient) SetProjectItemField(projectID, itemID, fieldName, value string) error {
-	m.setProjectItemFieldCalls++
-	return m.setProjectItemFieldErr
+	candidates := make([]api.IntakeCandidate, 0, len(m.repositoryIssues))
+	for _, issue := range m.repositoryIssues {
+		candidates = append(candidates, api.IntakeCandidate{
+			Issue:             issue,
+			InProject:         onBoard[issue.ID],
+			MembershipUnknown: m.unknownMembership[issue.ID],
+		})
+	}
+	return candidates, nil
 }
 
 func (m *mockIntakeClient) GetProjectFields(projectID string) ([]api.ProjectField, error) {
@@ -102,12 +128,6 @@ func (m *mockIntakeClient) GetProjectFields(projectID string) ([]api.ProjectFiel
 		return nil, m.getProjectFieldsErr
 	}
 	return m.projectFields, nil
-}
-
-func (m *mockIntakeClient) SetProjectItemFieldWithFields(projectID, itemID, fieldName, value string, fields []api.ProjectField) error {
-	m.setProjectItemFieldWithFieldsCalls++
-	m.lastFieldsPassed = fields
-	return m.setProjectItemFieldErr
 }
 
 func TestIntakeCommand(t *testing.T) {
@@ -169,6 +189,47 @@ func TestIntakeCommand(t *testing.T) {
 		assigneeFlag := cmd.Flags().Lookup("assignee")
 		if assigneeFlag == nil {
 			t.Error("expected --assignee flag")
+		}
+
+		// Check --list flag (#918): long form only, since -l is --label
+		listFlag := cmd.Flags().Lookup("list")
+		if listFlag == nil {
+			t.Fatal("expected --list flag")
+		}
+		if listFlag.Shorthand != "" {
+			t.Errorf("--list must have no shorthand (-l is --label), got %q", listFlag.Shorthand)
+		}
+		if listFlag.Value.Type() != "bool" {
+			t.Errorf("--list should be a boolean flag, got %s", listFlag.Value.Type())
+		}
+	})
+
+	t.Run("--list and --apply are mutually exclusive", func(t *testing.T) {
+		root := NewRootCommand()
+		root.SetOut(new(bytes.Buffer))
+		root.SetErr(new(bytes.Buffer))
+		root.SetArgs([]string{"intake", "--list", "--apply"})
+		err := root.Execute()
+		if err == nil {
+			t.Fatal("expected an error for --list with --apply")
+		}
+		if !strings.Contains(err.Error(), "list") || !strings.Contains(err.Error(), "apply") {
+			t.Errorf("error should name both flags, got: %v", err)
+		}
+	})
+
+	t.Run("examples list with --list, never the bare form", func(t *testing.T) {
+		cmd := newIntakeCommand()
+		if !strings.Contains(cmd.Example, "gh pmu intake --list\n") {
+			t.Errorf("Example should show `gh pmu intake --list`, got:\n%s", cmd.Example)
+		}
+		for _, line := range strings.Split(cmd.Example, "\n") {
+			if strings.TrimSpace(line) == "gh pmu intake" {
+				t.Error("Example must not show bare `gh pmu intake` — it prints help")
+			}
+		}
+		if strings.Contains(cmd.Example, "gh pmu intake --json") {
+			t.Error("Example must pair --json with a mode (e.g. --list --json)")
 		}
 	})
 
@@ -687,23 +748,181 @@ func TestRunIntakeWithDeps_GetProjectError(t *testing.T) {
 	}
 }
 
-func TestRunIntakeWithDeps_GetProjectItemsError(t *testing.T) {
+func TestRunIntakeWithDeps_SearchErrorWarnsAndContinues(t *testing.T) {
 	mock := newMockIntakeClient()
-	mock.getProjectItemsErr = errors.New("items not found")
+	mock.searchRepositoryIssuesErr = errors.New("search failed")
 	cfg := &config.Config{
 		Project:      config.Project{Owner: "test-org", Number: 1},
 		Repositories: []string{"owner/repo"},
 	}
 
 	cmd := newIntakeCommand()
+	var stderr bytes.Buffer
+	cmd.SetOut(new(bytes.Buffer))
+	cmd.SetErr(&stderr)
 	opts := &intakeOptions{}
-	err := runIntakeWithDeps(cmd, opts, cfg, mock)
-
-	if err == nil {
-		t.Fatal("expected error")
+	if err := runIntakeWithDeps(cmd, opts, cfg, mock); err != nil {
+		t.Fatalf("a per-repository search failure should warn, not abort: %v", err)
 	}
-	if !strings.Contains(err.Error(), "failed to get project items") {
-		t.Errorf("expected 'failed to get project items' error, got: %v", err)
+	if !strings.Contains(stderr.String(), "failed to get issues from owner/repo") {
+		t.Errorf("expected per-repository warning, got: %s", stderr.String())
+	}
+}
+
+// countingTransport counts HTTP requests so a test can assert none were made.
+type countingTransport struct{ requests int }
+
+func (c *countingTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	c.requests++
+	return nil, errors.New("unexpected API request: " + req.URL.String())
+}
+
+// TestRunIntake_NoModePrintsHelp (#918): without --list, --dry-run or --apply,
+// intake prints its help and returns before loading config or creating a client.
+// The temp dir has no .gh-pmu.json, so reaching config load would error, and the
+// counting transport would record any API traffic.
+func TestRunIntake_NoModePrintsHelp(t *testing.T) {
+	cases := map[string]*intakeOptions{
+		"no flags":        {},
+		"json only":       {json: true},
+		"label only":      {label: []string{"bug"}},
+		"assignee + json": {assignee: []string{"@me"}, json: true},
+	}
+	for name, opts := range cases {
+		t.Run(name, func(t *testing.T) {
+			transport := &countingTransport{}
+			api.SetTestTransport(transport)
+			api.SetTestAuthToken("test-token")
+			defer func() {
+				api.SetTestTransport(nil)
+				api.SetTestAuthToken("")
+			}()
+			origDir, _ := os.Getwd()
+			if err := os.Chdir(t.TempDir()); err != nil {
+				t.Fatalf("chdir: %v", err)
+			}
+			defer func() { _ = os.Chdir(origDir) }()
+
+			cmd := newIntakeCommand()
+			var out bytes.Buffer
+			cmd.SetOut(&out)
+			cmd.SetErr(&out)
+
+			if err := runIntake(cmd, opts); err != nil {
+				t.Fatalf("expected help and nil error, got: %v", err)
+			}
+			if !strings.Contains(out.String(), "Usage:") || !strings.Contains(out.String(), "--list") {
+				t.Errorf("expected intake help text, got: %s", out.String())
+			}
+			if transport.requests != 0 {
+				t.Errorf("expected no API requests, got %d", transport.requests)
+			}
+		})
+	}
+}
+
+// TestIntakeClient_HasNoProjectBoardScan pins #918: intake determines membership
+// from each issue's projectItems, so the client it depends on offers no way to
+// page the whole project board.
+func TestIntakeClient_HasNoProjectBoardScan(t *testing.T) {
+	iface := reflect.TypeOf((*intakeClient)(nil)).Elem()
+	if _, ok := iface.MethodByName("GetProjectItems"); ok {
+		t.Error("intakeClient must not include GetProjectItems (full project board scan, #918)")
+	}
+	if _, ok := iface.MethodByName("SearchIntakeCandidates"); !ok {
+		t.Error("intakeClient should resolve membership via SearchIntakeCandidates")
+	}
+}
+
+func TestRunIntakeWithDeps_UsesMembershipSearchPerRepo(t *testing.T) {
+	mock := newMockIntakeClient()
+	cfg := &config.Config{
+		Project:      config.Project{Owner: "test-org", Number: 1},
+		Repositories: []string{"owner/repo1", "owner/repo2"},
+	}
+
+	cmd := newIntakeCommand()
+	cmd.SetOut(new(bytes.Buffer))
+	opts := &intakeOptions{label: []string{"bug"}}
+	if err := runIntakeWithDeps(cmd, opts, cfg, mock); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(mock.intakeSearchCalls) != 2 {
+		t.Fatalf("expected one membership search per repository, got %d", len(mock.intakeSearchCalls))
+	}
+	for i, want := range []string{"repo1", "repo2"} {
+		call := mock.intakeSearchCalls[i]
+		if call.owner != "owner" || call.repo != want || call.projectID != "proj-1" {
+			t.Errorf("call %d = %+v, want owner/%s on proj-1", i, call, want)
+		}
+		if len(call.labels) != 1 || call.labels[0] != "bug" {
+			t.Errorf("call %d labels = %v, want [bug]", i, call.labels)
+		}
+	}
+}
+
+// TestRunIntakeWithDeps_MembershipUnknownWarnsAndExcludes: an issue whose
+// membership could not be confirmed is neither listed as untracked nor silently
+// dropped — it is named on stderr.
+func TestRunIntakeWithDeps_MembershipUnknownWarnsAndExcludes(t *testing.T) {
+	mock := newMockIntakeClient()
+	mock.repositoryIssues = []api.Issue{
+		{ID: "issue-1", Number: 1, Title: "Busy Issue", State: "OPEN"},
+		{ID: "issue-2", Number: 2, Title: "Plain Issue", State: "OPEN"},
+	}
+	mock.unknownMembership = map[string]bool{"issue-1": true}
+	cfg := &config.Config{
+		Project:      config.Project{Owner: "test-org", Number: 1},
+		Repositories: []string{"owner/repo"},
+	}
+
+	cmd := newIntakeCommand()
+	var stdout, stderr bytes.Buffer
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stderr)
+	opts := &intakeOptions{json: true}
+	if err := runIntakeWithDeps(cmd, opts, cfg, mock); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if !strings.Contains(stderr.String(), "#1") || !strings.Contains(stderr.String(), "more than 20 projects") {
+		t.Errorf("expected a warning naming #1 and the 20-project limit, got: %s", stderr.String())
+	}
+	var out intakeJSONOutput
+	if err := json.Unmarshal(stdout.Bytes(), &out); err != nil {
+		t.Fatalf("invalid JSON output: %v\n%s", err, stdout.String())
+	}
+	if out.Count != 1 || out.Issues[0].Number != 2 {
+		t.Errorf("expected only #2 listed as untracked, got %+v", out)
+	}
+}
+
+func TestRunIntakeWithDeps_FilterByAssigneeAtMe(t *testing.T) {
+	mock := newMockIntakeClient()
+	mock.repositoryIssues = []api.Issue{
+		{ID: "issue-1", Number: 1, Title: "Mine", Assignees: []api.Actor{{Login: defaultFakeViewerLogin}}},
+		{ID: "issue-2", Number: 2, Title: "Theirs", Assignees: []api.Actor{{Login: "bob"}}},
+	}
+	cfg := &config.Config{
+		Project:      config.Project{Owner: "test-org", Number: 1},
+		Repositories: []string{"owner/repo"},
+	}
+
+	cmd := newIntakeCommand()
+	var stdout bytes.Buffer
+	cmd.SetOut(&stdout)
+	opts := &intakeOptions{assignee: []string{"@me"}, json: true}
+	if err := runIntakeWithDeps(cmd, opts, cfg, mock); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var out intakeJSONOutput
+	if err := json.Unmarshal(stdout.Bytes(), &out); err != nil {
+		t.Fatalf("invalid JSON output: %v", err)
+	}
+	if out.Count != 1 || out.Issues[0].Number != 1 {
+		t.Errorf("@me should resolve and match only #1, got %+v", out)
 	}
 }
 
@@ -829,12 +1048,12 @@ func TestRunIntakeWithDeps_FilterByLabel(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	// Verify SearchRepositoryIssues was called with correct label filters
-	if !mock.searchIssuesCalled {
-		t.Error("expected SearchRepositoryIssues to be called")
+	// Verify the membership search received the label filter
+	if len(mock.intakeSearchCalls) != 1 {
+		t.Fatalf("expected 1 SearchIntakeCandidates call, got %d", len(mock.intakeSearchCalls))
 	}
-	if len(mock.lastSearchFilters.Labels) != 1 || mock.lastSearchFilters.Labels[0] != "bug" {
-		t.Errorf("expected Labels=[bug], got %v", mock.lastSearchFilters.Labels)
+	if labels := mock.intakeSearchCalls[0].labels; len(labels) != 1 || labels[0] != "bug" {
+		t.Errorf("expected labels [bug], got %v", labels)
 	}
 
 	output := buf.String()
@@ -917,74 +1136,10 @@ func TestRunIntakeWithDeps_AllTrackedJSON(t *testing.T) {
 }
 
 // =============================================================================
-// Optimization Tests - Repository Filtering
+// Membership Classification
 // =============================================================================
 
-// Test that single-repo intake uses repository filter (optimization)
-func TestRunIntakeWithDeps_SingleRepo_UsesRepositoryFilter(t *testing.T) {
-	mock := newMockIntakeClient()
-	mock.projectItems = []api.ProjectItem{}
-	mock.repositoryIssues = []api.Issue{
-		{ID: "issue-1", Number: 1, Title: "New Issue"},
-	}
-	cfg := &config.Config{
-		Project:      config.Project{Owner: "test-org", Number: 1},
-		Repositories: []string{"owner/repo"}, // Single repo
-	}
-
-	cmd := newIntakeCommand()
-	opts := &intakeOptions{}
-	err := runIntakeWithDeps(cmd, opts, cfg, mock)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	// Verify GetProjectItems was called with repository filter
-	if len(mock.getProjectItemsCalls) != 1 {
-		t.Fatalf("Expected 1 GetProjectItems call, got %d", len(mock.getProjectItemsCalls))
-	}
-
-	call := mock.getProjectItemsCalls[0]
-	if call.filter == nil {
-		t.Fatal("Expected GetProjectItems to be called with a filter, got nil")
-	}
-	expectedRepo := "owner/repo"
-	if call.filter.Repository != expectedRepo {
-		t.Errorf("Expected filter.Repository to be %q, got %q", expectedRepo, call.filter.Repository)
-	}
-}
-
-// Test that multi-repo intake uses full fetch (no filter)
-func TestRunIntakeWithDeps_MultiRepo_UsesFullFetch(t *testing.T) {
-	mock := newMockIntakeClient()
-	mock.projectItems = []api.ProjectItem{}
-	mock.repositoryIssues = []api.Issue{
-		{ID: "issue-1", Number: 1, Title: "New Issue"},
-	}
-	cfg := &config.Config{
-		Project:      config.Project{Owner: "test-org", Number: 1},
-		Repositories: []string{"owner/repo1", "owner/repo2"}, // Multiple repos
-	}
-
-	cmd := newIntakeCommand()
-	opts := &intakeOptions{}
-	err := runIntakeWithDeps(cmd, opts, cfg, mock)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	// Verify GetProjectItems was called without filter
-	if len(mock.getProjectItemsCalls) != 1 {
-		t.Fatalf("Expected 1 GetProjectItems call, got %d", len(mock.getProjectItemsCalls))
-	}
-
-	call := mock.getProjectItemsCalls[0]
-	if call.filter != nil {
-		t.Errorf("Expected GetProjectItems to be called without filter for multi-repo, got filter with Repository=%q", call.filter.Repository)
-	}
-}
-
-// Test that filtered results are still correct with single repo
+// Test that tracked issues are excluded and untracked ones listed
 func TestRunIntakeWithDeps_SingleRepo_CorrectResults(t *testing.T) {
 	mock := newMockIntakeClient()
 	// Project has one tracked issue
@@ -1015,14 +1170,8 @@ func TestRunIntakeWithDeps_SingleRepo_CorrectResults(t *testing.T) {
 	if !strings.Contains(output, "1 untracked") {
 		t.Errorf("Expected output to contain '1 untracked', got: %s", output)
 	}
-
-	// Verify the filter was used correctly
-	if len(mock.getProjectItemsCalls) != 1 {
-		t.Fatalf("Expected 1 GetProjectItems call, got %d", len(mock.getProjectItemsCalls))
-	}
-	call := mock.getProjectItemsCalls[0]
-	if call.filter == nil || call.filter.Repository != "owner/repo" {
-		t.Errorf("Expected repository filter to be set")
+	if !strings.Contains(output, "#2") || strings.Contains(output, "#1 ") {
+		t.Errorf("Expected only #2 listed, got: %s", output)
 	}
 }
 
@@ -1140,12 +1289,99 @@ func TestRunIntakeWithDeps_ApplyFetchesProjectFieldsOnce(t *testing.T) {
 	if mock.getProjectFieldsCalls != 1 {
 		t.Errorf("GetProjectFields should be called exactly once for 20 issues, got %d", mock.getProjectFieldsCalls)
 	}
-	if mock.setProjectItemFieldCalls != 0 {
-		t.Errorf("SetProjectItemField (non-bulk) should not be called during apply, got %d", mock.setProjectItemFieldCalls)
+	// #918: one batched add for all 20 issues, one batched update carrying
+	// 20 issues × 2 default fields — not a round trip per issue per field.
+	if len(mock.batchAddCalls) != 1 || len(mock.batchAddCalls[0]) != 20 {
+		t.Fatalf("expected 1 batched add of 20 issues, got %d calls", len(mock.batchAddCalls))
 	}
-	// 20 issues × 2 default fields (status + priority) = 40 bulk calls
-	if mock.setProjectItemFieldWithFieldsCalls != 40 {
-		t.Errorf("SetProjectItemFieldWithFields should be called 40 times (20 issues × 2 fields), got %d", mock.setProjectItemFieldWithFieldsCalls)
+	if len(mock.batchUpdateCalls) != 1 || len(mock.batchUpdateCalls[0]) != 40 {
+		t.Fatalf("expected 1 batched update of 40 field updates, got %d calls", len(mock.batchUpdateCalls))
+	}
+	first := mock.batchUpdateCalls[0][:2]
+	if first[0].ItemID != first[1].ItemID || first[0].ItemID != "item-"+mock.batchAddCalls[0][0] {
+		t.Errorf("field updates should target the added item IDs, got %+v", first)
+	}
+}
+
+func TestRunIntakeWithDeps_ApplyBuildsFieldUpdates(t *testing.T) {
+	mock := newMockIntakeClient()
+	mock.repositoryIssues = []api.Issue{{ID: "issue-1", Number: 1, Title: "One", State: "OPEN"}}
+	cfg := &config.Config{
+		Project:      config.Project{Owner: "test-org", Number: 1},
+		Repositories: []string{"owner/repo"},
+		Defaults:     config.Defaults{Status: "backlog", Priority: "p2"},
+		Fields: map[string]config.Field{
+			"status":   {Field: "Status", Values: map[string]string{"backlog": "Backlog", "ready": "Ready"}},
+			"priority": {Field: "Priority", Values: map[string]string{"p1": "P1", "p2": "P2"}},
+		},
+	}
+
+	cmd := newIntakeCommand()
+	cmd.SetOut(new(bytes.Buffer))
+	// status comes from --apply, priority falls back to the config default,
+	// Area is passed through as a generic field.
+	_ = cmd.Flags().Set("apply", "status:ready,Area:cli")
+	opts := &intakeOptions{apply: "status:ready,Area:cli"}
+	if err := runIntakeWithDeps(cmd, opts, cfg, mock); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(mock.batchUpdateCalls) != 1 {
+		t.Fatalf("expected 1 batched update, got %d", len(mock.batchUpdateCalls))
+	}
+	got := map[string]string{}
+	for _, u := range mock.batchUpdateCalls[0] {
+		if u.ItemID != "item-issue-1" {
+			t.Errorf("update targets %q, want item-issue-1", u.ItemID)
+		}
+		got[u.FieldName] = u.Value
+	}
+	want := map[string]string{"Status": "Ready", "Priority": "P2", "Area": "cli"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("field updates = %v, want %v", got, want)
+	}
+}
+
+// TestRunIntakeWithDeps_ApplyPartialBatchFailure: one issue fails to add, one is
+// added but a field fails; each is reported on stderr and counted as failed.
+func TestRunIntakeWithDeps_ApplyPartialBatchFailure(t *testing.T) {
+	mock := newMockIntakeClient()
+	mock.repositoryIssues = []api.Issue{
+		{ID: "issue-1", Number: 1, Title: "Ok", State: "OPEN"},
+		{ID: "issue-2", Number: 2, Title: "Add fails", State: "OPEN"},
+		{ID: "issue-3", Number: 3, Title: "Field fails", State: "OPEN"},
+	}
+	mock.addFailures = map[string]string{"issue-2": "permission denied"}
+	mock.updateFailures = map[string]string{"item-issue-3": "option not found"}
+	cfg := &config.Config{
+		Project:      config.Project{Owner: "test-org", Number: 1},
+		Repositories: []string{"owner/repo"},
+		Defaults:     config.Defaults{Status: "backlog"},
+	}
+
+	cmd := newIntakeCommand()
+	var stdout, stderr bytes.Buffer
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stderr)
+	_ = cmd.Flags().Set("apply", " ")
+	opts := &intakeOptions{apply: " "}
+	if err := runIntakeWithDeps(cmd, opts, cfg, mock); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if !strings.Contains(stderr.String(), "Failed to add #2: permission denied") {
+		t.Errorf("expected add failure for #2 on stderr, got: %s", stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "failed to set Status on #3: option not found") {
+		t.Errorf("expected field failure for #3 on stderr, got: %s", stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "Added 1 issue(s) to project (2 failed)") {
+		t.Errorf("expected summary counting both failures, got: %s", stdout.String())
+	}
+	for _, u := range mock.batchUpdateCalls[0] {
+		if u.ItemID == "item-issue-2" {
+			t.Error("an issue that failed to add must not receive field updates")
+		}
 	}
 }
 
@@ -1174,8 +1410,8 @@ func TestRunIntakeWithDeps_ApplyPassesPrefetchedFields(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if mock.setProjectItemFieldWithFieldsCalls != 1 {
-		t.Fatalf("expected 1 bulk field call, got %d", mock.setProjectItemFieldWithFieldsCalls)
+	if len(mock.batchUpdateCalls) != 1 {
+		t.Fatalf("expected 1 batched field update call, got %d", len(mock.batchUpdateCalls))
 	}
 	if len(mock.lastFieldsPassed) != 1 || mock.lastFieldsPassed[0].Name != "Status" {
 		t.Errorf("expected prefetched Status field to be passed, got: %+v", mock.lastFieldsPassed)
@@ -1186,76 +1422,32 @@ func TestRunIntakeWithDeps_ApplyPassesPrefetchedFields(t *testing.T) {
 // Benchmark Tests
 // =============================================================================
 
-// generateBenchmarkIntakeItems creates N project items for benchmarking
-func generateBenchmarkIntakeItems(n int) []api.ProjectItem {
-	items := make([]api.ProjectItem, n)
-	for i := 0; i < n; i++ {
-		items[i] = api.ProjectItem{
-			ID: "item-" + string(rune(i)),
-			Issue: &api.Issue{
-				ID:     "issue-" + string(rune(i)),
-				Number: i + 1,
-				Title:  "Issue " + string(rune(i)),
-			},
+// BenchmarkIntake_ClassifyCandidates measures membership classification over N
+// open issues, half already on the project. Since #918 intake cost scales with
+// open issues, not with the size of the project board.
+func BenchmarkIntake_ClassifyCandidates(b *testing.B) {
+	const issueCount = 500
+	mock := newMockIntakeClient()
+	for i := 0; i < issueCount; i++ {
+		issue := api.Issue{ID: fmt.Sprintf("issue-%d", i), Number: i + 1, Title: "Issue", State: "OPEN"}
+		mock.repositoryIssues = append(mock.repositoryIssues, issue)
+		if i%2 == 0 {
+			mock.projectItems = append(mock.projectItems, api.ProjectItem{Issue: &api.Issue{ID: issue.ID}})
 		}
 	}
-	return items
-}
-
-// BenchmarkIntake_WithRepositoryFilter benchmarks intake with single repo (optimized)
-func BenchmarkIntake_WithRepositoryFilter(b *testing.B) {
-	itemCount := 100
-	mock := &mockIntakeClient{
-		project: &api.Project{
-			ID:    "proj-1",
-			Title: "Test Project",
-		},
-		projectItems:     generateBenchmarkIntakeItems(itemCount),
-		repositoryIssues: []api.Issue{},
-		addedItemID:      "item-123",
-	}
 	cfg := &config.Config{
 		Project:      config.Project{Owner: "test-org", Number: 1},
-		Repositories: []string{"owner/repo"}, // Single repo - uses filter
+		Repositories: []string{"owner/repo"},
 	}
 
 	cmd := newIntakeCommand()
-	opts := &intakeOptions{}
+	cmd.SetOut(io.Discard)
+	opts := &intakeOptions{json: true}
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		mock.getProjectItemsCalls = nil
 		_ = runIntakeWithDeps(cmd, opts, cfg, mock)
 	}
 
-	b.ReportMetric(float64(itemCount), "items_processed")
-}
-
-// BenchmarkIntake_WithoutFilter benchmarks intake with multiple repos (full fetch)
-func BenchmarkIntake_WithoutFilter(b *testing.B) {
-	itemCount := 500
-	mock := &mockIntakeClient{
-		project: &api.Project{
-			ID:    "proj-1",
-			Title: "Test Project",
-		},
-		projectItems:     generateBenchmarkIntakeItems(itemCount),
-		repositoryIssues: []api.Issue{},
-		addedItemID:      "item-123",
-	}
-	cfg := &config.Config{
-		Project:      config.Project{Owner: "test-org", Number: 1},
-		Repositories: []string{"owner/repo1", "owner/repo2"}, // Multi repo - no filter
-	}
-
-	cmd := newIntakeCommand()
-	opts := &intakeOptions{}
-
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		mock.getProjectItemsCalls = nil
-		_ = runIntakeWithDeps(cmd, opts, cfg, mock)
-	}
-
-	b.ReportMetric(float64(itemCount), "items_processed")
+	b.ReportMetric(float64(issueCount), "issues_classified")
 }

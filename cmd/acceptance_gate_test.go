@@ -106,6 +106,38 @@ func TestAcceptanceGate_AllowsAcceptedConfig(t *testing.T) {
 	}
 }
 
+// TestAcceptanceGate_MinorBumpAcceptancePassesGate (#919): acceptance recorded on
+// an earlier minor version of the same major lets a real command through, with
+// no terms text shown.
+func TestAcceptanceGate_MinorBumpAcceptancePassesGate(t *testing.T) {
+	tmpDir := t.TempDir()
+	setTestVersion(t, "1.6.0")
+	cfg := baseConfig()
+	cfg.Acceptance = &config.Acceptance{
+		Accepted: true,
+		User:     "test-user",
+		Date:     "2026-07-23",
+		Version:  "1.5.3",
+	}
+	writeTestConfig(t, tmpDir, cfg)
+	chdirTemp(t, tmpDir)
+
+	cmd := NewRootCommand()
+	outBuf := new(bytes.Buffer)
+	errBuf := new(bytes.Buffer)
+	cmd.SetOut(outBuf)
+	cmd.SetErr(errBuf)
+	cmd.SetArgs([]string{"board"})
+	err := cmd.Execute()
+
+	if err != nil && containsAcceptanceError(err.Error()) {
+		t.Errorf("acceptance from 1.5.3 must pass the gate on 1.6.0, got acceptance error: %v", err)
+	}
+	if strings.Contains(errBuf.String(), "Terms and Conditions") {
+		t.Errorf("no terms text expected for a minor bump, got: %s", errBuf.String())
+	}
+}
+
 func TestAcceptanceGate_ExemptInit(t *testing.T) {
 	// ARRANGE: Config without acceptance, real version to enable gate
 	tmpDir := t.TempDir()
@@ -180,12 +212,16 @@ func TestAcceptanceGate_ExemptHelp(t *testing.T) {
 }
 
 func TestAcceptanceGate_VersionBumpRequiresReAcceptance(t *testing.T) {
-	// Direct logic test for version comparison
-	if !config.RequiresReAcceptance("0.1.0", "0.2.0") {
-		t.Error("Expected re-acceptance for minor version bump")
+	// Direct logic test for version comparison (#919: major bumps only)
+	if !config.RequiresReAcceptance("1.1.0", "2.0.0") {
+		t.Error("Expected re-acceptance for major version bump")
 	}
 
-	if config.RequiresReAcceptance("0.1.0", "0.1.1") {
+	if config.RequiresReAcceptance("1.1.0", "1.2.0") {
+		t.Error("Expected no re-acceptance for minor version bump")
+	}
+
+	if config.RequiresReAcceptance("1.1.0", "1.1.1") {
 		t.Error("Expected no re-acceptance for patch bump")
 	}
 }
@@ -264,18 +300,18 @@ func TestAcceptanceGate_NotAccepted_DisplaysYesHint(t *testing.T) {
 func TestAcceptanceGate_Outdated_DisplaysTermsAndYesHint(t *testing.T) {
 	// ARRANGE: Config with old acceptance version, real version to enable gate
 	tmpDir := t.TempDir()
-	setTestVersion(t, "0.16.0")
+	setTestVersion(t, "2.0.0")
 	cfg := baseConfig()
 	cfg.Acceptance = &config.Acceptance{
 		Accepted: true,
 		User:     "test-user",
 		Date:     "2026-02-20",
-		Version:  "0.15.0",
+		Version:  "1.9.0",
 	}
 	writeTestConfig(t, tmpDir, cfg)
 	chdirTemp(t, tmpDir)
 
-	// ACT: Run a command (acceptance outdated due to minor version bump)
+	// ACT: Run a command (acceptance outdated due to major version bump)
 	cmd := NewRootCommand()
 	outBuf := new(bytes.Buffer)
 	errBuf := new(bytes.Buffer)

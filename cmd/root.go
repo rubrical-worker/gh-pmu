@@ -93,6 +93,7 @@ Use 'gh pmu <command> --help' for more information about a command.`,
 	cmd.AddCommand(newAcceptCommand())
 	cmd.AddCommand(newLabelCommand())
 	cmd.AddCommand(newConfigCommand())
+	cmd.AddCommand(newStatusCommand())
 
 	return cmd
 }
@@ -217,7 +218,7 @@ func checkAcceptance(cmd *cobra.Command) error {
 		return fmt.Errorf("terms not accepted — run 'gh pmu accept' first")
 	}
 
-	// Check version — re-acceptance needed on major/minor bump
+	// Check version — re-acceptance needed on a major version change only (#919)
 	if config.RequiresReAcceptance(cfg.Acceptance.Version, getVersion()) {
 		printTermsAndHint(cmd)
 		return fmt.Errorf("terms acceptance outdated (accepted v%s, current v%s) — run 'gh pmu accept' to re-accept",

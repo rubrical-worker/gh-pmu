@@ -1,5 +1,5 @@
 ---
-version: "v0.97.0"
+version: "v0.103.0"
 description: Transform proposal into Agile PRD
 argument-hint: "<issue-number> | extract [<directory>]"
 copyright: "Rubrical Works (c) 2026"
@@ -139,7 +139,14 @@ AskUserQuestion({
 ```
 Confirmed: consolidate to 1 epic, title from proposal name (e.g. "Epic 1: {Feature Name}"), stories become Story 1.1, 1.2, ... Declined: standard multi-epic grouping. `team`/`enterprise`: skip entirely.
 ### Phase 4.6: AC Feasibility Gate (#2425)
-Re-read `.claude/metadata/ac-feasibility-prompts.json`. For each AC produced in Phase 4.5, apply `classify`, `verificationGate`, `deliverableSplit` prompts. On `verificationGate.triggerPhrases` match + no existing test using that mechanism (Grep), **ASK USER**: (a) rewrite, (b) feasibility spike + issue, or (c) weaker mechanism. **Do not proceed to Phase 5 until each flagged AC resolved.** Trigger list heuristic; prompts load-bearing. No `prdLevel` block needed — existing three prompts handle coarse ACs.
+Re-read `.claude/metadata/ac-feasibility-prompts.json`. For each AC produced in Phase 4.5, apply `classify`, `verificationGate`, `deliverableSplit`, `phaseFeasibility` prompts. On `verificationGate.triggerPhrases` match + no existing test using that mechanism (Grep), **ASK USER**: (a) rewrite, (b) feasibility spike + issue, or (c) weaker mechanism. **Do not proceed to Phase 5 until each flagged AC resolved.** Trigger list heuristic; prompts load-bearing. No `prdLevel` block needed — the four prompts handle coarse ACs.
+
+**`phaseFeasibility` — blocking here, as the other three are** — the question `verificationGate` does not ask: can this AC close inside the phase that owns it? A named mechanism can exist and the AC still be unsatisfiable ("user-reviewed and approved before merge" names a real review whose output does not exist when the box must be checked). Ask whether the condition is knowably true when `/work` reaches Step 5. Apply `phaseFeasibility.actionIfOutOfPhase`:
+| Disposition | When | Result |
+|---|---|---|
+| **Drop** | Work appears in `phaseFeasibility.ownedElsewhere` — CHANGELOG, tagging, release publication belong to `/prepare-release` | Do not author the AC; report which command owns it |
+| **Annotate** | Gate is genuinely load-bearing (required human review or sign-off) | `- [ ] {acText} → GATE: {phase}` per `annotationFormat`, and **name the event that resolves it** — a token that cannot name one is not a gate |
+**Do not proceed to Phase 5 until every out-of-phase AC is dropped or annotated.** Blocking rather than warning-only because a PRD AC is not authored once: `/create-backlog` materializes it into story bodies, so one unannotated out-of-phase PRD AC becomes one in every inheriting story, each deadlocking its own `in_review`. `/bug` and `/enhancement` warn instead — one issue from free text, no fan-out.
 
 ### Phase 5: Priority Validation
 | Priority | Distribution |
@@ -177,7 +184,7 @@ Store selection for Phase 5.5b.
 | Class | OFF | Data models, entities |
 | Component | OFF | System architecture |
 | State | OFF | State machines |
-**drawio style:** load `{frameworkPath}/Skills/drawio-generation/SKILL.md`. Generate UML as `.drawio.svg` at `PRD/{PRD-Name}/Diagrams/{Epic-Name}/{type}-{description}.drawio.svg`.
+**drawio style:** load `.claude/skills/drawio-generation/SKILL.md`. Generate UML as `.drawio.svg` at `PRD/{PRD-Name}/Diagrams/{Epic-Name}/{type}-{description}.drawio.svg`.
 **ASCII style:** generate UML **inline** in PRD markdown with box-drawing characters. Rules: wrap in ` ```text ... ``` ` for monospace; no plain-ASCII substitutes (`+`, `-`, `|`); proper monospace alignment (one col per char); place under `### Diagrams` per epic. No `Diagrams/` directory — all inline.
 **ASCII templates:**
 | Type | Key Elements |
@@ -200,7 +207,7 @@ Store selection for Phase 5.5b.
 
 ### Phase 6: Generate PRD
 Structure: `PRD/{PRD-Name}/PRD-{PRD-Name}.md` with `Diagrams/{Epic-Name}/{type}-{description}.drawio.svg` under it (drawio only). ASCII style: diagrams inline, no `Diagrams/`. Flat legacy PRDs (`PRD/PRD-{name}.md`) grandfathered.
-Create PRD at `PRD/{name}/PRD-{name}.md`. Load template `{frameworkPath}/Templates/artifacts/prd-template.md` and populate. **Graceful degradation:** template missing — warn `"PRD template file missing, using inline fallback."`, use sections: Overview, Epics, User Stories, Diagrams, Technical Notes, Out of Scope, Dependencies, Open Questions.
+Create PRD at `PRD/{name}/PRD-{name}.md`. Load template `{frameworkPath}/Templates/artifacts/prd-template.md` and populate. **Graceful degradation:** template missing — warn `"PRD template file missing, using inline fallback."`, use sections: Overview, Epics, User Stories, Diagrams, Technical Notes, Non-Functional Requirements, Out of Scope, Dependencies, Open Questions.
 
 <!-- USER-EXTENSION-START: post-generation -->
 <!-- USER-EXTENSION-END: post-generation -->
@@ -220,10 +227,10 @@ Create PRD at `PRD/{name}/PRD-{name}.md`. Load template `{frameworkPath}/Templat
 
 ### Phase 6.6: Create Test Plan Approval Issue
 **Assignee:** substitute `{assignee}` from `node .claude/scripts/shared/lib/gh-pmu-config.js --assignee <value>` — pass the user's `--assignee` value, omit when none given. Helper returns that login, else `@me`; reads no config file. NEVER hardcode a login or drop the flag (omitted `--assignee` silently creates an unassigned issue). Unresolvable login → `gh pmu` exits 1 and creates nothing; report the error, do NOT retry without the flag. Applies to both `gh pmu create` calls below.
-```bash
-gh pmu create --label test-plan --label approval-required --assignee {assignee} \
-  --title "Approve Test Plan: {Name}" \
-  --body "## Test Plan Review
+**Body via temp file, never inline `--body`.** Gate `no-aspirational-mechanism`'s text contains backticks; inside a double-quoted `--body` bash runs them as command substitution. `05-windows-shell.md` requires `-F` regardless.
+Write `.tmp-test-plan-approval.md`:
+```markdown
+## Test Plan Review
 
 A TDD test plan has been generated for **{Name}**.
 
@@ -232,11 +239,12 @@ A TDD test plan has been generated for **{Name}**.
 
 ## Review Checklist
 
-- [ ] Test cases cover all acceptance criteria
-- [ ] Edge cases and error scenarios included
-- [ ] Integration test points are complete
-- [ ] E2E scenarios cover critical paths
-- [ ] Coverage targets are appropriate
+- [ ] All PRD acceptance criteria have test cases
+- [ ] Edge cases and error conditions identified
+- [ ] Integration points between epics mapped
+- [ ] E2E scenarios cover critical journeys
+- [ ] Coverage targets are realistic
+- [ ] No AC names an aspirational verification mechanism (#2424 gate — all named mechanisms already in use in this repo; see `.claude/metadata/ac-feasibility-prompts.json`)
 
 ## Instructions
 
@@ -245,9 +253,16 @@ A TDD test plan has been generated for **{Name}**.
 3. Comment with any required changes
 4. Close this issue to approve
 
-**⚠️ Create-Backlog is blocked until this issue is closed.**" \
-  --status backlog
+**⚠️ Create-Backlog is blocked until this issue is closed.**
 ```
+```bash
+gh pmu create --label test-plan --label approval-required --assignee {assignee} \
+  --title "Approve Test Plan: {Name}" \
+  -F .tmp-test-plan-approval.md \
+  --status backlog
+rm .tmp-test-plan-approval.md
+```
+**The six `## Review Checklist` lines render from `.claude/metadata/test-plan-approval-gates.json` `gates[].text`, in declared order (#2710).** Do NOT reword here — `tests/metadata/test-plan-approval-gates.test.js` compares them element-wise against the gate file AND the template `## Approval Checklist`; a one-surface change fails CI. The two were independently worded and had diverged (five items vs six).
 Update test plan frontmatter with the approval issue number after creation.
 
 ### Phase 7: Proposal Lifecycle Completion
@@ -290,6 +305,16 @@ gh pmu create --label prd --assignee {assignee} \
   --status backlog
 ```
 
+**Step 3a: Offer to Assign the Test-Plan and PRD Issues to the Current Branch (#2657)**
+Runs **immediately after** Step 3 — the first moment both issue numbers exist; earlier would assign half the pair. Both are work on this branch (Step 4 commits their documents with `Refs #N`), but nothing told the branch tracker they exist, so `/done --all` could not discover an in-review test plan and the branch under-reported what shipped. Observed on #2646/#2647: created, reviewed twice, resolved and committed before either reached tracker #2654.
+**Offer, never force** (`06-runtime-triggers.md`). `AskUserQuestion`: assign **both** to the current branch (recommended when an open tracker exists for it), another open branch, or skip — assign later with `/assign-branch`.
+**Declining mutates nothing** — no assignment, status change, body edit or label; Step 4 proceeds unchanged. A decline is **not** recorded: the step is cheap to re-offer, and a persisted bypass would suppress it forever after one skip.
+**On acceptance, delegate** — do not re-derive assignment logic. Report the helper's result verbatim, failures included:
+```bash
+node .claude/scripts/shared/assign-branch.js "{test_plan_issue} {prd_issue}"
+```
+**No assignable branch → report and continue.** Detached HEAD, `main`, or no open branch tracker for the current branch: emit **no offer**, report why, proceed to Step 4. **Do NOT escalate into branch creation** — `assign-branch.js` answers `NO_BRANCH_FOUND` with suggestions and `/assign-branch` then offers `gh pmu branch start`, but `/create-prd` must not grow a branch-creation prompt as a side effect of creating a PRD. Delegation is conditional on a branch already existing.
+**Already assigned → suppress and report** the existing assignment in Step 5 output, making the step **idempotent**. Re-assignment to a different branch is `/assign-branch`'s.
 **Step 4: Commit generated artifacts** — atomic commit of PRD + proposal move after Steps 1-3 so a single commit captures durable state.
 ```bash
 git add PRD/{name}/
@@ -332,12 +357,12 @@ For `/create-prd` (no arguments): prompt `1. From a proposal issue (enter issue 
 For `/create-prd extract` or `/create-prd extract <directory>`:
 
 ### Step 1: Check Prerequisites
-Verify `{frameworkPath}/Skills/codebase-analysis/SKILL.md` exists. Check `Inception/`.
+Verify `.claude/skills/codebase-analysis/SKILL.md` exists. Check `Inception/`.
 **If skill missing:** `codebase-analysis skill not installed. Install via px-manager or ask user to install.` -> **STOP**
 **If `Inception/` missing:** warn; offer `/charter` (non-blocking).
 
 ### Step 2: Load Skill
-Read `{frameworkPath}/Skills/codebase-analysis/SKILL.md` for analysis capabilities and workflow.
+Read `.claude/skills/codebase-analysis/SKILL.md` for analysis capabilities and workflow.
 
 ### Step 3: Run Codebase Analysis
 Delegate to codebase-analysis skill (entire project or specified directory). Skill handles tech stack, architecture inference, test parsing, NFR detection.
@@ -383,13 +408,12 @@ fi
 - [ ] Out of scope explicitly stated
 - [ ] Open questions flagged
 - [ ] PRD is Create-Backlog compatible
-### Closing Cleanup
-Two parts, in order. The prune is **part of** this step, not a trailing step a reader can stop before — the closing output makes a run *feel* finished, so a prune placed after it never runs.
-**(1) Emit the closing output** described by the final step above.
-**(2) Prune the task list** (unconditional — every path, including early-exit paths where Phase 1 created tasks and later phases never ran):
+### Step 8: Closing Cleanup
+The prune is **part of** this step, and this step is **numbered** — what makes the claim hold. `One task per numbered step` now covers it, so an unpruned list surfaces as an unfinished task like any other step. The same claim as prose alone was overridden by the rules beside it (#2641).
+
+**Prune the task list** (unconditional — every path, including early-exit paths where Phase 1 created tasks and later phases never ran):
 1. `TaskList` — enumerate all tasks.
 2. For every task owned by this `/create-prd` invocation, `TaskUpdate status=deleted`.
 3. Do **not** delete tasks created outside this invocation (user TODOs).
-
 
 **End of /create-prd Command**

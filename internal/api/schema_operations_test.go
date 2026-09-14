@@ -112,6 +112,7 @@ func namedOperationInvocations() []func(c *Client) {
 		func(c *Client) { _, _ = c.GetSubIssues("owner", "repo", 1) },
 		func(c *Client) { _, _, _ = c.getRepositoryIssuesPage("owner", "repo", states, &cursor) },
 		func(c *Client) { _, _, _ = c.searchIssuesPage("repo:o/r is:issue", 50, &cursor) },
+		func(c *Client) { _, _, _ = c.searchIntakeCandidatesPage("repo:o/r is:issue is:open", &cursor) },
 		func(c *Client) { _, _ = c.GetOpenIssuesByLabels("owner", "repo", []string{"bug"}) },
 		func(c *Client) { _, _, _ = c.getIssuesByLabelPage("owner", "repo", "bug", states, &cursor) },
 		func(c *Client) { _, _ = c.GetParentIssue("owner", "repo", 1) },
@@ -138,6 +139,9 @@ func namedOperationInvocations() []func(c *Client) {
 		func(c *Client) { _, _ = c.getLabelID("owner", "repo", "bug") },
 		func(c *Client) { _, _ = c.getMilestoneID("owner", "repo", "v1.0") },
 		func(c *Client) { _, _, _ = c.GetProjectItemFieldValue("PVT_kw1", "PVTI_1", "Status") },
+		func(c *Client) {
+			_, _ = c.UpdateProjectFieldOptions("PVTSSF_1", []FieldOptionUpdate{{ID: "o1", Name: "Backlog", Color: "BLUE"}})
+		},
 		func(c *Client) { _, _ = c.GetAuthenticatedUser() },
 		func(c *Client) { _ = c.CreateLabel("owner", "repo", "bug", "d73a4a", "desc") },
 		func(c *Client) { _, _ = c.AddIssueComment("I_kw1", "body") },
@@ -348,6 +352,9 @@ func rawDocumentInvocations() []struct {
 		{"getLabelIDs", func(c *Client) { _, _ = c.getLabelIDs("owner", "repo", []string{"bug", "help wanted"}) }},
 		{"BatchUpdateProjectItemFields", func(c *Client) {
 			_, _ = c.BatchUpdateProjectItemFields("PVT_kw1", updates, fields)
+		}},
+		{"BatchAddIssuesToProject", func(c *Client) {
+			_, _ = c.BatchAddIssuesToProject("PVT_kw1", []string{"I_kw1", "I_kw2"})
 		}},
 	}
 }

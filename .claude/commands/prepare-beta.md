@@ -1,5 +1,5 @@
 ---
-version: "v0.97.0"
+version: "v0.103.0"
 description: Tag beta from feature branch (no merge to main)
 argument-hint: "[--skip-coverage] [--dry-run] [--help]"
 copyright: "Rubrical Works (c) 2026"
@@ -184,9 +184,13 @@ rm .release-authorized
 **ASK USER:** Confirm ready to tag beta.
 ```bash
 git tag -a $VERSION -m "Beta $VERSION"
-git push origin $VERSION
+echo "$VERSION | gates passed | $(git rev-parse HEAD)" > .release-authorized
+git push origin $VERSION; rc=$?
+rm -f .release-authorized
+exit $rc
 ```
 **Note:** tags the feature branch. No merge to main.
+**Note:** beta tags are `v*` prereleases, so `.claude/hooks/pre-push` gates them exactly as release tags — the marker is required here too. The hook only tests existence and echoes contents verbatim, so this line becomes the beta audit record. Cleanup is unconditional — the exit code is captured **before** `rm -f` and propagated after, so a failed push cannot leave a marker that silently authorizes the next tag push.
 ### Step 4.3: Wait for CI Workflow
 **Conditional:** `ls .github/workflows/*.yml .github/workflows/*.yaml 2>/dev/null` first. **No workflow files found:** skip the CI wait, reporting `No CI workflows detected — skipping CI wait.` **Workflow files exist:**
 ```bash
@@ -239,14 +243,13 @@ For the full release: merge the feature branch to main, run `/prepare-release`.
 <!-- USER-EXTENSION-START: checklist-after-tag -->
 - [ ] Beta build monitored
 <!-- USER-EXTENSION-END: checklist-after-tag -->
-### Closing Cleanup
-Two parts, in order. The prune is **part of** this step, not a trailing step a reader can stop before — the closing output makes a run *feel* finished, so a prune placed after it never runs.
-**(1) Emit the closing output** described by the final step above.
-**(2) Prune the task list** (unconditional — every path, including early-exit paths where Phase 1 created tasks and later phases never ran):
+### Step 5: Closing Cleanup
+The prune is **part of** this step, and this step is **numbered** — what makes the claim hold. `One task per numbered step` now covers it, so an unpruned list surfaces as an unfinished task like any other step. The same claim as prose alone was overridden by the rules beside it (#2641).
+
+**Prune the task list** (unconditional — every path, including early-exit paths where Phase 1 created tasks and later phases never ran):
 1. `TaskList` — enumerate all tasks.
 2. For every task owned by this `/prepare-beta` invocation, `TaskUpdate status=deleted`.
 3. Do **not** delete tasks created outside this invocation (user TODOs).
-
 
 ---
 **End of Prepare Beta**

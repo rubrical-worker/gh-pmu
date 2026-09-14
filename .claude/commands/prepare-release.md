@@ -1,5 +1,5 @@
 ---
-version: "v0.97.0"
+version: "v0.103.0"
 description: Prepare release with PR, merge to main, and tag
 argument-hint: "[version] [--skip-coverage] [--dry-run] [--help]"
 copyright: "Rubrical Works (c) 2026"
@@ -85,11 +85,19 @@ Record as `$BRANCH`.
 
 ### Check for Incomplete Issues
 
+Preview what Step 4.3's close will move, by the close's own rule (#2878):
+
 ```bash
-gh pmu list --branch current --status backlog,in_progress,in_review
+gh pmu branch close "$BRANCH" --dry-run
 ```
 
-**Do not add `--json`** — `status` is not a valid JSON field for `gh pmu list`.
+Name `$BRANCH` explicitly (required when more than one branch is active). **Show the output verbatim; do not parse it or add `--json`.** It prints `Would move N incomplete issue(s) to backlog:` then one `#N - title` line per issue, and changes nothing. The close moves every open tracker sub-issue except Parking Lot, keyed on open/closed and tracker membership — not board Status — so a `gh pmu list --status` filter answers a different question; `--status` also takes one value, and the comma-separated query this step used to run matched nothing while Step 4.3 moved everything.
+
+- **No issues listed:** say so explicitly — "No incomplete issues: Step 4.3's close will move nothing." — and proceed. Never infer an empty result from silence.
+- **Issues listed:** **ASK USER** via `AskUserQuestion`, naming them:
+  - **Transfer** — `/transfer-issue` to another branch, re-run the dry-run, ask again.
+  - **Continue anyway** — first state: "Step 4.3 will move #N, #N… to Backlog and clear their Branch field." Then proceed.
+  - **Stop** — halt now, before Phase 1; nothing has changed.
 
 <!-- USER-EXTENSION-START: pre-phase-1 -->
 <!-- USER-EXTENSION-END: pre-phase-1 -->
@@ -108,13 +116,19 @@ git log $(git describe --tags --abbrev=0)..HEAD --oneline
 node .claude/scripts/shared/analyze-commits.js
 ```
 
-Outputs JSON: `lastTag`, `commits`, `summary` (counts by type).
+Outputs JSON: `lastTag`, `commits`, `summary` (counts by type). This is the **commit inventory** the changelog consumes — it **does not decide the version**.
 
 ### Recommend Version
 
 ```bash
 node .claude/scripts/shared/recommend-version.js
 ```
+
+**`recommend-version.js` is authoritative for the version bump (#2602).** When the two disagree its verdict governs, and `analyze-commits.js`'s `summary` counts are not evidence against it.
+
+They classify differently by design: `analyze-commits.js` reads conventional-commit prefixes only; `recommend-version.js` reads prefixes, then falls back to `Refs #N` → issue-label lookup, then keyword heuristics.
+
+**Under a `Refs #N` convention the disagreement is the steady state, not an edge case.** Every commit types as `other`, so `summary` reads `feat: 0, fix: 0` on **every** release — which looks like "no features this release" when it means "this classifier cannot see them". Measured here at `v0.100.2..HEAD`: 38 commits, all `other`, against a `minor` recommendation.
 
 <!-- USER-EXTENSION-START: post-analysis -->
 
@@ -225,10 +239,17 @@ E2E tests validate complete workflows against the test project.
 
 | File | Action |
 |------|--------|
-| `CHANGELOG.md` | Add new section following Keep a Changelog format |
+| `CHANGELOG.md` | Add new section following Keep a Changelog format. **Lead contract — see below.** |
 | `README.md` | Update version badge or header |
-| `README-DIST.md` | Verify skill/specialist counts match actuals, license populated |
+| `README-DIST.md` | **If present** — verify skill/specialist counts match actuals, license populated. Absent in most consuming projects |
 | `framework-config.json` | (Self-hosted only) Update `frameworkVersion` and `installedDate` |
+
+**CHANGELOG lead contract (#2777).** The *lead* is the prose between the version heading and `**Upgrade notes:**`. `update-release-notes.js` copies it verbatim into the GitHub release body, so it is the first thing a user installing this release reads. Write it as a user would read it on the releases page:
+- **One short paragraph, about three to five sentences**, saying what is new and what changed for the user.
+- **No bug narrative, no root-cause explanation, no post-mortem of the release run itself.** Those have homes — `Construction/Design-Decisions/` and the release test plan — and repeating them at the top of the release page adds length and reads as an incident report.
+- **Validation findings from Phase 2 go in the release test plan**, with at most a one-line pointer from the changelog.
+- **Do not repeat the counts.** `update-release-notes.js` prepends its own `Feature release with N new features, M changes, and K fixes.` summary, so a lead opening with the same counts publishes them twice.
+Structured parts unchanged: `**Upgrade notes:**` bullets and the `### Added` / `### Changed` / `### Fixed` lists already carry the detail and are what a reader scans.
 <!-- USER-EXTENSION-START: pre-commit -->
 ### Update Version Constant
 
@@ -238,10 +259,16 @@ Update `internal/version/version.go` — set `Version` constant to new version (
 ### Step 3.2: Commit Preparation
 
 ```bash
-git add CHANGELOG.md README.md README-DIST.md docs/
+for path in CHANGELOG.md README.md README-DIST.md Docs/; do
+  if [ -e "$path" ]; then git add "$path"; fi
+done
 git commit -m "chore: prepare release $VERSION"
 git push
 ```
+
+**Stage only what exists (#2602).** `git add` on a missing pathspec is **fatal** (exit 128) — nothing staged, no commit. `README-DIST.md` exists here and in almost no consuming project. Adjust the path list to this project's release files; the existence guard makes an extra entry harmless, not a reason to leave a wrong one.
+
+**Casing is load-bearing.** The pathspec must match how git tracks the directory (`Docs/` here). A wrong-case pathspec is a second fatal `git add` on a case-sensitive filesystem, and passes silently on Windows and macOS — invisible where releases are usually prepared.
 
 <!-- USER-EXTENSION-START: post-prepare -->
 ### Wait for CI
@@ -286,20 +313,36 @@ gh pr merge --merge
 
 ### Step 4.3: Close Branch Tracker
 
+Preview again — work may have landed or been transferred since Check for Incomplete Issues — and show the output verbatim:
+
 ```bash
-gh pmu branch close --yes
+gh pmu branch close "$BRANCH" --dry-run
+```
+
+Then close. `--yes` stays (stdin is not interactive) but runs only after the list above was shown; the close never moves an issue the user has not seen.
+
+```bash
+gh pmu branch close "$BRANCH" --yes
 ```
 
 ### Step 4.4: Switch to Main
 
 ```bash
-git stash
+before=$(git stash list | wc -l)
+git stash push -m "prepare-release $VERSION"
+after=$(git stash list | wc -l)
+
 git checkout main
 git pull origin main
-git stash pop
+
+if [ "$after" -gt "$before" ]; then git stash pop; fi
 ```
 
-**Note:** `git stash` handles uncommitted `settings.local.json` changes (session-specific permission entries added by Claude Code).
+**Note:** the stash handles uncommitted `settings.local.json` changes (session-specific permission entries added by Claude Code).
+
+**Pop only when something was stashed (#2602).** On a clean tree `git stash` saves nothing and exits 0, then `git stash pop` exits **1** with `No stash entries found.` — the last command before the tag step. The pair straddles checkout/pull, so the sequence appears to work and ends on a failure immediately before an irreversible tag.
+
+The guard compares `git stash list` before and after rather than testing the tree: `git status --porcelain` can report changes `git stash push` declines to save, so a dirtiness test and the stash's own behaviour can disagree. The stash count cannot.
 
 <!-- USER-EXTENSION-START: pre-tag -->
 ### Important Rules
@@ -324,25 +367,35 @@ node .claude/scripts/shared/lib/active-label.js remove [TRACKER_NUMBER]
 
 ```bash
 git tag -a $VERSION -m "Release $VERSION"
-git push origin $VERSION
+echo "$VERSION | gates passed | $(git rev-parse HEAD)" > .release-authorized
+git push origin $VERSION; rc=$?
+rm -f .release-authorized
+exit $rc
 ```
 
-### Step 4.7: Wait for CI Workflow
+**Note:** `.release-authorized` is the marker `.claude/hooks/pre-push` requires before allowing a `v*` tag push. The hook only tests existence and echoes contents verbatim, so this line becomes the release audit record. Cleanup is unconditional — the exit code is captured **before** `rm -f` and propagated after. A plain echo/push/rm sequence is not sufficient: a failed push aborts before the `rm`, and the surviving marker authorizes the next tag push with no gate having run.
 
-**Conditional:** Check if CI workflows exist before waiting.
+### Step 4.7: Wait for CI on the Pushed Tag
+
+**Conditional:** the wait is only meaningful if some workflow triggers on a tag.
 
 ```bash
-ls .github/workflows/*.yml .github/workflows/*.yaml 2>/dev/null
+grep -lE '^[[:space:]]*tags:' .github/workflows/*.yml .github/workflows/*.yaml 2>/dev/null
 ```
 
-**If no workflow files found:** Skip CI wait with message: `No CI workflows detected — skipping CI wait.`
+**If nothing matches:** skip with a message naming the reason: `No tag-triggered workflows detected — skipping post-tag CI wait.`
 
-**If workflow files exist:**
+**If a tag-triggered workflow exists:**
 ```bash
-node .claude/scripts/shared/wait-for-ci.js --branch $(git branch --show-current) --timeout 900
+node .claude/scripts/shared/wait-for-ci.js --branch $VERSION --timeout 900
 ```
-**`--branch` is not optional (#2464).** Bare, the gate passes a null filter and `selectRun()` returns the newest run **repo-wide** — an unrelated run can supply the verdict. **`--timeout 900`** states the budget explicitly rather than relying on adaptive extension of the 300s default (#2257). Both match the pre-merge gate.
-**If CI fails, STOP and report.**
+**If the run fails or times out, STOP and report** its URL and conclusion. Do not continue to Step 4.8 — the tag is already pushed, so this is the last point at which a broken publish can be caught before the release is announced.
+
+**Scope the wait to the TAG, not the checked-out branch (#2653).** This step used to resolve the branch name at runtime and pass that. After Step 4.4 the checked-out branch is `main`, and a tag-triggered run carries the **tag name** as its `headBranch` — so `matchesFilter` rejected the run the tag had just created, and the newest `main` run supplied the verdict: the already-completed post-merge `Tests` run. The gate reported a pass without waiting for anything, **vacuous in exactly the projects that have tag-triggered workflows**. `$VERSION` is the tag, so the existing filter matches with no change to `selectRun()`. (The defective form is described, not quoted: a guard test rejects that literal anywhere in this step.)
+
+**`--branch` is still not optional (#2464).** Bare, the gate passes a null filter and `selectRun()` returns the newest run **repo-wide** — an unrelated run can supply the verdict. **`--timeout 900`** states the budget explicitly rather than relying on adaptive extension of the 300s default (#2257).
+
+**Why the trigger check, not a file-existence check (#2653).** The old conditional asked whether *any* workflow file exists. Almost every project has one, so it passed nearly always and sent the step on to wait against a filter that could not match — a vacuous pass dressed as a gate. Whether anything triggers on tags is the question that decides whether waiting is meaningful. The `grep` is a deliberate heuristic that errs toward waiting: over-waiting costs a timeout that reports honestly; under-waiting is the defect this step just had.
 ### Step 4.8: Update Release Notes
 
 ```bash
@@ -399,8 +452,9 @@ Do NOT auto-close issues just because they shipped.
 
 **Core (After tagging):**
 - [ ] Tag pushed
-- [ ] CI workflow completed
+- [ ] CI workflow completed — **check this only on Step 4.7's verdict** (#2653): a passing tag-scoped `wait-for-ci.js` run, or its explicit "no tag-triggered workflows" skip. Before #2653 this box was ticked by convention with nothing having verified it
 - [ ] Release notes updated
+- [ ] **Rules reach context in a freshly-installed project (#2736).** Install this release into a scratch project via PHM, start a session, and confirm a rule's content is actually loaded — ask for something only a rule states. **Do not accept the startup block as evidence:** it renders from the hook, a different channel, and rendered correctly throughout the period in which no rule reached context in any deployed project. `/context` reporting a Memory-files figure far below the rules on disk is the symptom. Manual — needs a real PHM install and a live session; `node .claude/scripts/framework/repro-rules-junction.js` builds the isolated fixture to bisect a failure
 
 <!-- USER-EXTENSION-START: checklist-after-tag -->
 - [ ] All CI jobs completed
@@ -468,13 +522,12 @@ Release $VERSION is complete:
 - Tracker issue closed
 - Working branch deleted
 - GitHub Release created
-### Closing Cleanup
-Two parts, in order. The prune is **part of** this step, not a trailing step a reader can stop before — the closing output makes a run *feel* finished, so a prune placed after it never runs.
-**(1) Emit the closing output** described by the final step above.
-**(2) Prune the task list** (unconditional — every path, including early-exit paths where Phase 1 created tasks and later phases never ran):
+### Step 6: Closing Cleanup
+The prune is **part of** this step, and this step is **numbered** — what makes the claim hold. `One task per numbered step` now covers it, so an unpruned list surfaces as an unfinished task like any other step. The same claim as prose alone was overridden by the rules beside it (#2641).
+
+**Prune the task list** (unconditional — every path, including early-exit paths where Phase 1 created tasks and later phases never ran):
 1. `TaskList` — enumerate all tasks.
 2. For every task owned by this `/prepare-release` invocation, `TaskUpdate status=deleted`.
 3. Do **not** delete tasks created outside this invocation (user TODOs).
-
 
 **End of Prepare Release**

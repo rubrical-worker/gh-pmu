@@ -3122,6 +3122,207 @@ func TestSearchRepositoryIssues_WithLimit(t *testing.T) {
 }
 
 // ============================================================================
+// Single-select option color and description (#917)
+// ============================================================================
+
+func TestGetProjectFields_OptionColorAndDescription(t *testing.T) {
+	mock := &queryMockClient{
+		queryFunc: func(name string, query interface{}, variables map[string]interface{}) error {
+			return json.Unmarshal([]byte(`{"node":{"projectV2":{"fields":{"nodes":[
+				{"typeName":"ProjectV2SingleSelectField","projectV2SingleSelectField":{"id":"F1","name":"Status","dataType":"SINGLE_SELECT",
+					"options":[{"id":"o1","name":"Backlog","color":"BLUE","description":"Not started"},{"id":"o2","name":"Notes","color":"GRAY","description":""}]}}
+			],"pageInfo":{"hasNextPage":false}}}}}`), query)
+		},
+	}
+	fields, err := NewClientWithGraphQL(mock).GetProjectFields("PVT_1")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(fields) != 1 || len(fields[0].Options) != 2 {
+		t.Fatalf("unexpected fields: %+v", fields)
+	}
+	want := []FieldOption{{ID: "o1", Name: "Backlog", Color: "BLUE", Description: "Not started"}, {ID: "o2", Name: "Notes", Color: "GRAY"}}
+	if !reflect.DeepEqual(fields[0].Options, want) {
+		t.Errorf("options = %+v, want %+v", fields[0].Options, want)
+	}
+}
+
+func TestFetchProjectFieldByName_OptionColorAndDescription(t *testing.T) {
+	mock := &queryMockClient{
+		queryFunc: func(name string, query interface{}, variables map[string]interface{}) error {
+			return json.Unmarshal([]byte(`{"node":{"projectV2":{"field":
+				{"typeName":"ProjectV2SingleSelectField","projectV2SingleSelectField":{"id":"F1","name":"Status","dataType":"SINGLE_SELECT",
+					"options":[{"id":"o1","name":"Done","color":"ORANGE","description":"Finished"}]}}}}}`), query)
+		},
+	}
+	field, err := NewClientWithGraphQL(mock).fetchProjectFieldByName("PVT_1", "Status")
+	if err != nil || field == nil {
+		t.Fatalf("unexpected result: %+v, %v", field, err)
+	}
+	want := []FieldOption{{ID: "o1", Name: "Done", Color: "ORANGE", Description: "Finished"}}
+	if !reflect.DeepEqual(field.Options, want) {
+		t.Errorf("options = %+v, want %+v", field.Options, want)
+	}
+}
+
+// ============================================================================
+// SearchIntakeCandidates Tests (#918)
+// ============================================================================
+
+// intakeSearchMock answers SearchIntakeCandidates pages from canned JSON, one
+// entry per page. Keys match the query struct's field names case-insensitively.
+func intakeSearchMock(t *testing.T, pages ...string) (*queryMockClient, *[]map[string]interface{}) {
+	t.Helper()
+	var calls []map[string]interface{}
+	mock := &queryMockClient{
+		queryFunc: func(name string, query interface{}, variables map[string]interface{}) error {
+			if name != "SearchIntakeCandidates" {
+				t.Fatalf("unexpected operation %q", name)
+			}
+			calls = append(calls, variables)
+			if len(calls) > len(pages) {
+				t.Fatalf("unexpected page request %d", len(calls))
+			}
+			return json.Unmarshal([]byte(pages[len(calls)-1]), query)
+		},
+	}
+	return mock, &calls
+}
+
+func TestSearchIntakeCandidates_ClassifiesMembership(t *testing.T) {
+	page := `{"search":{"nodes":[
+		{"typeName":"Issue","issue":{"id":"I_tracked","number":1,"title":"Tracked","state":"OPEN","url":"u1",
+			"repository":{"nameWithOwner":"owner/repo"},
+			"projectItems":{"nodes":[{"project":{"id":"PVT_other"}},{"project":{"id":"PVT_target"}}],"pageInfo":{"hasNextPage":false}}}},
+		{"typeName":"Issue","issue":{"id":"I_untracked","number":2,"title":"Untracked","state":"OPEN","url":"u2",
+			"repository":{"nameWithOwner":"owner/repo"},
+			"assignees":{"nodes":[{"login":"alice"}]},
+			"labels":{"nodes":[{"name":"bug"}]},
+			"projectItems":{"nodes":[{"project":{"id":"PVT_other"}}],"pageInfo":{"hasNextPage":false}}}},
+		{"typeName":"PullRequest","issue":{}}
+	],"pageInfo":{"hasNextPage":false,"endCursor":""}}}`
+	mock, _ := intakeSearchMock(t, page)
+	client := NewClientWithGraphQL(mock)
+
+	candidates, err := client.SearchIntakeCandidates("owner", "repo", nil, "PVT_target")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(candidates) != 2 {
+		t.Fatalf("expected 2 issue candidates (pull request skipped), got %d", len(candidates))
+	}
+
+	tracked, untracked := candidates[0], candidates[1]
+	if !tracked.InProject || tracked.MembershipUnknown {
+		t.Errorf("#1 should be InProject and known, got %+v", tracked)
+	}
+	if untracked.InProject || untracked.MembershipUnknown {
+		t.Errorf("#2 should be untracked and known, got %+v", untracked)
+	}
+	if untracked.Issue.Title != "Untracked" || untracked.Issue.URL != "u2" || untracked.Issue.State != "OPEN" {
+		t.Errorf("issue fields not mapped: %+v", untracked.Issue)
+	}
+	if untracked.Issue.Repository.Owner != "owner" || untracked.Issue.Repository.Name != "repo" {
+		t.Errorf("repository not mapped: %+v", untracked.Issue.Repository)
+	}
+	if len(untracked.Issue.Assignees) != 1 || untracked.Issue.Assignees[0].Login != "alice" {
+		t.Errorf("assignees not mapped: %+v", untracked.Issue.Assignees)
+	}
+	if len(untracked.Issue.Labels) != 1 || untracked.Issue.Labels[0].Name != "bug" {
+		t.Errorf("labels not mapped: %+v", untracked.Issue.Labels)
+	}
+}
+
+// TestSearchIntakeCandidates_MoreThanTwentyProjects covers the truncated page:
+// found on the first page is still a definite answer, not found is unknown.
+func TestSearchIntakeCandidates_MoreThanTwentyProjects(t *testing.T) {
+	page := `{"search":{"nodes":[
+		{"typeName":"Issue","issue":{"id":"I_found","number":1,
+			"projectItems":{"nodes":[{"project":{"id":"PVT_target"}}],"pageInfo":{"hasNextPage":true}}}},
+		{"typeName":"Issue","issue":{"id":"I_unknown","number":2,
+			"projectItems":{"nodes":[{"project":{"id":"PVT_other"}}],"pageInfo":{"hasNextPage":true}}}}
+	],"pageInfo":{"hasNextPage":false}}}`
+	mock, _ := intakeSearchMock(t, page)
+	client := NewClientWithGraphQL(mock)
+
+	candidates, err := client.SearchIntakeCandidates("owner", "repo", nil, "PVT_target")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(candidates) != 2 {
+		t.Fatalf("expected 2 candidates, got %d", len(candidates))
+	}
+	if !candidates[0].InProject || candidates[0].MembershipUnknown {
+		t.Errorf("#1 found on a truncated page should be InProject and known, got %+v", candidates[0])
+	}
+	if candidates[1].InProject || !candidates[1].MembershipUnknown {
+		t.Errorf("#2 absent from a truncated page should be MembershipUnknown, got %+v", candidates[1])
+	}
+}
+
+func TestSearchIntakeCandidates_PaginatesAndBuildsQuery(t *testing.T) {
+	page1 := `{"search":{"nodes":[{"typeName":"Issue","issue":{"id":"I_1","number":1}}],
+		"pageInfo":{"hasNextPage":true,"endCursor":"c1"}}}`
+	page2 := `{"search":{"nodes":[{"typeName":"Issue","issue":{"id":"I_2","number":2}}],
+		"pageInfo":{"hasNextPage":false}}}`
+	mock, calls := intakeSearchMock(t, page1, page2)
+	client := NewClientWithGraphQL(mock)
+
+	candidates, err := client.SearchIntakeCandidates("owner", "repo", []string{"bug"}, "PVT_target")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(candidates) != 2 {
+		t.Fatalf("expected candidates from both pages, got %d", len(candidates))
+	}
+	if len(*calls) != 2 {
+		t.Fatalf("expected 2 page requests, got %d", len(*calls))
+	}
+	query := string((*calls)[0]["query"].(graphql.String))
+	for _, part := range []string{"repo:owner/repo", "is:issue", "is:open", `label:"bug"`} {
+		if !strings.Contains(query, part) {
+			t.Errorf("search query %q missing %q", query, part)
+		}
+	}
+	if cursor, ok := (*calls)[1]["cursor"].(graphql.String); !ok || string(cursor) != "c1" {
+		t.Errorf("second page should pass cursor c1, got %v", (*calls)[1]["cursor"])
+	}
+}
+
+// TestSearchIntakeCandidates_QueryIsSlim pins the fields intake does not use
+// out of the document (#918: body, author and milestone were fetched and discarded).
+func TestSearchIntakeCandidates_QueryIsSlim(t *testing.T) {
+	typ := reflect.TypeOf(intakeSearchNode{})
+	issue, ok := typ.FieldByName("Issue")
+	if !ok {
+		t.Fatal("intakeSearchNode has no Issue field")
+	}
+	for _, unwanted := range []string{"Body", "Author", "Milestone"} {
+		if _, present := issue.Type.FieldByName(unwanted); present {
+			t.Errorf("intake search query must not request %s", unwanted)
+		}
+	}
+}
+
+func TestSearchIntakeCandidates_Errors(t *testing.T) {
+	client := NewClientWithGraphQL(&queryMockClient{
+		queryFunc: func(name string, query interface{}, variables map[string]interface{}) error {
+			return errors.New("boom")
+		},
+	})
+	if _, err := client.SearchIntakeCandidates("owner", "repo", nil, "PVT_target"); err == nil ||
+		!strings.Contains(err.Error(), "failed to search intake candidates") {
+		t.Errorf("expected wrapped query error, got %v", err)
+	}
+	if _, err := client.SearchIntakeCandidates("bad owner", "repo", nil, "PVT_target"); err == nil {
+		t.Error("expected owner validation error")
+	}
+	if _, err := client.SearchIntakeCandidates("owner", "repo", nil, ""); err == nil {
+		t.Error("expected error for empty project ID")
+	}
+}
+
+// ============================================================================
 // GetProjectFieldsForIssues Tests
 // ============================================================================
 

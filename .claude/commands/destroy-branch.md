@@ -1,5 +1,5 @@
 ---
-version: "v0.97.0"
+version: "v0.103.0"
 description: Safely delete branch with confirmation (project)
 argument-hint: "[branch-name] [--force]"
 copyright: "Rubrical Works (c) 2026"
@@ -46,12 +46,12 @@ Will permanently delete:
 - Remote: `origin/$BRANCH`
 - Artifacts: `Releases/[prefix]/[identifier]/`
 - Tracker issue (closed "not planned")
-### 1.1: Show What Will Be Destroyed
+### Step 1.1: Show What Will Be Destroyed
 ```bash
 git log main..$BRANCH --oneline 2>/dev/null || echo "No unmerged commits"
 ls -la Releases/*/$BRANCH/ 2>/dev/null || echo "No release artifacts found"
 ```
-### 1.2: Require Explicit Confirmation
+### Step 1.2: Require Explicit Confirmation
 **If `--force` NOT passed:**
 **ASK USER:** Type the branch name to confirm. Must be exactly `$BRANCH`.
 **If mismatch, ABORT.**
@@ -62,31 +62,31 @@ ls -la Releases/*/$BRANCH/ 2>/dev/null || echo "No release artifacts found"
 
 ---
 ## Phase 2: Close Tracker
-### 2.1: Find Tracker
+### Step 2.1: Find Tracker
 ```bash
 gh pmu branch current --json tracker 2>/dev/null
 ```
-### 2.1.5: Remove Active Label
+### Step 2.1.5: Remove Active Label
 If found:
 ```bash
 node .claude/scripts/shared/lib/active-label.js remove [TRACKER_NUMBER]
 ```
-### 2.2: Close as Not Planned
+### Step 2.2: Close as Not Planned
 ```bash
 gh issue close [TRACKER_NUMBER] \
   --reason "not planned" \
   --comment "Branch destroyed via /destroy-branch. Work abandoned."
 ```
-### 2.3: Close Branch in Project
+### Step 2.3: Close Branch in Project
 ```bash
 gh pmu branch close 2>/dev/null || echo "No branch to close"
 ```
 ---
 ## Phase 3: Delete Artifacts
-### 3.1: Identify Dir
+### Step 3.1: Identify Dir
 - `release|patch/vX.Y.Z` → `Releases/release|patch/vX.Y.Z/`
 - `feature/name` → `Releases/feature/name/` (if exists)
-### 3.2: Delete
+### Step 3.2: Delete
 ```bash
 ARTIFACT_DIR="Releases/${BRANCH_PREFIX}/${BRANCH_ID}"
 if [ -d "$ARTIFACT_DIR" ]; then
@@ -97,18 +97,18 @@ fi
 ```
 ---
 ## Phase 4: Delete Branch
-### 4.1: Switch to Main (if on target)
+### Step 4.1: Switch to Main (if on target)
 ```bash
 if [ "$(git branch --show-current)" = "$BRANCH" ]; then
   git checkout main
   git pull origin main
 fi
 ```
-### 4.2: Delete Remote
+### Step 4.2: Delete Remote
 ```bash
 git push origin --delete "$BRANCH" 2>/dev/null || echo "Remote branch not found"
 ```
-### 4.3: Delete Local
+### Step 4.3: Delete Local
 ```bash
 git branch -D "$BRANCH"
 ```

@@ -345,6 +345,10 @@ func runInitExistingProject(cmd *cobra.Command, opts *initOptions) error {
 			fmt.Fprintf(os.Stderr, "error: %v%s\n", err, hint)
 			return err
 		}
+		if err := reconcileInitStatus(client, projectFields, defs.Fields.Required, cmd.ErrOrStderr()); err != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			return err
+		}
 
 		// Create optional fields if missing (Priority, Branch, …) and refetch
 		// so metadata captures any newly-created field IDs.
@@ -870,8 +874,10 @@ func ensureOptionalProjectFields(client optionalFieldClient, projectID string, d
 const missingFieldHint = " — create it in the project settings before connecting"
 
 // validateRequiredFields checks that every IDPF-required field exists on the
-// project with the expected data type, and that SINGLE_SELECT fields carry
-// every required option.
+// project with the expected data type.
+//
+// Required options are not checked here: a missing Status value is added by
+// reconcileInitStatus rather than rejected (#917).
 //
 // The failure is returned as an error plus an optional stderr-only hint.
 // Callers that print to stderr append the hint; callers that route failures
@@ -886,23 +892,60 @@ func validateRequiredFields(projectFields []api.ProjectField, required []default
 		if field.DataType != reqField.Type {
 			return "", fmt.Errorf("field %q has type %s, expected %s", reqField.Name, field.DataType, reqField.Type)
 		}
-
-		if reqField.Type == "SINGLE_SELECT" && len(reqField.Options) > 0 {
-			for _, reqOpt := range reqField.Options {
-				found := false
-				for _, opt := range field.Options {
-					if opt.Name == reqOpt {
-						found = true
-						break
-					}
-				}
-				if !found {
-					return "", fmt.Errorf("field %q missing required option %q", reqField.Name, reqOpt)
-				}
-			}
-		}
 	}
 	return "", nil
+}
+
+// statusOptionsUpdater is the API surface a Status reconcile mutates through.
+type statusOptionsUpdater interface {
+	UpdateProjectFieldOptions(fieldID string, options []api.FieldOptionUpdate) ([]api.FieldOption, error)
+}
+
+// reconcileInitStatus adds missing required Status values and fixes case-only
+// name differences in place (#917). Existing colors and descriptions are left
+// as found; recoloring is `gh pmu status --update`'s job.
+//
+// A Status field served from cached metadata is skipped with a warning: cached
+// options carry no colors or descriptions and may be stale, and the update
+// replaces the whole option list. An update failure is returned.
+func reconcileInitStatus(client statusOptionsUpdater, projectFields []api.ProjectField, required []defaults.FieldDef, errOut io.Writer) error {
+	var canonical []defaults.OptionDef
+	for _, reqField := range required {
+		if reqField.Name == "Status" {
+			canonical = reqField.OptionDefs
+		}
+	}
+	field := findFieldByName(projectFields, "Status")
+	if len(canonical) == 0 || field == nil {
+		return nil
+	}
+
+	if field.FromCache {
+		fmt.Fprintf(errOut, "Warning: skipping Status reconcile: live field data is unavailable (cached metadata in use); run 'gh pmu status --update' once GitHub recovers\n")
+		return nil
+	}
+
+	plan, err := planStatusReconcile(field.Options, canonical, statusReconcileInit)
+	if err != nil {
+		fmt.Fprintf(errOut, "Warning: skipping Status reconcile: %v\n", err)
+		return nil
+	}
+	if !plan.Changed {
+		return nil
+	}
+
+	if _, err := client.UpdateProjectFieldOptions(field.ID, plan.Options); err != nil {
+		return fmt.Errorf("failed to add required Status values: %w", err)
+	}
+	for _, entry := range plan.Entries {
+		switch {
+		case entry.has(statusActionAdded):
+			fmt.Fprintf(errOut, "Status: added %q\n", entry.Name)
+		case entry.has(statusActionRenamed):
+			fmt.Fprintf(errOut, "Status: renamed %q to %q\n", entry.Previous, entry.Name)
+		}
+	}
+	return nil
 }
 
 // findFieldByName searches for a field by name in a slice of ProjectFields.

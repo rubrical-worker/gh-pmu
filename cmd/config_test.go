@@ -151,6 +151,80 @@ func TestConfigVerify_StrictMode_ErrorsOnDrift(t *testing.T) {
 	}
 }
 
+// runVerifyOnCommittedConfig commits content as .gh-pmu.json in a fresh repo and
+// runs `config verify`, returning stdout, stderr and the error.
+func runVerifyOnCommittedConfig(t *testing.T, content string) (string, string, error) {
+	t.Helper()
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, ".gh-pmu.json"), []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, dir, "init")
+	runGit(t, dir, "add", ".gh-pmu.json")
+	runGit(t, dir, "commit", "-m", "init")
+
+	cmd := NewRootCommand()
+	stdout, stderr := new(bytes.Buffer), new(bytes.Buffer)
+	cmd.SetOut(stdout)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"config", "verify", "--dir", dir})
+	err := cmd.Execute()
+	return stdout.String(), stderr.String(), err
+}
+
+// TestConfigVerify_MissingStatusValues_Alert (#917): a config whose Status
+// aliases lack required values gets a boxed stderr alert naming each one.
+func TestConfigVerify_MissingStatusValues_Alert(t *testing.T) {
+	content := `{"project":{"owner":"test","number":1},"repositories":["test/repo"],
+		"fields":{"status":{"field":"Status","values":{"backlog":"Backlog","ready":"Ready","in_progress":"In progress","in_review":"In review","done":"Done","parking_lot":"Parking Lot","notes":"Notes"}}}}`
+	stdout, stderr, err := runVerifyOnCommittedConfig(t, content)
+	if err != nil {
+		t.Fatalf("the alert is advisory; expected no error, got: %v", err)
+	}
+	if !strings.Contains(stderr, "┌") || !strings.Contains(stderr, "REQUIRED STATUS VALUES MISSING") {
+		t.Errorf("expected a boxed alert on stderr, got: %s", stderr)
+	}
+	for _, want := range []string{"Up next", "QA required", "gh pmu status --update"} {
+		if !strings.Contains(stderr, want) {
+			t.Errorf("alert should mention %q, got: %s", want, stderr)
+		}
+	}
+	for _, present := range []string{"Backlog", "Parking Lot"} {
+		if strings.Contains(stderr, present) {
+			t.Errorf("alert must name only missing values, but mentions %q: %s", present, stderr)
+		}
+	}
+	if strings.Contains(stdout, "REQUIRED STATUS VALUES MISSING") {
+		t.Error("the alert belongs on stderr, not stdout")
+	}
+}
+
+func TestConfigVerify_AllStatusValuesPresentCaseInsensitive_NoAlert(t *testing.T) {
+	content := `{"project":{"owner":"test","number":1},"repositories":["test/repo"],
+		"fields":{"status":{"field":"Status","values":{"backlog":"Backlog","up_next":"Up Next","ready":"Ready","in_progress":"In progress","in_review":"In review","qa_required":"QA Required","done":"Done","parking_lot":"Parking Lot","notes":"Notes"}}}}`
+	_, stderr, err := runVerifyOnCommittedConfig(t, content)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if strings.Contains(stderr, "REQUIRED STATUS VALUES MISSING") {
+		t.Errorf("values differing only in case count as present; got alert: %s", stderr)
+	}
+}
+
+// TestConfigVerify_MissingStatusValues_StrictModeExitUnchanged: strict mode fails
+// on drift, never on the Status alert.
+func TestConfigVerify_MissingStatusValues_StrictModeExitUnchanged(t *testing.T) {
+	content := `{"project":{"owner":"test","number":1},"repositories":["test/repo"],"configIntegrity":"strict",
+		"fields":{"status":{"field":"Status","values":{"backlog":"Backlog"}}}}`
+	_, stderr, err := runVerifyOnCommittedConfig(t, content)
+	if err != nil {
+		t.Errorf("missing Status values must not fail verify, even in strict mode; got: %v", err)
+	}
+	if !strings.Contains(stderr, "REQUIRED STATUS VALUES MISSING") {
+		t.Errorf("expected the alert to still be shown in strict mode, got: %s", stderr)
+	}
+}
+
 // runGit is a test helper to run git commands in a directory.
 func runGit(t *testing.T, dir string, args ...string) {
 	t.Helper()

@@ -57,6 +57,65 @@ func TestGetProjectFields_Fallback_EngagesOnResolverUnavailable(t *testing.T) {
 	}
 }
 
+// TestGetProjectFields_Fallback_MarksFieldsFromCache (#917): callers that would
+// mutate options must be able to tell cached fields (ID + name only, possibly
+// stale) from live ones.
+func TestGetProjectFields_Fallback_MarksFieldsFromCache(t *testing.T) {
+	resetFieldsCacheWarningForTesting()
+	restore := SetCachedFieldsLoaderForTesting(func() ([]ProjectField, error) {
+		return []ProjectField{{ID: "f1", Name: "Status", DataType: "SINGLE_SELECT"}, {ID: "f2", Name: "Branch", DataType: "TEXT"}}, nil
+	})
+	defer restore()
+	restoreW := SetFieldsCacheWarningWriterForTesting(&bytes.Buffer{})
+	defer restoreW()
+
+	failing := NewClientWithGraphQL(&queryMockClient{
+		queryFunc: func(name string, query interface{}, variables map[string]interface{}) error {
+			return errors.New("GraphQL: Something went wrong while executing your query on 2026-05-14T19:00:00Z. Please include `ABCD:1234:ABCD:1234:6A060000` when reporting this issue.")
+		},
+	})
+	fields, err := failing.GetProjectFields("proj-id")
+	if err != nil {
+		t.Fatalf("expected fallback, got %v", err)
+	}
+	for _, f := range fields {
+		if !f.FromCache {
+			t.Errorf("field %q served from the cache should be marked FromCache", f.Name)
+		}
+	}
+
+	live := NewClientWithGraphQL(&queryMockClient{})
+	liveFields, err := live.GetProjectFields("proj-id")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	for _, f := range liveFields {
+		if f.FromCache {
+			t.Errorf("live field %q must not be marked FromCache", f.Name)
+		}
+	}
+}
+
+func TestRefreshCachedFields_RefreshedFieldsAreLive(t *testing.T) {
+	cached := []ProjectField{
+		{ID: "f1", Name: "Status", DataType: "SINGLE_SELECT", FromCache: true},
+		{ID: "f2", Name: "Branch", DataType: "TEXT", FromCache: true},
+	}
+	fetcher := func(_ string, name string) (*ProjectField, error) {
+		if name == "Status" {
+			return &ProjectField{ID: "f1", Name: "Status", DataType: "SINGLE_SELECT"}, nil
+		}
+		return nil, errors.New("still failing")
+	}
+	refreshed, _, _ := refreshCachedFields(fetcher, "proj", cached)
+	if refreshed[0].FromCache {
+		t.Error("a field re-fetched via field(name:) is live and must not stay marked FromCache")
+	}
+	if !refreshed[1].FromCache {
+		t.Error("a field whose refresh failed keeps its cached entry and its FromCache mark")
+	}
+}
+
 func TestGetProjectFields_Fallback_EmptyCacheReturnsActionableError(t *testing.T) {
 	resetFieldsCacheWarningForTesting()
 	restore := SetCachedFieldsLoaderForTesting(func() ([]ProjectField, error) {

@@ -1,8 +1,11 @@
 package defaults
 
 import (
+	"reflect"
 	"strings"
 	"testing"
+
+	"gopkg.in/yaml.v3"
 )
 
 func TestLoad(t *testing.T) {
@@ -22,7 +25,7 @@ func TestLoad_HasLabels(t *testing.T) {
 		t.Fatalf("Load() error = %v", err)
 	}
 
-	expectedLabels := []string{"branch", "epic", "story", "proposal", "prd", "bug", "enhancement", "qa-required", "test-plan", "security-required", "legal-required", "docs-required", "emergency", "approval-required", "blocked", "scope-creep", "tech-debt", "active", "reviewed", "pending", "security-finding", "assigned"}
+	expectedLabels := []string{"branch", "epic", "story", "proposal", "prd", "bug", "enhancement", "qa-required", "test-plan", "security-required", "legal-required", "docs-required", "emergency", "approval-required", "blocked", "scope-creep", "tech-debt", "active", "reviewed", "pending", "security-finding", "assigned", "auto-filed"}
 
 	if len(defs.Labels) != len(expectedLabels) {
 		t.Errorf("expected %d labels, got %d", len(expectedLabels), len(defs.Labels))
@@ -36,6 +39,27 @@ func TestLoad_HasLabels(t *testing.T) {
 	for _, expected := range expectedLabels {
 		if !labelNames[expected] {
 			t.Errorf("expected label %q not found", expected)
+		}
+	}
+}
+
+// TestLoad_AutoFiledLabel (#915): the hall-monitor label, with a color no other
+// standard label uses.
+func TestLoad_AutoFiledLabel(t *testing.T) {
+	defs := MustLoad()
+	label := defs.GetLabel("auto-filed")
+	if label == nil {
+		t.Fatal("auto-filed label not defined")
+	}
+	if label.Description != "Issue filed by the hall-monitor" {
+		t.Errorf("description = %q, want %q", label.Description, "Issue filed by the hall-monitor")
+	}
+	if label.Color != "116329" {
+		t.Errorf("color = %q, want 116329", label.Color)
+	}
+	for _, other := range defs.Labels {
+		if other.Name != "auto-filed" && strings.EqualFold(other.Color, "116329") {
+			t.Errorf("color 116329 is also used by %q", other.Name)
 		}
 	}
 }
@@ -86,9 +110,73 @@ func TestLoad_HasRequiredFields(t *testing.T) {
 		t.Errorf("Status field type = %q, want SINGLE_SELECT", statusField.Type)
 	}
 
-	expectedOptions := []string{"Backlog", "In progress", "In review", "Done"}
+	// #917: the 9-value Status minimum, exact names, template order.
+	expectedOptions := []string{"Backlog", "Up next", "Ready", "In progress", "In review", "QA required", "Done", "Parking Lot", "Notes"}
 	if len(statusField.Options) != len(expectedOptions) {
-		t.Errorf("Status field has %d options, want %d", len(statusField.Options), len(expectedOptions))
+		t.Fatalf("Status field has %d options, want %d: %v", len(statusField.Options), len(expectedOptions), statusField.Options)
+	}
+	for i, want := range expectedOptions {
+		if statusField.Options[i] != want {
+			t.Errorf("Status option[%d] = %q, want %q", i, statusField.Options[i], want)
+		}
+	}
+
+	validColors := map[string]bool{"GRAY": true, "BLUE": true, "GREEN": true, "YELLOW": true, "ORANGE": true, "RED": true, "PINK": true, "PURPLE": true}
+	if len(statusField.OptionDefs) != len(expectedOptions) {
+		t.Fatalf("Status field has %d option definitions, want %d", len(statusField.OptionDefs), len(expectedOptions))
+	}
+	for i, def := range statusField.OptionDefs {
+		if def.Name != expectedOptions[i] {
+			t.Errorf("OptionDefs[%d].Name = %q, want %q", i, def.Name, expectedOptions[i])
+		}
+		if !validColors[def.Color] {
+			t.Errorf("Status option %q has color %q, want one of GitHub's 8 option colors", def.Name, def.Color)
+		}
+		if def.Description == "" {
+			t.Errorf("Status option %q has no default description", def.Name)
+		}
+	}
+}
+
+// TestFieldDef_OptionsAcceptStringsAndMappings: an option entry may be a bare
+// name or a {name, color, description} mapping, and Options always carries the
+// names so existing []string callers are unaffected (#917).
+func TestFieldDef_OptionsAcceptStringsAndMappings(t *testing.T) {
+	src := `
+name: Mixed
+type: SINGLE_SELECT
+options:
+  - Plain
+  - name: Rich
+    color: BLUE
+    description: A described option
+`
+	var fd FieldDef
+	if err := yaml.Unmarshal([]byte(src), &fd); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if want := []string{"Plain", "Rich"}; !reflect.DeepEqual(fd.Options, want) {
+		t.Errorf("Options = %v, want %v", fd.Options, want)
+	}
+	wantDefs := []OptionDef{{Name: "Plain"}, {Name: "Rich", Color: "BLUE", Description: "A described option"}}
+	if !reflect.DeepEqual(fd.OptionDefs, wantDefs) {
+		t.Errorf("OptionDefs = %+v, want %+v", fd.OptionDefs, wantDefs)
+	}
+
+	var bad FieldDef
+	if err := yaml.Unmarshal([]byte("name: X\noptions:\n  - [nested]\n"), &bad); err == nil {
+		t.Error("expected an error for an option that is neither a string nor a mapping")
+	}
+}
+
+func TestFieldDef_OptionDefByName(t *testing.T) {
+	defs := MustLoad()
+	status := defs.Fields.Required[0]
+	if def := status.OptionDef("qa REQUIRED"); def == nil || def.Name != "QA required" {
+		t.Errorf("OptionDef should match case-insensitively, got %+v", def)
+	}
+	if def := status.OptionDef("Nope"); def != nil {
+		t.Errorf("OptionDef(Nope) = %+v, want nil", def)
 	}
 }
 
@@ -210,7 +298,7 @@ func TestGetLabelNames(t *testing.T) {
 	}
 
 	// All standard labels should be in the list
-	expectedLabels := []string{"branch", "epic", "story", "proposal", "prd", "bug", "enhancement", "qa-required", "test-plan", "security-required", "legal-required", "docs-required", "emergency", "approval-required", "blocked", "scope-creep", "tech-debt", "active", "reviewed", "pending", "security-finding", "assigned"}
+	expectedLabels := []string{"branch", "epic", "story", "proposal", "prd", "bug", "enhancement", "qa-required", "test-plan", "security-required", "legal-required", "docs-required", "emergency", "approval-required", "blocked", "scope-creep", "tech-debt", "active", "reviewed", "pending", "security-finding", "assigned", "auto-filed"}
 	nameSet := make(map[string]bool)
 	for _, name := range names {
 		nameSet[name] = true

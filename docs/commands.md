@@ -43,6 +43,7 @@ Label Management:
 
 Configuration:
   config verify  Verify config integrity against git HEAD
+  status --update  Add missing Status values and apply default colors
 
 Workflow Commands:
   branch      Manage branches for development workflows
@@ -446,7 +447,7 @@ gh pmu field create --name "Sprint" --type single_select --options "Sprint 1,Spr
 **Output:**
 ```
 Name        Type           Options
-Status      SINGLE_SELECT  Backlog, Ready, In progress, In review, Done
+Status      SINGLE_SELECT  Backlog, Up next, Ready, In progress, In review, QA required, Done, Parking Lot, Notes
 Priority    SINGLE_SELECT  P0, P1, P2
 Size        SINGLE_SELECT  XS, S, M, L, XL
 Estimate    NUMBER         -
@@ -551,6 +552,9 @@ See [Batch Operations Guide](batch-operations.md) for detailed workflows.
 Find and add untracked issues to project.
 
 ```bash
+# List untracked issues
+gh pmu intake --list
+
 # Preview untracked issues
 gh pmu intake --dry-run
 
@@ -560,6 +564,10 @@ gh pmu intake --apply
 # Only issues assigned to you
 gh pmu intake --assignee @me --dry-run
 ```
+
+A mode is required: `--list`, `--dry-run` or `--apply`. With none, `intake` prints
+its help and makes no API calls. `--json`, `--label` and `--assignee` modify a mode
+but do not select one. `--list` and `--apply` cannot be combined.
 
 `--assignee` is repeatable and matches issues carrying **any** of the supplied
 logins. `@me` resolves to your authenticated login — see
@@ -827,7 +835,7 @@ gh pmu accept --dir /path/to/repo
 
 **Notes:**
 - Acceptance is stored in `.gh-pmu.json` and shared across collaborators
-- Re-acceptance is required when the major or minor version changes (patch updates do not require re-acceptance)
+- Re-acceptance is required only when the major version changes (minor and patch updates do not require re-acceptance)
 - The `init`, `accept`, `--help`, and `--version` commands are exempt from the acceptance gate
 
 **Output:**
@@ -869,6 +877,9 @@ gh pmu config verify --resolve-view
 | `--dir` | Directory to search for config (default: current directory) |
 | `--resolve-view` | Resolve the Backlog board view number and persist it as `project.view` |
 
+**Required Status Values:**
+When `.gh-pmu.json` `fields.status.values` lacks any of the 9 required Status values (matched case-insensitively), `config verify` writes a boxed `REQUIRED STATUS VALUES MISSING` alert to stderr naming each one and recommending `gh pmu status --update`. The check reads the local config only, so `config verify` stays offline. The alert is advisory: it never changes the exit code, including in strict mode.
+
 **Daily Auto-Check:**
 On the first `gh pmu` command each day, the tool automatically compares local `.gh-pmu.json` against HEAD and warns if drift is detected. This check is throttled to once per day.
 
@@ -877,6 +888,29 @@ Add `"configIntegrity": "strict"` to `.gh-pmu.json` to block command execution w
 
 **Checksum File:**
 A `.gh-pmu.checksum` file (gitignored) stores the SHA-256 hash of the known-good config. Updated automatically when config is written via `gh pmu accept`, `gh pmu field`, or `gh pmu config verify --resolve-view`. There is no command that re-blesses the checksum after a deliberate hand-edit; `config verify` reports the mismatch but does not clear it.
+
+### status --update
+
+Bring the project's Status field up to the 9 values every gh-pmu project carries:
+`Backlog`, `Up next`, `Ready`, `In progress`, `In review`, `QA required`, `Done`, `Parking Lot`, `Notes`.
+
+```bash
+gh pmu status --update
+```
+
+**What it changes:**
+- Adds each missing value next to its template neighbors, with the default color and description
+- Renames a value that differs only in capitalization (e.g. `Up Next` → `Up next`) in place, so items keep their Status
+- Sets each of the 9 values to its default color
+- Fills an empty description with the default; a non-empty description is kept
+
+**What it never does:** delete a Status value, reorder existing values, or touch values outside the 9 (e.g. a custom `PropParking Lot`).
+
+Afterwards it prints a per-value report (added / renamed / recolored / description set / unchanged / preserved) and refreshes the Status aliases and cached metadata in `.gh-pmu.json`.
+
+If GitHub's field resolver is unavailable and only cached field metadata can be read, `status --update` changes nothing and exits non-zero. Run it again once GitHub recovers.
+
+`gh pmu init` applies the same rules but only adds missing values and fixes capitalization; it does not recolor. Default names, colors and descriptions live in `internal/defaults/defaults.yml`.
 
 ---
 

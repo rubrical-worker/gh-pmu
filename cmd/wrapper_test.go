@@ -886,7 +886,7 @@ func TestRunIntake_LoadsConfig(t *testing.T) {
 	cmd.SetOut(&buf)
 	cmd.SetErr(&buf)
 
-	opts := &intakeOptions{}
+	opts := &intakeOptions{list: true}
 	err := runIntake(cmd, opts)
 
 	// We expect an API error (not a config error)
@@ -923,7 +923,7 @@ func TestRunIntake_ConfigNotFound(t *testing.T) {
 	defer func() { _ = os.Chdir(origDir) }()
 
 	cmd := newIntakeCommand()
-	opts := &intakeOptions{}
+	opts := &intakeOptions{list: true}
 	err = runIntake(cmd, opts)
 
 	if err == nil {

@@ -1,6 +1,6 @@
 # Architecture: gh-pmu
 
-**Last Updated:** 2026-03-27
+**Last Updated:** 2026-09-14
 
 ---
 
@@ -64,7 +64,7 @@ gh-pmu is a GitHub CLI extension built as a single Go binary. It extends `gh` wi
 
 1. User invokes `gh pmu <command> <args>`
 2. Cobra parses flags and arguments
-3. Config loaded from `.gh-pmu.yml`
+3. Config loaded from `.gh-pmu.json`
 4. API client executes GraphQL query/mutation
 5. Response formatted and output to terminal
 
@@ -75,7 +75,7 @@ User Input → Cobra Parsing → Config Load → API Call → Format Output
     │              │              │            │            │
     ▼              ▼              ▼            ▼            ▼
  "gh pmu     Parse flags    Load         GraphQL      Table/JSON
-  move 42    & args        .gh-pmu.yml   mutation     to stdout
+  move 42    & args        .gh-pmu.json  mutation     to stdout
   --status
   done"
 ```
