@@ -73,10 +73,14 @@ fields:
     field: Status
     values:
       backlog: Backlog
+      up_next: Up next
       ready: Ready
       in_progress: In progress
       in_review: In review
+      qa_required: QA required
       done: Done
+      parking_lot: Parking Lot
+      notes: Notes
 ```
 
 **Usage:**
@@ -262,10 +266,14 @@ fields:
     field: Status
     values:
       backlog: Backlog
+      up_next: Up next
       ready: Ready
       in_progress: In progress
       in_review: In review
+      qa_required: QA required
       done: Done
+      parking_lot: Parking Lot
+      notes: Notes
   size:
     field: Size
     values:
