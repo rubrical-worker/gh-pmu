@@ -350,6 +350,9 @@ func rawDocumentInvocations() []struct {
 		{"BatchUpdateProjectItemFields", func(c *Client) {
 			_, _ = c.BatchUpdateProjectItemFields("PVT_kw1", updates, fields)
 		}},
+		{"BatchAddIssuesToProject", func(c *Client) {
+			_, _ = c.BatchAddIssuesToProject("PVT_kw1", []string{"I_kw1", "I_kw2"})
+		}},
 	}
 }
 

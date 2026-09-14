@@ -3407,6 +3407,177 @@ func TestParseBatchMutationResponse_IntegerPathSegment(t *testing.T) {
 }
 
 // ============================================================================
+// #918: BatchAddIssuesToProject
+// ============================================================================
+
+func TestBuildBatchAddRequest_Structure(t *testing.T) {
+	mutation, body, err := buildBatchAddRequest("PVT_proj", []string{"I_a", "I_b"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	for _, want := range []string{
+		"mutation BatchAddItems(",
+		"$input0: AddProjectV2ItemByIdInput!",
+		"$input1: AddProjectV2ItemByIdInput!",
+		"a0: addProjectV2ItemById(input: $input0) { item { id } }",
+		"a1: addProjectV2ItemById(input: $input1) { item { id } }",
+	} {
+		if !strings.Contains(mutation, want) {
+			t.Errorf("mutation missing %q:\n%s", want, mutation)
+		}
+	}
+
+	var parsed struct {
+		Query     string                       `json:"query"`
+		Variables map[string]map[string]string `json:"variables"`
+	}
+	if err := json.Unmarshal([]byte(body), &parsed); err != nil {
+		t.Fatalf("body is not JSON: %v", err)
+	}
+	if parsed.Query != mutation {
+		t.Error("body query should be the built mutation")
+	}
+	if got := parsed.Variables["input1"]; got["projectId"] != "PVT_proj" || got["contentId"] != "I_b" {
+		t.Errorf("input1 = %v, want projectId PVT_proj, contentId I_b", got)
+	}
+}
+
+func TestBuildBatchAddRequest_EmptyAndInvalid(t *testing.T) {
+	mutation, body, err := buildBatchAddRequest("PVT_proj", nil)
+	if err != nil || mutation != "" || body != "" {
+		t.Errorf("empty input should build nothing, got %q %q %v", mutation, body, err)
+	}
+	if _, _, err := buildBatchAddRequest("PVT_proj", []string{"I_ok", "bad id"}); err == nil {
+		t.Error("expected node ID validation error")
+	}
+}
+
+func TestParseBatchAddResponse_PerAliasErrors(t *testing.T) {
+	issueIDs := []string{"I_a", "I_b", "I_c"}
+	output := []byte(`{
+		"data": {
+			"a0": {"item": {"id": "PVTI_a"}},
+			"a1": null,
+			"a2": {"item": {"id": "PVTI_c"}}
+		},
+		"errors": [{"message": "Could not resolve to a node", "path": ["a1"]}]
+	}`)
+
+	results, err := parseBatchAddResponse(output, issueIDs)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(results) != 3 {
+		t.Fatalf("expected 3 results, got %d", len(results))
+	}
+	if !results[0].Success || results[0].ItemID != "PVTI_a" || results[0].IssueID != "I_a" {
+		t.Errorf("a0 = %+v, want success with PVTI_a", results[0])
+	}
+	if results[1].Success || results[1].Error != "Could not resolve to a node" || results[1].ItemID != "" {
+		t.Errorf("a1 = %+v, want failure attributed to its alias", results[1])
+	}
+	if !results[2].Success || results[2].ItemID != "PVTI_c" {
+		t.Errorf("a2 = %+v, want success with PVTI_c", results[2])
+	}
+}
+
+func TestParseBatchAddResponse_MissingItemWithoutAliasError(t *testing.T) {
+	// An alias with no item and no alias-scoped error must not pass for success:
+	// without an item ID the caller cannot set fields on it.
+	output := []byte(`{"data": {"a0": null}, "errors": [{"message": "something went wrong"}]}`)
+	results, err := parseBatchAddResponse(output, []string{"I_a"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if results[0].Success || results[0].Error != "something went wrong" {
+		t.Errorf("expected failure carrying the unscoped error, got %+v", results[0])
+	}
+
+	results, err = parseBatchAddResponse([]byte(`{"data": {}}`), []string{"I_a"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if results[0].Success || results[0].Error == "" {
+		t.Errorf("expected failure with an explanatory error when no item returned, got %+v", results[0])
+	}
+
+	if _, err := parseBatchAddResponse([]byte(`not json`), []string{"I_a"}); err == nil {
+		t.Error("expected parse error for invalid JSON")
+	}
+}
+
+// sequencedRawGraphQL answers DoRawBody calls from a queue and records bodies.
+type sequencedRawGraphQL struct {
+	responses [][]byte
+	errs      []error
+	bodies    []string
+}
+
+func (s *sequencedRawGraphQL) DoRaw(query string, headers map[string]string) ([]byte, error) {
+	return s.DoRawBody([]byte(query), headers)
+}
+
+func (s *sequencedRawGraphQL) DoRawBody(body []byte, headers map[string]string) ([]byte, error) {
+	i := len(s.bodies)
+	s.bodies = append(s.bodies, string(body))
+	var resp []byte
+	var err error
+	if i < len(s.responses) {
+		resp = s.responses[i]
+	}
+	if i < len(s.errs) {
+		err = s.errs[i]
+	}
+	return resp, err
+}
+
+func TestBatchAddIssuesToProject_ChunksAndMarksWholeBatchFailure(t *testing.T) {
+	issueIDs := make([]string, 51)
+	firstData := make([]string, 50)
+	for i := range issueIDs {
+		issueIDs[i] = fmt.Sprintf("I_%d", i)
+	}
+	for i := range firstData {
+		firstData[i] = fmt.Sprintf(`"a%d": {"item": {"id": "PVTI_%d"}}`, i, i)
+	}
+	raw := &sequencedRawGraphQL{
+		responses: [][]byte{[]byte(`{"data": {` + strings.Join(firstData, ",") + `}}`), nil},
+		errs:      []error{nil, errors.New("HTTP 502")},
+	}
+	client := &Client{rawGQL: raw}
+
+	results, err := client.BatchAddIssuesToProject("PVT_proj", issueIDs)
+	if err != nil {
+		t.Fatalf("a failed chunk is reported per issue, not as an error: %v", err)
+	}
+	if len(raw.bodies) != 2 {
+		t.Fatalf("expected 51 issues to be sent in 2 chunks, got %d requests", len(raw.bodies))
+	}
+	if len(results) != 51 {
+		t.Fatalf("expected a result per issue, got %d", len(results))
+	}
+	for i := 0; i < 50; i++ {
+		if !results[i].Success || results[i].ItemID != fmt.Sprintf("PVTI_%d", i) {
+			t.Fatalf("result %d = %+v, want success", i, results[i])
+		}
+	}
+	last := results[50]
+	if last.Success || last.IssueID != "I_50" || !strings.Contains(last.Error, "HTTP 502") {
+		t.Errorf("issue in the failed chunk = %+v, want failure carrying the request error", last)
+	}
+}
+
+func TestBatchAddIssuesToProject_Empty(t *testing.T) {
+	raw := &sequencedRawGraphQL{}
+	client := &Client{rawGQL: raw}
+	results, err := client.BatchAddIssuesToProject("PVT_proj", nil)
+	if err != nil || len(results) != 0 || len(raw.bodies) != 0 {
+		t.Errorf("empty input should send nothing, got results=%v err=%v requests=%d", results, err, len(raw.bodies))
+	}
+}
+
+// ============================================================================
 // #860: GetProjectItemFieldValue found-bool + pagination (AC3)
 // ============================================================================
 
