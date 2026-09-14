@@ -4,7 +4,7 @@ Labels managed by `gh pmu init` from `internal/defaults/defaults.yml`.
 
 ## Color Audit
 
-**Duplicates found:** 3 exact collisions, 3 near-clashes across 22 labels.
+**Duplicates found:** 3 exact collisions, 3 near-clashes across 23 labels.
 
 ### Issue Types
 
@@ -85,6 +85,13 @@ Labels managed by `gh pmu init` from `internal/defaults/defaults.yml`.
   <td>—</td>
   <td>Keep. GitHub-green for "done/resolved" — close to <code>branch</code> but different enough.</td>
   <td>Issue has been reviewed and findings resolved</td>
+</tr>
+<tr>
+  <td><code>auto-filed</code></td>
+  <td><svg width="16" height="16"><rect width="16" height="16" rx="3" fill="#116329"/></svg> <code>#116329</code></td>
+  <td>—</td>
+  <td>New (#915). Dark green, expected to render with white text — darker than <code>branch</code> and <code>reviewed</code>; no other label uses it.</td>
+  <td>Issue filed by the hall-monitor</td>
 </tr>
 <tr>
   <td><code>pending</code></td>
@@ -218,4 +225,4 @@ Labels managed by `gh pmu init` from `internal/defaults/defaults.yml`.
 </tr>
 </table>
 
-**18 labels unchanged, 4 labels proposed for new colors.** All duplicates resolved.
+**19 labels unchanged, 4 labels proposed for new colors.** All duplicates resolved.
