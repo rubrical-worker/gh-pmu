@@ -195,8 +195,10 @@ func (c *Client) getProjectFieldsPage(projectID string, cursor *string) ([]Proje
 							Name     string
 							DataType string
 							Options  []struct {
-								ID   string
-								Name string
+								ID          string
+								Name        string
+								Color       string
+								Description string
 							}
 						} `graphql:"... on ProjectV2SingleSelectField"`
 					}
@@ -242,8 +244,10 @@ func (c *Client) getProjectFieldsPage(projectID string, cursor *string) ([]Proje
 			field.DataType = node.ProjectV2SingleSelectField.DataType
 			for _, opt := range node.ProjectV2SingleSelectField.Options {
 				field.Options = append(field.Options, FieldOption{
-					ID:   opt.ID,
-					Name: opt.Name,
+					ID:          opt.ID,
+					Name:        opt.Name,
+					Color:       opt.Color,
+					Description: opt.Description,
 				})
 			}
 		case "ProjectV2Field":
@@ -290,8 +294,10 @@ func (c *Client) fetchProjectFieldByName(projectID, name string) (*ProjectField,
 						Name     string
 						DataType string
 						Options  []struct {
-							ID   string
-							Name string
+							ID          string
+							Name        string
+							Color       string
+							Description string
 						}
 					} `graphql:"... on ProjectV2SingleSelectField"`
 				} `graphql:"field(name: $name)"`
@@ -316,7 +322,7 @@ func (c *Client) fetchProjectFieldByName(projectID, name string) (*ProjectField,
 		field.Name = node.ProjectV2SingleSelectField.Name
 		field.DataType = node.ProjectV2SingleSelectField.DataType
 		for _, opt := range node.ProjectV2SingleSelectField.Options {
-			field.Options = append(field.Options, FieldOption{ID: opt.ID, Name: opt.Name})
+			field.Options = append(field.Options, FieldOption{ID: opt.ID, Name: opt.Name, Color: opt.Color, Description: opt.Description})
 		}
 	case "ProjectV2Field":
 		field.ID = node.ProjectV2Field.ID

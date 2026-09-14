@@ -572,6 +572,89 @@ type ProjectV2SingleSelectFieldOptionInput struct {
 	Description graphql.String `json:"description,omitempty"`
 }
 
+// FieldOptionUpdate is one option in the full list sent to
+// UpdateProjectFieldOptions. ID is empty for a new option and must be set for
+// every existing option, or GitHub clears that option on every item.
+type FieldOptionUpdate struct {
+	ID          string
+	Name        string
+	Color       string
+	Description string
+}
+
+// UpdateProjectV2FieldInput represents the input for updating a project field.
+type UpdateProjectV2FieldInput struct {
+	FieldID             graphql.ID                                    `json:"fieldId"`
+	SingleSelectOptions []ProjectV2SingleSelectFieldOptionUpdateInput `json:"singleSelectOptions"`
+}
+
+// ProjectV2SingleSelectFieldOptionUpdateInput is an option in an update.
+// Color and Description deliberately have no omitempty: both are non-null in
+// the schema and provided values overwrite existing ones, so an empty
+// description must be sent as "" rather than dropped (#917).
+type ProjectV2SingleSelectFieldOptionUpdateInput struct {
+	ID          *graphql.String `json:"id,omitempty"`
+	Name        graphql.String  `json:"name"`
+	Color       graphql.String  `json:"color"`
+	Description graphql.String  `json:"description"`
+}
+
+// UpdateProjectFieldOptions replaces a single-select field's option list via
+// updateProjectV2Field and returns the options GitHub reports afterwards.
+//
+// singleSelectOptions replaces the whole list: the caller must send every
+// option to keep, each existing one with its ID. An empty list is refused
+// because it would clear the field's options.
+func (c *Client) UpdateProjectFieldOptions(fieldID string, options []FieldOptionUpdate) ([]FieldOption, error) {
+	if fieldID == "" {
+		return nil, fmt.Errorf("field ID is required")
+	}
+	if len(options) == 0 {
+		return nil, fmt.Errorf("refusing to update field %s with an empty option list", fieldID)
+	}
+
+	var mutation struct {
+		UpdateProjectV2Field struct {
+			ProjectV2Field struct {
+				ProjectV2SingleSelectField struct {
+					ID      string
+					Name    string
+					Options []struct {
+						ID          string
+						Name        string
+						Color       string
+						Description string
+					}
+				} `graphql:"... on ProjectV2SingleSelectField"`
+			} `graphql:"projectV2Field"`
+		} `graphql:"updateProjectV2Field(input: $input)"`
+	}
+
+	input := UpdateProjectV2FieldInput{FieldID: graphql.ID(fieldID)}
+	for _, opt := range options {
+		in := ProjectV2SingleSelectFieldOptionUpdateInput{
+			Name:        graphql.String(opt.Name),
+			Color:       graphql.String(opt.Color),
+			Description: graphql.String(opt.Description),
+		}
+		if opt.ID != "" {
+			in.ID = graphql.NewString(graphql.String(opt.ID))
+		}
+		input.SingleSelectOptions = append(input.SingleSelectOptions, in)
+	}
+
+	variables := map[string]interface{}{"input": input}
+	if err := c.gql.Mutate("UpdateProjectV2Field", &mutation, variables); err != nil {
+		return nil, fmt.Errorf("failed to update field options: %w", err)
+	}
+
+	var result []FieldOption
+	for _, opt := range mutation.UpdateProjectV2Field.ProjectV2Field.ProjectV2SingleSelectField.Options {
+		result = append(result, FieldOption{ID: opt.ID, Name: opt.Name, Color: opt.Color, Description: opt.Description})
+	}
+	return result, nil
+}
+
 // DeleteProjectV2FieldInput represents the input for deleting a project field
 type DeleteProjectV2FieldInput struct {
 	FieldID graphql.ID `json:"fieldId"`

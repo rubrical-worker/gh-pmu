@@ -3122,6 +3122,50 @@ func TestSearchRepositoryIssues_WithLimit(t *testing.T) {
 }
 
 // ============================================================================
+// Single-select option color and description (#917)
+// ============================================================================
+
+func TestGetProjectFields_OptionColorAndDescription(t *testing.T) {
+	mock := &queryMockClient{
+		queryFunc: func(name string, query interface{}, variables map[string]interface{}) error {
+			return json.Unmarshal([]byte(`{"node":{"projectV2":{"fields":{"nodes":[
+				{"typeName":"ProjectV2SingleSelectField","projectV2SingleSelectField":{"id":"F1","name":"Status","dataType":"SINGLE_SELECT",
+					"options":[{"id":"o1","name":"Backlog","color":"BLUE","description":"Not started"},{"id":"o2","name":"Notes","color":"GRAY","description":""}]}}
+			],"pageInfo":{"hasNextPage":false}}}}}`), query)
+		},
+	}
+	fields, err := NewClientWithGraphQL(mock).GetProjectFields("PVT_1")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(fields) != 1 || len(fields[0].Options) != 2 {
+		t.Fatalf("unexpected fields: %+v", fields)
+	}
+	want := []FieldOption{{ID: "o1", Name: "Backlog", Color: "BLUE", Description: "Not started"}, {ID: "o2", Name: "Notes", Color: "GRAY"}}
+	if !reflect.DeepEqual(fields[0].Options, want) {
+		t.Errorf("options = %+v, want %+v", fields[0].Options, want)
+	}
+}
+
+func TestFetchProjectFieldByName_OptionColorAndDescription(t *testing.T) {
+	mock := &queryMockClient{
+		queryFunc: func(name string, query interface{}, variables map[string]interface{}) error {
+			return json.Unmarshal([]byte(`{"node":{"projectV2":{"field":
+				{"typeName":"ProjectV2SingleSelectField","projectV2SingleSelectField":{"id":"F1","name":"Status","dataType":"SINGLE_SELECT",
+					"options":[{"id":"o1","name":"Done","color":"ORANGE","description":"Finished"}]}}}}}`), query)
+		},
+	}
+	field, err := NewClientWithGraphQL(mock).fetchProjectFieldByName("PVT_1", "Status")
+	if err != nil || field == nil {
+		t.Fatalf("unexpected result: %+v, %v", field, err)
+	}
+	want := []FieldOption{{ID: "o1", Name: "Done", Color: "ORANGE", Description: "Finished"}}
+	if !reflect.DeepEqual(field.Options, want) {
+		t.Errorf("options = %+v, want %+v", field.Options, want)
+	}
+}
+
+// ============================================================================
 // SearchIntakeCandidates Tests (#918)
 // ============================================================================
 

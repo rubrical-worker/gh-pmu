@@ -51,13 +51,18 @@ type ProjectField struct {
 	Name     string
 	DataType string
 	Options  []FieldOption // For SINGLE_SELECT fields
+	// FromCache is true when the field came from .gh-pmu.json cached metadata
+	// because the live resolver was unavailable. Cached fields carry only IDs
+	// and names and may be stale, so they must never drive a mutation (#917).
+	FromCache bool
 }
 
 // FieldOption represents an option for a single-select field
 type FieldOption struct {
-	ID    string
-	Name  string
-	Color string
+	ID          string
+	Name        string
+	Color       string
+	Description string
 }
 
 // Issue represents a GitHub issue

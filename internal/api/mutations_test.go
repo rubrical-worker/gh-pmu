@@ -3407,6 +3407,89 @@ func TestParseBatchMutationResponse_IntegerPathSegment(t *testing.T) {
 }
 
 // ============================================================================
+// #917: UpdateProjectFieldOptions
+// ============================================================================
+
+func TestUpdateProjectFieldOptions_PayloadRoundTripsEveryOption(t *testing.T) {
+	var captured map[string]interface{}
+	var opName string
+	mock := &mockGraphQLClient{
+		mutateFunc: func(name string, mutation interface{}, variables map[string]interface{}) error {
+			opName = name
+			captured = variables
+			return json.Unmarshal([]byte(`{"updateProjectV2Field":{"projectV2Field":{"projectV2SingleSelectField":
+				{"id":"F1","name":"Status","options":[
+					{"id":"o1","name":"Backlog","color":"BLUE","description":""},
+					{"id":"o9","name":"Up next","color":"ORANGE","description":"Queued"}]}}}}`), mutation)
+		},
+	}
+	client := NewClientWithGraphQL(mock)
+
+	options, err := client.UpdateProjectFieldOptions("F1", []FieldOptionUpdate{
+		{ID: "o1", Name: "Backlog", Color: "BLUE", Description: ""},
+		{Name: "Up next", Color: "ORANGE", Description: "Queued"},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if opName != "UpdateProjectV2Field" {
+		t.Errorf("operation = %q, want UpdateProjectV2Field", opName)
+	}
+
+	raw, err := json.Marshal(captured["input"])
+	if err != nil {
+		t.Fatalf("marshal input: %v", err)
+	}
+	var input struct {
+		FieldID string                   `json:"fieldId"`
+		Options []map[string]interface{} `json:"singleSelectOptions"`
+	}
+	if err := json.Unmarshal(raw, &input); err != nil {
+		t.Fatalf("decode input: %v", err)
+	}
+	if input.FieldID != "F1" || len(input.Options) != 2 {
+		t.Fatalf("input = %s", raw)
+	}
+	existing, added := input.Options[0], input.Options[1]
+	if existing["id"] != "o1" {
+		t.Errorf("existing option must carry its id, got %v", existing)
+	}
+	if desc, present := existing["description"]; !present || desc != "" {
+		t.Errorf("empty description must be sent as \"\", not omitted: %s", raw)
+	}
+	if existing["color"] != "BLUE" || existing["name"] != "Backlog" {
+		t.Errorf("existing option name/color not round-tripped: %v", existing)
+	}
+	if _, present := added["id"]; present {
+		t.Errorf("a new option must not send an id: %v", added)
+	}
+
+	want := []FieldOption{{ID: "o1", Name: "Backlog", Color: "BLUE"}, {ID: "o9", Name: "Up next", Color: "ORANGE", Description: "Queued"}}
+	if !reflect.DeepEqual(options, want) {
+		t.Errorf("returned options = %+v, want %+v", options, want)
+	}
+}
+
+func TestUpdateProjectFieldOptions_Errors(t *testing.T) {
+	client := NewClientWithGraphQL(&mockGraphQLClient{
+		mutateFunc: func(name string, mutation interface{}, variables map[string]interface{}) error {
+			return errors.New("boom")
+		},
+	})
+	if _, err := client.UpdateProjectFieldOptions("F1", []FieldOptionUpdate{{Name: "A", Color: "GRAY"}}); err == nil ||
+		!strings.Contains(err.Error(), "failed to update field options") {
+		t.Errorf("expected wrapped mutation error, got %v", err)
+	}
+	if _, err := client.UpdateProjectFieldOptions("", []FieldOptionUpdate{{Name: "A", Color: "GRAY"}}); err == nil {
+		t.Error("expected error for empty field ID")
+	}
+	// An empty list would clear every option on the field.
+	if _, err := client.UpdateProjectFieldOptions("F1", nil); err == nil {
+		t.Error("expected error for an empty option list")
+	}
+}
+
+// ============================================================================
 // #918: BatchAddIssuesToProject
 // ============================================================================
 
