@@ -74,13 +74,39 @@ labels:
 fields:
   # Required fields - must exist, error if missing
   required:
+    # Status options are the 9-value minimum every managed project carries,
+    # in template order. Colors must be one of GitHub's 8 option colors:
+    # GRAY BLUE GREEN YELLOW ORANGE RED PINK PURPLE (#917).
     - name: Status
       type: SINGLE_SELECT
       options:
-        - Backlog
-        - In progress
-        - In review
-        - Done
+        - name: "Backlog"
+          color: BLUE
+          description: "This item hasn't been started"
+        - name: "Up next"
+          color: ORANGE
+          description: "Queued to be made ready next"
+        - name: "Ready"
+          color: GREEN
+          description: "This is ready to be picked up"
+        - name: "In progress"
+          color: YELLOW
+          description: "This is actively being worked on"
+        - name: "In review"
+          color: PURPLE
+          description: "This item is in review"
+        - name: "QA required"
+          color: YELLOW
+          description: "Awaiting QA validation"
+        - name: "Done"
+          color: ORANGE
+          description: "This has been completed"
+        - name: "Parking Lot"
+          color: PINK
+          description: "Deferred; not currently planned"
+        - name: "Notes"
+          color: GRAY
+          description: "Keep draft issues and notes here"
 
   # Optional fields - create if missing
   create_if_missing:
