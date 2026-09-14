@@ -1,7 +1,7 @@
 # Project Charter: GitHub Praxis Management Utility
 
 **Status:** Active
-**Last Updated:** 2026-07-23
+**Last Updated:** 2026-09-14
 
 ## Vision
 
@@ -36,6 +36,15 @@ v1.5.x - Stabilize the correctness and error-surfacing work shipped in v1.5.0 (2
 - Complete pagination for user-facing fetches (labels, comments, projects, project field values)
 - Fail-loud error propagation across the cmd and API layers, with partial-failure exit codes
 - Offline validation of GraphQL operations against a vendored GitHub schema
+
+## Key Entities
+
+| Entity | Count | Location |
+|--------|-------|----------|
+| Internal packages | 8 | internal/ |
+| E2E test files | 11 | test/e2e/ |
+| CI workflows | 3 | .github/workflows/ |
+| Design decision records | 14 | Construction/Design-Decisions/ |
 
 ---
 *See Inception/ for full specifications*

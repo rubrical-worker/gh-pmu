@@ -1,0 +1,169 @@
+{
+  "$schema": ".claude/metadata/domain-entities-schema.json",
+  "generatedFrom": "CHARTER.md",
+  "generatedAt": "2026-09-14",
+  "projectVersion": "0.103.0",
+  "boundedContext": {
+    "name": "GitHub Praxis Management Utility",
+    "purpose": "To be documented",
+    "boundary": "GitHub Praxis Management Utility: Project field management; Sub-issue hierarchy with progress tracking; Batch operations (+12 more)"
+  },
+  "entities": {
+    "internal-packages": {
+      "description": "Internal packages",
+      "count": 8,
+      "locations": [
+        "internal/"
+      ],
+      "relationships": []
+    },
+    "e2e-test-files": {
+      "description": "E2E test files",
+      "count": 11,
+      "locations": [
+        "test/e2e/"
+      ],
+      "relationships": []
+    },
+    "ci-workflows": {
+      "description": "CI workflows",
+      "count": 3,
+      "locations": [
+        ".github/workflows/"
+      ],
+      "relationships": []
+    },
+    "design-decision-records": {
+      "description": "Design decision records",
+      "count": 14,
+      "locations": [
+        "Construction/Design-Decisions/"
+      ],
+      "relationships": []
+    }
+  },
+  "problemStatement": "",
+  "techStack": [
+    {
+      "layer": "Language",
+      "technology": "Go 1.23"
+    },
+    {
+      "layer": "Framework",
+      "technology": "Cobra CLI"
+    },
+    {
+      "layer": "API",
+      "technology": "GitHub GraphQL (go-gh, shurcooL-graphql)"
+    }
+  ],
+  "architecture": {
+    "subsections": [],
+    "tables": [],
+    "components": []
+  },
+  "currentFocus": [
+    "Project field management (status, priority, custom fields)",
+    "Sub-issue hierarchy with progress tracking",
+    "Batch operations (intake, triage, split, batch mutations)",
+    "Workflow automation (branch tracking)",
+    "Terminal Kanban board visualization",
+    "Cross-repository issue operations",
+    "Auto-create labels and custom fields",
+    "Label management (sync, add, update, delete)",
+    "Config integrity verification",
+    "Status transition validation",
+    "E2E test infrastructure",
+    "Resilience to upstream GraphQL schema rollouts (cached-metadata fallback for ProjectV2 field resolver via `.gh-pmu.json`)",
+    "Complete pagination for user-facing fetches (labels, comments, projects, project field values)",
+    "Fail-loud error propagation across the cmd and API layers, with partial-failure exit codes",
+    "Offline validation of GraphQL operations against a vendored GitHub schema"
+  ],
+  "scopeBoundaries": {
+    "inScope": [
+      "Project field management (status, priority, custom fields)",
+      "Sub-issue hierarchy with progress tracking",
+      "Batch operations (intake, triage, split, batch mutations)",
+      "Workflow automation (branch tracking)",
+      "Terminal Kanban board visualization",
+      "Cross-repository issue operations",
+      "Auto-create labels and custom fields",
+      "Label management (sync, add, update, delete)",
+      "Config integrity verification",
+      "Status transition validation",
+      "E2E test infrastructure",
+      "Resilience to upstream GraphQL schema rollouts (cached-metadata fallback for ProjectV2 field resolver via `.gh-pmu.json`)",
+      "Complete pagination for user-facing fetches (labels, comments, projects, project field values)",
+      "Fail-loud error propagation across the cmd and API layers, with partial-failure exit codes",
+      "Offline validation of GraphQL operations against a vendored GitHub schema"
+    ],
+    "outOfScope": []
+  },
+  "driftSignals": {
+    "entityOutOfBounds": [],
+    "scopeExpansion": [
+      {
+        "signal": "Entity count exceeds validation max range",
+        "severity": "warning"
+      },
+      {
+        "signal": "New directory or file location not in known entity locations",
+        "severity": "warning"
+      },
+      {
+        "signal": "Entity introduced that is not in charter Key Entities table",
+        "severity": "warning"
+      }
+    ]
+  },
+  "validationRules": [
+    {
+      "type": "count-range",
+      "entity": "internal-packages",
+      "description": "Expected count for internal-packages",
+      "min": 6,
+      "max": 10
+    },
+    {
+      "type": "location-exists",
+      "entity": "internal-packages",
+      "description": "Location must exist for internal-packages"
+    },
+    {
+      "type": "count-range",
+      "entity": "e2e-test-files",
+      "description": "Expected count for e2e-test-files",
+      "min": 8,
+      "max": 14
+    },
+    {
+      "type": "location-exists",
+      "entity": "e2e-test-files",
+      "description": "Location must exist for e2e-test-files"
+    },
+    {
+      "type": "count-range",
+      "entity": "ci-workflows",
+      "description": "Expected count for ci-workflows",
+      "min": 2,
+      "max": 4
+    },
+    {
+      "type": "location-exists",
+      "entity": "ci-workflows",
+      "description": "Location must exist for ci-workflows"
+    },
+    {
+      "type": "count-range",
+      "entity": "design-decision-records",
+      "description": "Expected count for design-decision-records",
+      "min": 11,
+      "max": 17
+    },
+    {
+      "type": "location-exists",
+      "entity": "design-decision-records",
+      "description": "Location must exist for design-decision-records"
+    }
+  ]
+}
