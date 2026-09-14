@@ -20,7 +20,6 @@ type mockIntakeClient struct {
 	project          *api.Project
 	projectItems     []api.ProjectItem
 	repositoryIssues []api.Issue
-	addedItemID      string
 
 	// unknownMembership marks issue IDs whose project membership could not be
 	// confirmed (member of more projects than one projectItems page returns).
@@ -32,16 +31,45 @@ type mockIntakeClient struct {
 	// Error injection
 	getProjectErr             error
 	searchRepositoryIssuesErr error
-	addIssueToProjectErr      error
-	setProjectItemFieldErr    error
 	getProjectFieldsErr       error
 
 	// Bulk field-setting tracking (#833)
-	projectFields                      []api.ProjectField
-	getProjectFieldsCalls              int
-	setProjectItemFieldCalls           int
-	setProjectItemFieldWithFieldsCalls int
-	lastFieldsPassed                   []api.ProjectField
+	projectFields         []api.ProjectField
+	getProjectFieldsCalls int
+	lastFieldsPassed      []api.ProjectField
+
+	// Batched apply (#918). Added items get ID "item-<issueID>".
+	batchAddCalls    [][]string
+	batchUpdateCalls [][]api.FieldUpdate
+	addFailures      map[string]string // issueID -> error
+	updateFailures   map[string]string // itemID -> error
+}
+
+func (m *mockIntakeClient) BatchAddIssuesToProject(projectID string, issueIDs []string) ([]api.BatchAddResult, error) {
+	m.batchAddCalls = append(m.batchAddCalls, issueIDs)
+	results := make([]api.BatchAddResult, 0, len(issueIDs))
+	for _, id := range issueIDs {
+		if msg, failed := m.addFailures[id]; failed {
+			results = append(results, api.BatchAddResult{IssueID: id, Error: msg})
+			continue
+		}
+		results = append(results, api.BatchAddResult{IssueID: id, ItemID: "item-" + id, Success: true})
+	}
+	return results, nil
+}
+
+func (m *mockIntakeClient) BatchUpdateProjectItemFields(projectID string, updates []api.FieldUpdate, fields []api.ProjectField) ([]api.BatchUpdateResult, error) {
+	m.batchUpdateCalls = append(m.batchUpdateCalls, updates)
+	m.lastFieldsPassed = fields
+	results := make([]api.BatchUpdateResult, 0, len(updates))
+	for _, u := range updates {
+		if msg, failed := m.updateFailures[u.ItemID]; failed {
+			results = append(results, api.BatchUpdateResult{ItemID: u.ItemID, FieldName: u.FieldName, Error: msg})
+			continue
+		}
+		results = append(results, api.BatchUpdateResult{ItemID: u.ItemID, FieldName: u.FieldName, Success: true})
+	}
+	return results, nil
 }
 
 type intakeSearchCall struct {
@@ -58,7 +86,6 @@ func newMockIntakeClient() *mockIntakeClient {
 		},
 		projectItems:     []api.ProjectItem{},
 		repositoryIssues: []api.Issue{},
-		addedItemID:      "item-123",
 	}
 }
 
@@ -93,30 +120,12 @@ func (m *mockIntakeClient) SearchIntakeCandidates(owner, repo string, labels []s
 	return candidates, nil
 }
 
-func (m *mockIntakeClient) AddIssueToProject(projectID, issueID string) (string, error) {
-	if m.addIssueToProjectErr != nil {
-		return "", m.addIssueToProjectErr
-	}
-	return m.addedItemID, nil
-}
-
-func (m *mockIntakeClient) SetProjectItemField(projectID, itemID, fieldName, value string) error {
-	m.setProjectItemFieldCalls++
-	return m.setProjectItemFieldErr
-}
-
 func (m *mockIntakeClient) GetProjectFields(projectID string) ([]api.ProjectField, error) {
 	m.getProjectFieldsCalls++
 	if m.getProjectFieldsErr != nil {
 		return nil, m.getProjectFieldsErr
 	}
 	return m.projectFields, nil
-}
-
-func (m *mockIntakeClient) SetProjectItemFieldWithFields(projectID, itemID, fieldName, value string, fields []api.ProjectField) error {
-	m.setProjectItemFieldWithFieldsCalls++
-	m.lastFieldsPassed = fields
-	return m.setProjectItemFieldErr
 }
 
 func TestIntakeCommand(t *testing.T) {
@@ -1185,12 +1194,99 @@ func TestRunIntakeWithDeps_ApplyFetchesProjectFieldsOnce(t *testing.T) {
 	if mock.getProjectFieldsCalls != 1 {
 		t.Errorf("GetProjectFields should be called exactly once for 20 issues, got %d", mock.getProjectFieldsCalls)
 	}
-	if mock.setProjectItemFieldCalls != 0 {
-		t.Errorf("SetProjectItemField (non-bulk) should not be called during apply, got %d", mock.setProjectItemFieldCalls)
+	// #918: one batched add for all 20 issues, one batched update carrying
+	// 20 issues × 2 default fields — not a round trip per issue per field.
+	if len(mock.batchAddCalls) != 1 || len(mock.batchAddCalls[0]) != 20 {
+		t.Fatalf("expected 1 batched add of 20 issues, got %d calls", len(mock.batchAddCalls))
 	}
-	// 20 issues × 2 default fields (status + priority) = 40 bulk calls
-	if mock.setProjectItemFieldWithFieldsCalls != 40 {
-		t.Errorf("SetProjectItemFieldWithFields should be called 40 times (20 issues × 2 fields), got %d", mock.setProjectItemFieldWithFieldsCalls)
+	if len(mock.batchUpdateCalls) != 1 || len(mock.batchUpdateCalls[0]) != 40 {
+		t.Fatalf("expected 1 batched update of 40 field updates, got %d calls", len(mock.batchUpdateCalls))
+	}
+	first := mock.batchUpdateCalls[0][:2]
+	if first[0].ItemID != first[1].ItemID || first[0].ItemID != "item-"+mock.batchAddCalls[0][0] {
+		t.Errorf("field updates should target the added item IDs, got %+v", first)
+	}
+}
+
+func TestRunIntakeWithDeps_ApplyBuildsFieldUpdates(t *testing.T) {
+	mock := newMockIntakeClient()
+	mock.repositoryIssues = []api.Issue{{ID: "issue-1", Number: 1, Title: "One", State: "OPEN"}}
+	cfg := &config.Config{
+		Project:      config.Project{Owner: "test-org", Number: 1},
+		Repositories: []string{"owner/repo"},
+		Defaults:     config.Defaults{Status: "backlog", Priority: "p2"},
+		Fields: map[string]config.Field{
+			"status":   {Field: "Status", Values: map[string]string{"backlog": "Backlog", "ready": "Ready"}},
+			"priority": {Field: "Priority", Values: map[string]string{"p1": "P1", "p2": "P2"}},
+		},
+	}
+
+	cmd := newIntakeCommand()
+	cmd.SetOut(new(bytes.Buffer))
+	// status comes from --apply, priority falls back to the config default,
+	// Area is passed through as a generic field.
+	_ = cmd.Flags().Set("apply", "status:ready,Area:cli")
+	opts := &intakeOptions{apply: "status:ready,Area:cli"}
+	if err := runIntakeWithDeps(cmd, opts, cfg, mock); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(mock.batchUpdateCalls) != 1 {
+		t.Fatalf("expected 1 batched update, got %d", len(mock.batchUpdateCalls))
+	}
+	got := map[string]string{}
+	for _, u := range mock.batchUpdateCalls[0] {
+		if u.ItemID != "item-issue-1" {
+			t.Errorf("update targets %q, want item-issue-1", u.ItemID)
+		}
+		got[u.FieldName] = u.Value
+	}
+	want := map[string]string{"Status": "Ready", "Priority": "P2", "Area": "cli"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("field updates = %v, want %v", got, want)
+	}
+}
+
+// TestRunIntakeWithDeps_ApplyPartialBatchFailure: one issue fails to add, one is
+// added but a field fails; each is reported on stderr and counted as failed.
+func TestRunIntakeWithDeps_ApplyPartialBatchFailure(t *testing.T) {
+	mock := newMockIntakeClient()
+	mock.repositoryIssues = []api.Issue{
+		{ID: "issue-1", Number: 1, Title: "Ok", State: "OPEN"},
+		{ID: "issue-2", Number: 2, Title: "Add fails", State: "OPEN"},
+		{ID: "issue-3", Number: 3, Title: "Field fails", State: "OPEN"},
+	}
+	mock.addFailures = map[string]string{"issue-2": "permission denied"}
+	mock.updateFailures = map[string]string{"item-issue-3": "option not found"}
+	cfg := &config.Config{
+		Project:      config.Project{Owner: "test-org", Number: 1},
+		Repositories: []string{"owner/repo"},
+		Defaults:     config.Defaults{Status: "backlog"},
+	}
+
+	cmd := newIntakeCommand()
+	var stdout, stderr bytes.Buffer
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stderr)
+	_ = cmd.Flags().Set("apply", " ")
+	opts := &intakeOptions{apply: " "}
+	if err := runIntakeWithDeps(cmd, opts, cfg, mock); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if !strings.Contains(stderr.String(), "Failed to add #2: permission denied") {
+		t.Errorf("expected add failure for #2 on stderr, got: %s", stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "failed to set Status on #3: option not found") {
+		t.Errorf("expected field failure for #3 on stderr, got: %s", stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "Added 1 issue(s) to project (2 failed)") {
+		t.Errorf("expected summary counting both failures, got: %s", stdout.String())
+	}
+	for _, u := range mock.batchUpdateCalls[0] {
+		if u.ItemID == "item-issue-2" {
+			t.Error("an issue that failed to add must not receive field updates")
+		}
 	}
 }
 
@@ -1219,8 +1315,8 @@ func TestRunIntakeWithDeps_ApplyPassesPrefetchedFields(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if mock.setProjectItemFieldWithFieldsCalls != 1 {
-		t.Fatalf("expected 1 bulk field call, got %d", mock.setProjectItemFieldWithFieldsCalls)
+	if len(mock.batchUpdateCalls) != 1 {
+		t.Fatalf("expected 1 batched field update call, got %d", len(mock.batchUpdateCalls))
 	}
 	if len(mock.lastFieldsPassed) != 1 || mock.lastFieldsPassed[0].Name != "Status" {
 		t.Errorf("expected prefetched Status field to be passed, got: %+v", mock.lastFieldsPassed)

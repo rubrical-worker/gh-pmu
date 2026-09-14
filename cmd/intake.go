@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"sort"
 	"strings"
 	"text/tabwriter"
 
@@ -18,10 +19,9 @@ type intakeClient interface {
 	assigneeResolver
 	GetProject(owner string, number int) (*api.Project, error)
 	SearchIntakeCandidates(owner, repo string, labels []string, projectID string) ([]api.IntakeCandidate, error)
-	AddIssueToProject(projectID, issueID string) (string, error)
-	SetProjectItemField(projectID, itemID, fieldName, value string) error
 	GetProjectFields(projectID string) ([]api.ProjectField, error)
-	SetProjectItemFieldWithFields(projectID, itemID, fieldName, value string, fields []api.ProjectField) error
+	BatchAddIssuesToProject(projectID string, issueIDs []string) ([]api.BatchAddResult, error)
+	BatchUpdateProjectItemFields(projectID string, updates []api.FieldUpdate, fields []api.ProjectField) ([]api.BatchUpdateResult, error)
 }
 
 type intakeOptions struct {
@@ -196,61 +196,57 @@ func runIntakeWithDeps(cmd *cobra.Command, opts *intakeOptions, cfg *config.Conf
 			return fmt.Errorf("failed to get project fields: %w", err)
 		}
 
-		var added []api.Issue
-		var failed []api.Issue
+		// Phase 1: add every issue in batched requests (#918).
+		issueIDs := make([]string, len(untrackedIssues))
+		byID := make(map[string]api.Issue, len(untrackedIssues))
+		for i, issue := range untrackedIssues {
+			issueIDs[i] = issue.ID
+			byID[issue.ID] = issue
+		}
+		addResults, err := client.BatchAddIssuesToProject(project.ID, issueIDs)
+		if err != nil {
+			return fmt.Errorf("failed to add issues to project: %w", err)
+		}
 
-		for _, issue := range untrackedIssues {
-			itemID, err := client.AddIssueToProject(project.ID, issue.ID)
-			if err != nil {
-				cmd.PrintErrf("Failed to add #%d: %v\n", issue.Number, err)
-				failed = append(failed, issue)
+		failedIDs := make(map[string]bool)
+		itemIssue := make(map[string]api.Issue) // item ID -> issue, for field results
+		var updates []api.FieldUpdate
+		fieldValues := intakeFieldValues(cfg, applyFields)
+		for _, result := range addResults {
+			issue := byID[result.IssueID]
+			if !result.Success {
+				cmd.PrintErrf("Failed to add #%d: %s\n", issue.Number, result.Error)
+				failedIDs[issue.ID] = true
 				continue
 			}
-
-			// Apply fields from --apply argument first, then fall back to config defaults
-			statusSet := false
-			prioritySet := false
-
-			// Apply fields from --apply key:value pairs
-			for field, value := range applyFields {
-				fieldLower := strings.ToLower(field)
-				if fieldLower == "status" {
-					statusValue := cfg.ResolveFieldValue("status", value)
-					if err := client.SetProjectItemFieldWithFields(project.ID, itemID, "Status", statusValue, projectFields); err != nil {
-						cmd.PrintErrf("Warning: failed to set status on #%d: %v\n", issue.Number, err)
-					} else {
-						statusSet = true
-					}
-				} else if fieldLower == "priority" {
-					priorityValue := cfg.ResolveFieldValue("priority", value)
-					if err := client.SetProjectItemFieldWithFields(project.ID, itemID, "Priority", priorityValue, projectFields); err != nil {
-						cmd.PrintErrf("Warning: failed to set priority on #%d: %v\n", issue.Number, err)
-					} else {
-						prioritySet = true
-					}
-				} else {
-					// Generic field
-					if err := client.SetProjectItemFieldWithFields(project.ID, itemID, field, value, projectFields); err != nil {
-						cmd.PrintErrf("Warning: failed to set %s on #%d: %v\n", field, issue.Number, err)
-					}
-				}
+			itemIssue[result.ItemID] = issue
+			for _, fv := range fieldValues {
+				updates = append(updates, api.FieldUpdate{ItemID: result.ItemID, FieldName: fv.name, Value: fv.value})
 			}
+		}
 
-			// Fall back to config defaults if not set via --apply
-			if !statusSet && cfg.Defaults.Status != "" {
-				statusValue := cfg.ResolveFieldValue("status", cfg.Defaults.Status)
-				if err := client.SetProjectItemFieldWithFields(project.ID, itemID, "Status", statusValue, projectFields); err != nil {
-					cmd.PrintErrf("Warning: failed to set status on #%d: %v\n", issue.Number, err)
-				}
+		// Phase 2: set fields on the added items with the existing batch helper.
+		if len(updates) > 0 {
+			updateResults, err := client.BatchUpdateProjectItemFields(project.ID, updates, projectFields)
+			if err != nil {
+				return fmt.Errorf("failed to set fields on added issues: %w", err)
 			}
-			if !prioritySet && cfg.Defaults.Priority != "" {
-				priorityValue := cfg.ResolveFieldValue("priority", cfg.Defaults.Priority)
-				if err := client.SetProjectItemFieldWithFields(project.ID, itemID, "Priority", priorityValue, projectFields); err != nil {
-					cmd.PrintErrf("Warning: failed to set priority on #%d: %v\n", issue.Number, err)
+			for _, result := range updateResults {
+				if result.Success {
+					continue
 				}
+				issue := itemIssue[result.ItemID]
+				cmd.PrintErrf("Warning: failed to set %s on #%d: %s\n", result.FieldName, issue.Number, result.Error)
+				failedIDs[issue.ID] = true
 			}
+		}
 
-			added = append(added, issue)
+		// An issue counts as added only when it was added and every field was set.
+		var added []api.Issue
+		for _, issue := range untrackedIssues {
+			if !failedIDs[issue.ID] {
+				added = append(added, issue)
+			}
 		}
 
 		if opts.json {
@@ -258,8 +254,8 @@ func runIntakeWithDeps(cmd *cobra.Command, opts *intakeOptions, cfg *config.Conf
 		}
 
 		cmd.Printf("Added %d issue(s) to project", len(added))
-		if len(failed) > 0 {
-			cmd.Printf(" (%d failed)", len(failed))
+		if len(failedIDs) > 0 {
+			cmd.Printf(" (%d failed)", len(failedIDs))
 		}
 		cmd.Println()
 		return nil
@@ -276,6 +272,45 @@ func runIntakeWithDeps(cmd *cobra.Command, opts *intakeOptions, cfg *config.Conf
 	}
 	cmd.Println("\nUse --apply to add these issues to the project")
 	return nil
+}
+
+type intakeFieldValue struct {
+	name, value string
+}
+
+// intakeFieldValues resolves the fields to set on each added issue: --apply
+// key:value pairs first (status and priority resolved through config aliases),
+// then config defaults for status and priority when --apply did not set them.
+// Keys are sorted so updates are sent in a stable order.
+func intakeFieldValues(cfg *config.Config, applyFields map[string]string) []intakeFieldValue {
+	keys := make([]string, 0, len(applyFields))
+	for k := range applyFields {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+
+	var values []intakeFieldValue
+	statusSet, prioritySet := false, false
+	for _, field := range keys {
+		value := applyFields[field]
+		switch strings.ToLower(field) {
+		case "status":
+			values = append(values, intakeFieldValue{"Status", cfg.ResolveFieldValue("status", value)})
+			statusSet = true
+		case "priority":
+			values = append(values, intakeFieldValue{"Priority", cfg.ResolveFieldValue("priority", value)})
+			prioritySet = true
+		default:
+			values = append(values, intakeFieldValue{field, value})
+		}
+	}
+	if !statusSet && cfg.Defaults.Status != "" {
+		values = append(values, intakeFieldValue{"Status", cfg.ResolveFieldValue("status", cfg.Defaults.Status)})
+	}
+	if !prioritySet && cfg.Defaults.Priority != "" {
+		values = append(values, intakeFieldValue{"Priority", cfg.ResolveFieldValue("priority", cfg.Defaults.Priority)})
+	}
+	return values
 }
 
 func outputIntakeTable(cmd *cobra.Command, issues []api.Issue) error {
