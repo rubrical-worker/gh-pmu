@@ -69,6 +69,9 @@ labels:
   - name: assigned
     description: Issue is assigned to a branch
     color: "bfd4f2"
+  - name: auto-filed
+    description: Issue filed by the hall-monitor
+    color: "116329"
 
 # Project fields configuration
 fields:

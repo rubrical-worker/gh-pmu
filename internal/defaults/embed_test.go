@@ -25,7 +25,7 @@ func TestLoad_HasLabels(t *testing.T) {
 		t.Fatalf("Load() error = %v", err)
 	}
 
-	expectedLabels := []string{"branch", "epic", "story", "proposal", "prd", "bug", "enhancement", "qa-required", "test-plan", "security-required", "legal-required", "docs-required", "emergency", "approval-required", "blocked", "scope-creep", "tech-debt", "active", "reviewed", "pending", "security-finding", "assigned"}
+	expectedLabels := []string{"branch", "epic", "story", "proposal", "prd", "bug", "enhancement", "qa-required", "test-plan", "security-required", "legal-required", "docs-required", "emergency", "approval-required", "blocked", "scope-creep", "tech-debt", "active", "reviewed", "pending", "security-finding", "assigned", "auto-filed"}
 
 	if len(defs.Labels) != len(expectedLabels) {
 		t.Errorf("expected %d labels, got %d", len(expectedLabels), len(defs.Labels))
@@ -39,6 +39,27 @@ func TestLoad_HasLabels(t *testing.T) {
 	for _, expected := range expectedLabels {
 		if !labelNames[expected] {
 			t.Errorf("expected label %q not found", expected)
+		}
+	}
+}
+
+// TestLoad_AutoFiledLabel (#915): the hall-monitor label, with a color no other
+// standard label uses.
+func TestLoad_AutoFiledLabel(t *testing.T) {
+	defs := MustLoad()
+	label := defs.GetLabel("auto-filed")
+	if label == nil {
+		t.Fatal("auto-filed label not defined")
+	}
+	if label.Description != "Issue filed by the hall-monitor" {
+		t.Errorf("description = %q, want %q", label.Description, "Issue filed by the hall-monitor")
+	}
+	if label.Color != "116329" {
+		t.Errorf("color = %q, want 116329", label.Color)
+	}
+	for _, other := range defs.Labels {
+		if other.Name != "auto-filed" && strings.EqualFold(other.Color, "116329") {
+			t.Errorf("color 116329 is also used by %q", other.Name)
 		}
 	}
 }
@@ -277,7 +298,7 @@ func TestGetLabelNames(t *testing.T) {
 	}
 
 	// All standard labels should be in the list
-	expectedLabels := []string{"branch", "epic", "story", "proposal", "prd", "bug", "enhancement", "qa-required", "test-plan", "security-required", "legal-required", "docs-required", "emergency", "approval-required", "blocked", "scope-creep", "tech-debt", "active", "reviewed", "pending", "security-finding", "assigned"}
+	expectedLabels := []string{"branch", "epic", "story", "proposal", "prd", "bug", "enhancement", "qa-required", "test-plan", "security-required", "legal-required", "docs-required", "emergency", "approval-required", "blocked", "scope-creep", "tech-debt", "active", "reviewed", "pending", "security-finding", "assigned", "auto-filed"}
 	nameSet := make(map[string]bool)
 	for _, name := range names {
 		nameSet[name] = true
