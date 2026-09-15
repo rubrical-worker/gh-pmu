@@ -1,5 +1,5 @@
 {
-  "version": "1.5.3",
+  "version": "1.6.0",
   "project": {
     "name": "gh-pmu",
     "number": 11,
@@ -35,7 +35,9 @@
         "in_review": "In review",
         "notes": "Notes",
         "parking_lot": "Parking Lot",
-        "ready": "Ready"
+        "qa_required": "QA required",
+        "ready": "Ready",
+        "up_next": "Up next"
       }
     }
   },
@@ -79,6 +81,10 @@
             "id": "f75ad846"
           },
           {
+            "name": "Up next",
+            "id": "650cfa5b"
+          },
+          {
             "name": "Ready",
             "id": "61e4505c"
           },
@@ -89,6 +95,10 @@
           {
             "name": "In review",
             "id": "df73e18b"
+          },
+          {
+            "name": "QA required",
+            "id": "d72f459d"
           },
           {
             "name": "Notes",
