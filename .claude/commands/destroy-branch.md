@@ -1,6 +1,6 @@
 ---
-version: "v0.103.0"
-description: Safely delete branch with confirmation (project)
+version: "v0.104.0"
+description: Safely delete a branch after confirmation, using the IDPF framework.
 argument-hint: "[branch-name] [--force]"
 copyright: "Rubrical Works (c) 2026"
 ---
@@ -32,10 +32,18 @@ fi
 git rev-parse --verify "$BRANCH" 2>/dev/null
 ```
 **FAIL if branch does not exist.**
+### Workstream Detection (Pre-Destroy)
+Before confirming, check workstream plan:
+1. **Read from disk:** `loadWorkstreamsMetadata('.workstreams.json')`. Not found → skip.
+2. **Check:** `preDestroyWorkstreamCheck(metadata, branchName)`. `isWorkstream: false` → skip.
+3. **Show expanded confirmation:**
+   - `orphanWarning`: epics losing workstream assignment
+   - `assignedEpics`: list with titles
+   - `activeSiblings`: other active streams
+4. **Proceed to Phase 1 confirmation** — informational, non-blocking
 ---
 
 <!-- USER-EXTENSION-START: pre-destroy -->
-<!-- Pre-destruction validation: check for unmerged commits, etc. -->
 <!-- USER-EXTENSION-END: pre-destroy -->
 
 ## Phase 1: Confirmation
@@ -57,7 +65,6 @@ ls -la Releases/*/$BRANCH/ 2>/dev/null || echo "No release artifacts found"
 **If mismatch, ABORT.**
 
 <!-- USER-EXTENSION-START: post-confirm -->
-<!-- Post-confirmation: actions after user confirms but before deletion -->
 <!-- USER-EXTENSION-END: post-confirm -->
 
 ---
@@ -115,7 +122,6 @@ git branch -D "$BRANCH"
 `-D` (force) — user confirmed abandoning unmerged work.
 
 <!-- USER-EXTENSION-START: post-destroy -->
-<!-- Post-destruction: notifications, audit logging -->
 <!-- USER-EXTENSION-END: post-destroy -->
 
 ### Workstream Metadata Update (Post-Destroy)

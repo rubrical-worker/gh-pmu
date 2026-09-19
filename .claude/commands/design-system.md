@@ -1,6 +1,6 @@
 ---
-version: "v0.103.0"
-description: Produce DTCG-compliant design tokens with pluggable adapter architecture (project)
+version: "v0.104.0"
+description: Produce DTCG-compliant design tokens with a pluggable adapter architecture, using the IDPF framework.
 argument-hint: "[--init | --discover | --export <adapter> | --theme <name> | --from-screenshot <path> | --diff | --showcase | --apply-decisions]"
 copyright: "Rubrical Works (c) 2026"
 ---

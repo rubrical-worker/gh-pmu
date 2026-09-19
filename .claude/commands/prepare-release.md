@@ -1,6 +1,6 @@
 ---
-version: "v0.103.0"
-description: Prepare release with PR, merge to main, and tag
+version: "v0.104.0"
+description: Prepare a release by opening a PR, merging to main, and tagging, using the IDPF framework.
 argument-hint: "[version] [--skip-coverage] [--dry-run] [--help]"
 copyright: "Rubrical Works (c) 2026"
 ---
@@ -452,9 +452,8 @@ Do NOT auto-close issues just because they shipped.
 
 **Core (After tagging):**
 - [ ] Tag pushed
-- [ ] CI workflow completed — **check this only on Step 4.7's verdict** (#2653): a passing tag-scoped `wait-for-ci.js` run, or its explicit "no tag-triggered workflows" skip. Before #2653 this box was ticked by convention with nothing having verified it
+- [ ] CI workflow completed — **check this only on Step 4.7's verdict**: a passing tag-scoped `wait-for-ci.js` run, or its explicit "no tag-triggered workflows" skip. Ticking it by convention is what this wording exists to prevent
 - [ ] Release notes updated
-- [ ] **Rules reach context in a freshly-installed project (#2736).** Install this release into a scratch project via PHM, start a session, and confirm a rule's content is actually loaded — ask for something only a rule states. **Do not accept the startup block as evidence:** it renders from the hook, a different channel, and rendered correctly throughout the period in which no rule reached context in any deployed project. `/context` reporting a Memory-files figure far below the rules on disk is the symptom. Manual — needs a real PHM install and a live session; `node .claude/scripts/framework/repro-rules-junction.js` builds the isolated fixture to bisect a failure
 
 <!-- USER-EXTENSION-START: checklist-after-tag -->
 - [ ] All CI jobs completed
@@ -463,7 +462,6 @@ Do NOT auto-close issues just because they shipped.
 <!-- USER-EXTENSION-END: checklist-after-tag -->
 
 <!-- USER-EXTENSION-START: pre-close -->
-<!-- Pre-close validation, notifications -->
 <!-- USER-EXTENSION-END: pre-close -->
 
 ## Phase 5: Close & Cleanup

@@ -120,7 +120,6 @@ runa_claude.cmd
 .claude/commands/x-session-config.md
 
 # IDPF Framework (managed by Praxis Hub Manager)
-.claude/commands/hall-monitor.md
 .claude/commands/review-issue.md
 
 # IDPF Framework (managed by Praxis Hub Manager)
@@ -128,3 +127,10 @@ runa_claude.cmd
 .claude/commands/idpf-measure.md
 .claude/commands/qa.md
 .claude/x-session.json
+
+# Project defaults (managed by Praxis Hub Manager)
+.hall-monitor.json
+
+# IDPF Framework (managed by Praxis Hub Manager)
+.claude/commands/bluf.md
+.claude/commands/overwatch.md

@@ -1,6 +1,6 @@
 ---
-version: "v0.103.0"
-description: Create an enhancement issue with standard template (project)
+version: "v0.104.0"
+description: Create an enhancement issue from the IDPF framework's standard template.
 argument-hint: "<title> [--prior-art]"
 copyright: "Rubrical Works (c) 2026"
 ---

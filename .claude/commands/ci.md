@@ -1,6 +1,6 @@
 ---
-version: "v0.103.0"
-description: Manage GitHub Actions CI workflows interactively (project)
+version: "v0.104.0"
+description: Manage GitHub Actions CI workflows interactively, using the IDPF framework.
 argument-hint: "[list|validate|add|recommend] (no args shows status)"
 copyright: "Rubrical Works (c) 2026"
 ---
@@ -130,7 +130,6 @@ node .claude/scripts/shared/ci-status.js
 ```
 
 <!-- USER-EXTENSION-START: custom-subcommands -->
-<!-- Add your custom CI subcommands here -->
 <!-- USER-EXTENSION-END: custom-subcommands -->
 
 ## Error Handling

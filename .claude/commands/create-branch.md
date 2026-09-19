@@ -1,6 +1,6 @@
 ---
-version: "v0.103.0"
-description: Create a branch with tracker issue (project)
+version: "v0.104.0"
+description: Create a branch with a tracker issue, using the IDPF framework.
 argument-hint: "<branch-name> (e.g., release/v0.16.0, my-feature, bugfix-123)"
 copyright: "Rubrical Works (c) 2026"
 ---
@@ -34,6 +34,12 @@ git status --porcelain
 1. Report: "Uncommitted changes detected. These will be carried to the new branch."
 2. Save output for Step 4
 3. Continue (do NOT block)
+
+#### Verify Config File Clean
+```bash
+git status --porcelain .gh-pmu.json
+```
+**If modified, STOP and restore.**
 
 <!-- USER-EXTENSION-START: pre-create -->
 ### Verify Config

@@ -1,6 +1,6 @@
 ---
-version: "v0.103.0"
-description: Merge branch to main with gated checks (project)
+version: "v0.104.0"
+description: Merge a branch to main through the IDPF framework's gated checks.
 argument-hint: "[--skip-gates] [--dry-run]"
 copyright: "Rubrical Works (c) 2026"
 ---
@@ -38,7 +38,6 @@ If present, closed at end.
 ---
 
 <!-- USER-EXTENSION-START: pre-gate -->
-<!-- Setup: prepare environment before gate checks -->
 <!-- USER-EXTENSION-END: pre-gate -->
 
 ## Phase 1: Gates
@@ -79,7 +78,6 @@ E2E tests validate complete workflows against the test project.
 **Any failure → STOP.**
 
 <!-- USER-EXTENSION-START: post-gate -->
-<!-- Post-gate: actions after all gates pass -->
 <!-- USER-EXTENSION-END: post-gate -->
 
 ---
@@ -132,7 +130,6 @@ git pull origin main
 ```
 
 <!-- USER-EXTENSION-START: post-merge -->
-<!-- Post-merge: actions after PR is merged -->
 <!-- USER-EXTENSION-END: post-merge -->
 
 ### Step 2.6: Workstream Detection (Post-Merge)
@@ -161,7 +158,6 @@ git branch -d $BRANCH
 ```
 
 <!-- USER-EXTENSION-START: post-close -->
-<!-- Post-close: notifications, announcements -->
 <!-- USER-EXTENSION-END: post-close -->
 
 ---

@@ -1,6 +1,6 @@
 ---
-version: "v0.103.0"
-description: Review a PRD with tracked history (project)
+version: "v0.104.0"
+description: Review a PRD with tracked history, using the IDPF framework.
 argument-hint: "#issue [--with ...] [--mode ...] [--force]"
 copyright: "Rubrical Works (c) 2026"
 ---

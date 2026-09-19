@@ -1,6 +1,6 @@
 ---
-version: "v0.103.0"
-description: Tag beta from feature branch (no merge to main)
+version: "v0.104.0"
+description: Tag a beta from a feature branch without merging to main, using the IDPF framework.
 argument-hint: "[--skip-coverage] [--dry-run] [--help]"
 copyright: "Rubrical Works (c) 2026"
 ---
@@ -191,12 +191,17 @@ exit $rc
 ```
 **Note:** tags the feature branch. No merge to main.
 **Note:** beta tags are `v*` prereleases, so `.claude/hooks/pre-push` gates them exactly as release tags — the marker is required here too. The hook only tests existence and echoes contents verbatim, so this line becomes the beta audit record. Cleanup is unconditional — the exit code is captured **before** `rm -f` and propagated after, so a failed push cannot leave a marker that silently authorizes the next tag push.
-### Step 4.3: Wait for CI Workflow
-**Conditional:** `ls .github/workflows/*.yml .github/workflows/*.yaml 2>/dev/null` first. **No workflow files found:** skip the CI wait, reporting `No CI workflows detected — skipping CI wait.` **Workflow files exist:**
+### Step 4.3: Wait for CI on the Pushed Tag
+**Conditional:** wait only if some workflow triggers on a tag:
 ```bash
-node .claude/scripts/shared/wait-for-ci.js
+grep -lE '^[[:space:]]*tags:' .github/workflows/*.yml .github/workflows/*.yaml 2>/dev/null
 ```
-**If CI fails, STOP and report.**
+**If nothing matches:** skip, reporting `No tag-triggered workflows detected — skipping beta CI wait.` **If a tag-triggered workflow exists:** wait on the run the beta tag push created:
+```bash
+node .claude/scripts/shared/wait-for-ci.js --branch $VERSION --timeout 900
+```
+**If the run fails or times out, STOP and report** its URL and conclusion.
+**Scope to the TAG, not the checked-out branch (#2889, #2653):** a tag-triggered run carries the tag name as `headBranch`; the checked-out branch would match the Step 4.1 branch-push run instead. **`--branch` is not optional (#2464):** bare, the newest run repo-wide supplies the verdict — and this is the only CI check on the beta path. `--timeout 900` states the budget explicitly (#2257).
 ### Step 4.4: Update Release Notes
 ```bash
 node .claude/scripts/shared/update-release-notes.js
