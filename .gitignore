@@ -127,3 +127,4 @@ runa_claude.cmd
 .claude/commands/domain-config.md
 .claude/commands/idpf-measure.md
 .claude/commands/qa.md
+.claude/x-session.json
