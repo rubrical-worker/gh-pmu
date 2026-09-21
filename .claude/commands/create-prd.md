@@ -1,5 +1,5 @@
 ---
-version: "v0.104.0"
+version: "v0.105.0"
 description: Transform a proposal into an Agile PRD using the IDPF framework.
 argument-hint: "<issue-number> | extract [<directory>]"
 copyright: "Rubrical Works (c) 2026"
@@ -160,6 +160,11 @@ Re-read `.claude/metadata/ac-feasibility-prompts.json`. For each AC produced in 
 <!-- USER-EXTENSION-END: pre-diagram -->
 
 ### Phase 5.5a: Diagram Style Selection
+Detect optional third-party `diagram-design` skill (#2969):
+```bash
+node .claude/scripts/shared/diagram-design-detect.js
+```
+→ `{found, source, skillPath, reason}` (probes project skill, user skill, plugin registry; never throws). Hold `skillPath` for 5.5b. Build options from result:
 ```javascript
 AskUserQuestion({
   questions: [{
@@ -167,13 +172,15 @@ AskUserQuestion({
     header: "Diagram style",
     options: [
       { label: "drawio (Rich SVG)", description: "Generate .drawio.svg files — editable in draw.io, rich visuals, stored in Diagrams/" },
-      { label: "ASCII (Text-based UML)", description: "Text-based UML inline in PRD markdown — renders everywhere, clean diffs, no external tooling" }
+      { label: "ASCII (Text-based UML)", description: "Text-based UML inline in PRD markdown — renders everywhere, clean diffs, no external tooling" },
+      // only when found: true
+      { label: "diagram-design (editorial SVG)", description: "Editorial HTML + inline SVG via the diagram-design skill, exported to diffable .svg in Diagrams/" }
     ],
     multiSelect: false
   }]
 });
 ```
-Store selection for Phase 5.5b.
+`found: true` → three options. `found: false` → the two existing options, plus one line before the question: `diagram-design is not installed — optional third-party skill; see {frameworkPath}/Docs/02-Advanced/Diagram-Design-Optional-Skill.md for why and how to install it.` (absence visible, not silent; never blocks). Store selection for Phase 5.5b.
 
 ### Phase 5.5b: Diagram Generation
 | Type | Default | When |
@@ -195,6 +202,15 @@ Store selection for Phase 5.5b.
 | Class | Class boxes with compartments (name, attributes, methods) |
 | Component | Component boxes with stereotype, interfaces |
 | State | State boxes, transitions with labels, start/end markers |
+**diagram-design style:** read the file at `skillPath` and follow its `references/*.md` relative to the skill directory. **Do NOT invoke it with the Skill tool** — `Skill` transfers control and does not return; Phase 6 would never run. **First-run style-guide gate:** the skill pauses before its first diagram in a project whose style guide is still default — allow that prompt **once**, relay it to the user, follow the chosen branch (a resolved `.diagram-design` profile or "keep default" skips it later). Never answer on the user's behalf. **Output:** skill writes `.html`; export to SVG by **reading and following `references/export.md`** — **SVG only** (no PNG, no Playwright). **Never invoke `/diagram-design:export-diagram`** — a slash command transfers control like `Skill`. **Keep the `.html`** beside the `.svg` as editable source; commit both at `PRD/{PRD-Name}/Diagrams/{Epic-Name}/{type}-{description}.html` + `.svg`; link the `.svg` from the PRD.
+| PRD type | diagram-design type |
+|---|---|
+| Sequence | Sequence |
+| State | State machine |
+| Class | UML class |
+| Activity | Flowchart (Swimlane when actors own lanes) |
+| Component | Architecture |
+| Use Case | **No counterpart** — fall back to the ASCII Use Case template for this type only, inline under `### Diagrams` |
 
 <!-- USER-EXTENSION-START: diagram-generator -->
 <!-- USER-EXTENSION-END: diagram-generator -->
@@ -206,7 +222,7 @@ Store selection for Phase 5.5b.
 <!-- USER-EXTENSION-END: pre-generation -->
 
 ### Phase 6: Generate PRD
-Structure: `PRD/{PRD-Name}/PRD-{PRD-Name}.md` with `Diagrams/{Epic-Name}/{type}-{description}.drawio.svg` under it (drawio only). ASCII style: diagrams inline, no `Diagrams/`. Flat legacy PRDs (`PRD/PRD-{name}.md`) grandfathered.
+Structure: `PRD/{PRD-Name}/PRD-{PRD-Name}.md` with `Diagrams/{Epic-Name}/{type}-{description}.drawio.svg` under it (drawio), or an `{type}-{description}.html` + `.svg` pair (diagram-design; Use Case falls back to inline ASCII). ASCII style: diagrams inline, no `Diagrams/`. Flat legacy PRDs (`PRD/PRD-{name}.md`) grandfathered.
 Create PRD at `PRD/{name}/PRD-{name}.md`. Load template `{frameworkPath}/Templates/artifacts/prd-template.md` and populate. **Graceful degradation:** template missing — warn `"PRD template file missing, using inline fallback."`, use sections: Overview, Epics, User Stories, Diagrams, Technical Notes, Non-Functional Requirements, Out of Scope, Dependencies, Open Questions.
 
 <!-- USER-EXTENSION-START: post-generation -->
@@ -335,7 +351,7 @@ fi
 | No changes to commit | `git diff --cached --quiet` short-circuits; skip, continue — non-blocking |
 | Unrelated staged changes | Use explicit paths — never `git add .` |
 | Proposal already in `Implemented/` | Step 1 skipped `git mv`; commit covers only `PRD/{name}/` |
-| Diagrams (drawio) | Already under `PRD/{name}/Diagrams/`, picked up by `git add PRD/{name}/` |
+| Diagrams (drawio or diagram-design) | Already under `PRD/{name}/Diagrams/` — `.drawio.svg`, or the diagram-design `.html` + `.svg` pair — picked up by `git add PRD/{name}/` |
 | `git commit` fails | Surface error; on disk complete but uncommitted — do NOT roll back |
 **Message discipline:** `Refs #$issue_num` (not `Fixes`/`Closes`/`Resolves`) per `.claude/rules/02-github-workflow.md` — Step 2 already closed the proposal via `gh issue close`.
 

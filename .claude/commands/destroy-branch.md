@@ -1,5 +1,5 @@
 ---
-version: "v0.104.0"
+version: "v0.105.0"
 description: Safely delete a branch after confirmation, using the IDPF framework.
 argument-hint: "[branch-name] [--force]"
 copyright: "Rubrical Works (c) 2026"
@@ -66,6 +66,13 @@ ls -la Releases/*/$BRANCH/ 2>/dev/null || echo "No release artifacts found"
 
 <!-- USER-EXTENSION-START: post-confirm -->
 <!-- USER-EXTENSION-END: post-confirm -->
+
+### Step 1.3: Announce the Destruction to Every Peer (#2960)
+Runs once destruction is confirmed — and on the `--force` path, where no confirmation is asked — before Phase 2. From Phase 2 on nothing can be undone, and a peer with `$BRANCH` checked out or committing to it needs to hear first:
+```bash
+node .claude/scripts/shared/announce.js --event branch-destroy-starting --branch "$BRANCH"
+```
+Append `--issue <N>` when a tracker exists. Script composes the text (never hand-compose); **forced broadcast** — every addressable peer, live `/overwatch` included, whatever `broadcast` says — honouring only the master switch (`enabled: false`, `IDPF_X_SESSION=off`, `discovery: false`). `announcement.shouldSend` true → `SendMessage` to every `announcement.recipients` entry with `announcement.text`, then close out with the envelope's `dispatchReport` (`--dispatch-result sent|failed --ledger-id <id>`). A failed `SendMessage` is reported and recorded `failed`; destruction proceeds. `shouldSend` false → report `announcement.notice` once, continue. **Advisory, never a gate:** nothing awaits delivery, no follow-up is sent.
 
 ---
 ## Phase 2: Close Tracker

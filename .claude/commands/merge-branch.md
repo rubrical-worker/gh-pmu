@@ -1,5 +1,5 @@
 ---
-version: "v0.104.0"
+version: "v0.105.0"
 description: Merge a branch to main through the IDPF framework's gated checks.
 argument-hint: "[--skip-gates] [--dry-run]"
 copyright: "Rubrical Works (c) 2026"
@@ -122,6 +122,13 @@ gh pr view --json reviewDecision
 ```
 #### Gate 2.4: PR Approved
 **FAIL if not approved** (unless `--skip-gates`).
+### Step 2.4a: Announce the Merge to Every Peer (#2960)
+Gates passed; the merge, tracker close and branch deletion that follow cannot be undone. Tell every other session here **before** any runs — a peer still committing to `$BRANCH` is stranded once it is merged and deleted.
+```bash
+node .claude/scripts/shared/announce.js --event branch-merge-starting --branch "$BRANCH"
+```
+Append `--issue <N>` when Pre-Checks found a tracker. The script composes the text (never hand-compose), names the merge **and** Step 3.3's remote-branch deletion, and routes it as a **forced broadcast**: every addressable peer, live `/overwatch` included, whatever `broadcast` says. Honours only the master switch (`enabled: false`, `IDPF_X_SESSION=off`, `discovery: false`); announcement groups do not apply.
+`announcement.shouldSend` true → `SendMessage` to every `announcement.recipients` entry with `announcement.text`, then close out with the envelope's `dispatchReport` (`--dispatch-result sent|failed --ledger-id <id>`). A failed `SendMessage` is reported and recorded `failed`; the merge proceeds. `shouldSend` false (incl. `suppressed: true`) → report `announcement.notice` once, continue. **Advisory, never a gate:** nothing awaits delivery, a throwing helper does not stop the merge, no follow-up is sent.
 ### Step 2.5: Merge
 ```bash
 gh pr merge --merge

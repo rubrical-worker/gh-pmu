@@ -1,5 +1,5 @@
 ---
-version: "v0.104.0"
+version: "v0.105.0"
 description: Prepare a release by opening a PR, merging to main, and tagging, using the IDPF framework.
 argument-hint: "[version] [--skip-coverage] [--dry-run] [--help]"
 copyright: "Rubrical Works (c) 2026"
@@ -307,6 +307,12 @@ node .claude/scripts/shared/wait-for-ci.js
 
 **ASK USER:** Approve and merge.
 
+**Once approved, announce the release to every peer before merging (#2960).** The merge to `main`, tracker close, tag push that starts the distribution deploy and branch deletion all follow, and none can be undone:
+```bash
+node .claude/scripts/shared/announce.js --event release-starting --branch "$BRANCH" --tag "$VERSION"
+```
+Script composes the text (never hand-compose); **forced broadcast** — every addressable peer, live `/overwatch` included, whatever `broadcast` says — honouring only the master switch (`enabled: false`, `IDPF_X_SESSION=off`, `discovery: false`); announcement groups do not apply. `announcement.shouldSend` true → `SendMessage` to every `announcement.recipients` entry with `announcement.text`, then close out with the envelope's `dispatchReport` (`--dispatch-result sent|failed --ledger-id <id>`). A failed `SendMessage` is reported and recorded `failed`; the release proceeds. `shouldSend` false → report `announcement.notice` once, continue. **Advisory, never a gate:** nothing awaits delivery, no follow-up is sent.
+
 ```bash
 gh pr merge --merge
 ```
@@ -390,6 +396,10 @@ grep -lE '^[[:space:]]*tags:' .github/workflows/*.yml .github/workflows/*.yaml 2
 node .claude/scripts/shared/wait-for-ci.js --branch $VERSION --timeout 900
 ```
 **If the run fails or times out, STOP and report** its URL and conclusion. Do not continue to Step 4.8 — the tag is already pushed, so this is the last point at which a broken publish can be caught before the release is announced.
+
+**On exit 3 (`no_runs` / `no_executing_runs`): report "expected run not found" and STOP.** Do not continue. Past the trigger check a tag-triggered workflow is known to exist, so exit 3 means the gate examined nothing, not that there was nothing to gate on. Report the payload's `status`, `waitedMs` and the tag; check `gh run list --branch $VERSION` by hand before re-running this step (#2952).
+
+**Why STOP here when other callers continue (#2952):** `/work` Step 1a and `/prepare-beta` never establish that a run must exist, so exit 3 there is an honest "nothing to wait for". `wait-for-ci.js` waits out a registration window before `no_runs` (re-polls every 15s for up to 90s), so a run registered seconds after the push is gated normally and a surviving `no_runs` is a real absence, not a race. On v0.104.0, before the window, the wait declared `no_runs` seconds before `Deploy to Distribution Repo` registered.
 
 **Scope the wait to the TAG, not the checked-out branch (#2653).** This step used to resolve the branch name at runtime and pass that. After Step 4.4 the checked-out branch is `main`, and a tag-triggered run carries the **tag name** as its `headBranch` — so `matchesFilter` rejected the run the tag had just created, and the newest `main` run supplied the verdict: the already-completed post-merge `Tests` run. The gate reported a pass without waiting for anything, **vacuous in exactly the projects that have tag-triggered workflows**. `$VERSION` is the tag, so the existing filter matches with no change to `selectRun()`. (The defective form is described, not quoted: a guard test rejects that literal anywhere in this step.)
 
