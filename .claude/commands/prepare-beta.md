@@ -1,5 +1,5 @@
 ---
-version: "v0.105.0"
+version: "v0.106.0"
 description: Tag a beta from a feature branch without merging to main, using the IDPF framework.
 argument-hint: "[--skip-coverage] [--dry-run] [--help]"
 copyright: "Rubrical Works (c) 2026"
@@ -186,7 +186,7 @@ rm .release-authorized
 ```bash
 node .claude/scripts/shared/announce.js --event beta-starting --branch "$(git branch --show-current)" --tag "$VERSION"
 ```
-Script composes the text (never hand-compose); **forced broadcast** — every addressable peer, live `/overwatch` included, whatever `broadcast` says — honouring only the master switch (`enabled: false`, `IDPF_X_SESSION=off`, `discovery: false`). `announcement.shouldSend` true → `SendMessage` to every `announcement.recipients` entry with `announcement.text`, then close out with the envelope's `dispatchReport` (`--dispatch-result sent|failed --ledger-id <id>`). A failed `SendMessage` is reported and recorded `failed`; tagging proceeds. `shouldSend` false → report `announcement.notice` once, continue. **Advisory, never a gate:** nothing awaits delivery, no follow-up is sent.
+Script composes the text (never hand-compose); **forced broadcast** — every addressable peer, live `/overwatch` included, whatever `broadcast` says — honoring only the master switch (`enabled: false`, `IDPF_X_SESSION=off`, `discovery: false`). `announcement.shouldSend` true → `SendMessage` to every `announcement.recipients` entry with `announcement.text`, then close out with the envelope's `dispatchReport` (`--dispatch-result sent|failed --ledger-id <id>`). A failed `SendMessage` is reported and recorded `failed`; tagging proceeds. `shouldSend` false → report `announcement.notice` once, continue. **Advisory, never a gate:** nothing awaits delivery, no follow-up is sent.
 ```bash
 git tag -a $VERSION -m "Beta $VERSION"
 echo "$VERSION | gates passed | $(git rev-parse HEAD)" > .release-authorized
@@ -211,6 +211,8 @@ node .claude/scripts/shared/wait-for-ci.js --branch $VERSION --timeout 900
 ```bash
 node .claude/scripts/shared/update-release-notes.js
 ```
+**Relay the envelope's `warnings` array verbatim (#2950).** Non-empty → GitHub's Latest is a prerelease-shaped tag published as a full release (a beta from before prerelease flagging, #2584); the warning names the one-time manual remedy. Advisory: the release succeeded, nothing was edited, re-flagging is this project's own call. Empty → no report.
+**Betas never become Latest on GitHub** — a prerelease cannot hold the Latest pointer, so a new beta missing from the Latest slot is expected on its own, not a failure.
 
 <!-- USER-EXTENSION-START: post-tag -->
 ### Monitor Beta Build

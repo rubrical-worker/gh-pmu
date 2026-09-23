@@ -134,3 +134,6 @@ runa_claude.cmd
 # IDPF Framework (managed by Praxis Hub Manager)
 .claude/commands/bluf.md
 .claude/commands/overwatch.md
+
+# IDPF Framework (managed by Praxis Hub Manager)
+.claude/.hook-health

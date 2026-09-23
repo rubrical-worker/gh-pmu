@@ -1,5 +1,5 @@
 ---
-version: "v0.105.0"
+version: "v0.106.0"
 description: Create an enhancement issue from the IDPF framework's standard template.
 argument-hint: "<title> [--prior-art]"
 copyright: "Rubrical Works (c) 2026"
@@ -66,15 +66,15 @@ Runs **before** the body is composed, so findings change what gets written rathe
 | `already-shipped` | **STOP.** Create no issue. Report conflicting issue numbers and file paths. |
 | `found-but-warranted` | Continue. Record `**Prior Art:**` — what exists, how this differs. |
 | `none-found` | Continue. Record `noneFoundFormat` line including terms searched. |
-**Two marker forms are recognised on read (#2700).** Emission is unchanged — always the bold inline form from `prior-art-sweep.json` `bodyFormat`. Detection also accepts a markdown heading:
+**Two marker forms are recognized on read (#2700).** Emission is unchanged — always the bold inline form from `prior-art-sweep.json` `bodyFormat`. Detection also accepts a markdown heading:
 
-| Form | Example | Recognised |
+| Form | Example | Recognized |
 |---|---|---|
 | Bold inline (emitted) | `**Prior Art:** found — …` | yes |
 | Markdown heading | `## Prior Art` / `### Prior Art:` — any level | yes |
 | Bare, neither | `Prior Art: found — …` | **no** |
 
-Before #2700 only the bold counted, so a researched `## Prior Art` read as one nobody wrote. Authoritative: `bodyFormat.recognisedForms`, pinned to `classifyMarker` by test.
+Before #2700 only the bold counted, so a researched `## Prior Art` read as one nobody wrote. Authoritative: `bodyFormat.recognizedForms`, pinned to `classifyMarker` by test.
 
 
 **Emit the section on every `--prior-art` invocation, including a nil result.** Presence records the sweep ran; absence means none ran. Omitting on nil makes "nothing found" indistinguishable from "nobody looked".
@@ -90,6 +90,11 @@ Mode `off` deliberately overrides a typed flag. Earlier revisions of this spec, 
 <!-- USER-EXTENSION-END: pre-create -->
 
 ### Step 3: Create Issue
+**Generate the body path first — once per invocation, before the body is composed.** A fixed path is shared by every session filing here: a write landing between another's write and its `gh pmu create` files the second issue with the first one's body, unreported; an `rm` can also remove a file the other has not read. The issue number cannot supply it — it does not exist until the body is written, which is why #1034's per-issue fix covers editing, not creation. Suffix from a shelled-out command, never invented — **the same scheme `/bug` uses (#2980)**, so the siblings do not diverge:
+```bash
+ENHANCEMENT_BODY_FILE=".tmp-enhancement-body-$(node -e "console.log(require('crypto').randomBytes(4).toString('hex'))").md"
+```
+Write the body to `$ENHANCEMENT_BODY_FILE` and use it at every site below — `gh pmu create -F`, the companion `bodyFile`, the `rm`. **Keep the `.tmp-` prefix** so the startup stale-scratch sweep still collects a file an interrupted run left.
 Body template:
 ```markdown
 ## Enhancement
@@ -113,7 +118,7 @@ Populate from user input where possible. Use "To be documented" only where insuf
 **Sweep ran (Step 2b):** insert `**Prior Art:**` after `**Description:**`, using `bodyFormat` strings.
 Create:
 ```bash
-gh pmu create --title "[Enhancement]: {title}" --label enhancement --status backlog --priority p2 --assignee {assignee} -F .tmp-body.md
+gh pmu create --title "[Enhancement]: {title}" --label enhancement --status backlog --priority p2 --assignee {assignee} -F $ENHANCEMENT_BODY_FILE
 ```
 
 **Cross-repo filing (`--target <owner/name>`, #2665):** resolve BEFORE composing the issue — a refusal after the body is written wastes the work and tempts a retry against the wrong repo.
@@ -127,7 +132,7 @@ const target = resolveFilingTarget(charterContent, requestedRepo);
 const { fileCompanionIssue } = require('.claude/scripts/shared/file-companion-issue.js');
 const resolution = resolveBoardFields(target.entry);   // { resolved, fields, board, reason }
 const result = fileCompanionIssue({
-  repo: target.entry.repo, title, bodyFile: '.tmp-body.md',
+  repo: target.entry.repo, title, bodyFile: $ENHANCEMENT_BODY_FILE,
   labels: [LABEL], assignee, status: STATUS, priority: PRIORITY,
   board: target.entry.board || null, fields: resolution.fields,
 });
@@ -144,9 +149,9 @@ The helper creates the issue with the **bare `gh issue create`** form, then adds
 | No board registered | Issue created, no board touched. Print `formatUnresolvedBoardFields(repo, resolution)` unchanged |
 **Never guess a field or option id.** The helper resolves them from the companion's own `gh project field-list` and reports anything unresolvable as unset; a guess files onto the wrong column silently.
 ```bash
-rm .tmp-body.md
+rm $ENHANCEMENT_BODY_FILE
 ```
-**Note:** Always `-F .tmp-body.md` (never inline `--body`).
+**Note:** Always `-F $ENHANCEMENT_BODY_FILE` (never inline `--body`).
 **Assignee:** substitute `{assignee}` from `node .claude/scripts/shared/lib/gh-pmu-config.js --assignee <value>` — pass the user's `--assignee` value, omit when none given. Helper returns that login, else `@me`; reads no config file. NEVER hardcode a login or drop the flag (omitted `--assignee` silently creates an unassigned issue). Unresolvable login → `gh pmu` exits 1 and creates nothing; report the error, do NOT retry without the flag.
 ### Step 4: Cleanup, Report, and STOP
 Three parts, in order. The prune is **part of** this step, and this step is **numbered** — `One task per numbered step` now covers it, so an unpruned list surfaces as an unfinished task like any other. The halt is part (3) and lives nowhere earlier: while it sat in this step's TITLE a reader stopped at the title and never reached the prune (#2641).

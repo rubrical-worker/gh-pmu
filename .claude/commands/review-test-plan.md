@@ -1,5 +1,5 @@
 ---
-version: "v0.105.0"
+version: "v0.106.0"
 description: Review a test plan against its PRD, using the IDPF framework.
 argument-hint: "#issue [--mode ...] [--force]"
 copyright: "Rubrical Works (c) 2026"
@@ -38,7 +38,7 @@ Read both files. Either missing → **STOP**.
 
 ### Step 1a: Source PRD Review Gate (#2786)
 **After Step 1's early-exit/closed checks, before Step 2 evaluates any criterion.** A test plan is derived from its PRD, so a verdict taken against an unreviewed PRD can be invalidated by that PRD's own review — and nothing re-triggers the test-plan review when it is.
-**1 — Resolve the tracker.** The approval issue cites the PRD *file*, not the tracker, so the link runs the wrong way and is resolved by helper, not regex: `resolvePrdTracker({approvalIssue,body})` from `.claude/scripts/shared/lib/prd-tracker-lookup.js`. Three strategies in order — the explicit `**PRD Tracker:** #N` marker, a `prd`-labelled issue referencing this approval issue, then the PRD file path; `strategy` names which answered, and a multi-candidate `path` match warns `ambiguous-path-match`.
+**1 — Resolve the tracker.** The approval issue cites the PRD *file*, not the tracker, so the link runs the wrong way and is resolved by helper, not regex: `resolvePrdTracker({approvalIssue,body})` from `.claude/scripts/shared/lib/prd-tracker-lookup.js`. Three strategies in order — the explicit `**PRD Tracker:** #N` marker, a `prd`-labeled issue referencing this approval issue, then the PRD file path; `strategy` names which answered, and a multi-candidate `path` match warns `ambiguous-path-match`.
 **2 — Evaluate via the Phase 1c helper, never a second copy:** `review-state.js --issue $PRD`, then `evaluateReviewGate({body,reviewState})` from `.claude/scripts/shared/lib/create-backlog-review-gate.js`. `/create-backlog` Phase 1c gates on this same condition one step **later** (#2694); reusing its decision is what stops the two gates disagreeing about what "reviewed" means. **The filename is historical** — the helper takes a body and a state and knows nothing about backlogs, as `branch-review-gate.js` is named for its first consumer.
 | Outcome | Action |
 |---|---|
@@ -82,7 +82,7 @@ Write findings to `.tmp-$ISSUE-findings.json`, run:
 node ./.claude/scripts/shared/review-finalize.js $ISSUE -F .tmp-$ISSUE-findings.json
 ```
 Finalize: body metadata (`**Reviews:** N` increment), structured comment, labels (`reviewed`/`pending`). Clean up temp file. **Read** `.claude/scripts/shared/lib/findings-schema.json` for contract structure, required fields, status values, recommendation values.
-**`type` MUST be `"test-plan"`** — not `"story"`, `"generic"`, omitted (#2594). Drives two behaviours:
+**`type` MUST be `"test-plan"`** — not `"story"`, `"generic"`, omitted (#2594). Drives two behaviors:
 - **Header verb.** `review-finalize.js` derives `## Test Plan Review #N`. Any other value emits `## Issue Review #N`, which `/resolve-review` cannot reconcile with a test plan — reports `NO_REVIEW` against a review that exists.
 - **AC check-off suppression.** `test-plan` is tracker-shaped, so Step 5 leaves the template's fixed 6-item Approval Checklist alone. The `--move-status in_review` transition still happens.
 ### Step 5: Approval Gate AC Check-Off (Conditional)

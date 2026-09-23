@@ -1,5 +1,5 @@
 ---
-version: "v0.105.0"
+version: "v0.106.0"
 description: Create a bug issue from the IDPF framework's standard template.
 argument-hint: "<title>"
 copyright: "Rubrical Works (c) 2026"
@@ -46,13 +46,24 @@ If AC text in description mentions a verification mechanism (see `.claude/metada
 Prefer annotation over deletion when the requirement is real: the goal is to stop the gate deadlocking `in_review`, not to remove the requirement. **Warning-only, as `verificationGate` is** — do **not** block creation. `/bug` and `/enhancement` take free text and often carry no ACs, so blocking would stop capture over an AC nobody wrote.
 ### Step 2b: Detect Version
 Priority: `package.json` → `version` | git tag (`git describe --tags --abbrev=0`) | prompt user.
+**Why `package.json` first (#2954):** in a user project it is authoritative — the app's own version; a git tag may lag it or belong to something else. Keep this order (the framework repo keeps `package.json` in step with each release instead).
 **If detected**, confirm via `AskUserQuestion` with "Yes, use {version}" (default) / "No, let me specify".
 **Override provided:** use it.
+### Step 2c: Derive Priority (#2992)
+Re-read `.claude/metadata/bug-priority-rubric.json` from disk. Compare the bug's stated impact (Description, Actual Behavior, Scope) against each `classes` entry's `description` and `signals`; apply `precedence` — highest priority among matching classes wins. The matched class `id` is the **reason**.
+**No class matches → fall back to P2** (`fallback.priority`) and state `fallback.reason` to the user — never choose silently, never fall back to P1 (the fixed default this step replaces, #1520 → #2992).
+**Confirm in the same `AskUserQuestion` call** as Step 2b's version (a second question, so filing still costs one prompt): "Priority: {P?} — {reason}. Is this correct?" → "Yes, use {P?}" (default) / "No, let me override". On override ask `p0`/`p1`/`p2`. The confirmed value is `{priority}` in Step 3.
+**Why derived:** #1520's "bugs are more urgent than enhancements" holds for broken behavior on a supported path — the rubric keeps it at P1/P0 — but a fixed P1 overstated advisory and dev-only bugs, which `severity-proportionate` flagged repeatedly.
 
 <!-- USER-EXTENSION-START: pre-create -->
 <!-- USER-EXTENSION-END: pre-create -->
 
 ### Step 3: Create Issue
+**Generate the body path first — once per invocation, before the body is composed.** A fixed path is shared by every session filing here: a write landing between another's write and its `gh pmu create` files the second issue with the first one's body, unreported. The issue number cannot supply it — it does not exist until the body is written, which is why #1034's per-issue fix covers editing, not creation. Suffix from a shelled-out command, never invented:
+```bash
+BUG_BODY_FILE=".tmp-bug-body-$(node -e "console.log(require('crypto').randomBytes(4).toString('hex'))").md"
+```
+Write the body to `$BUG_BODY_FILE` and use it at every site below — `gh pmu create -F`, the companion `bodyFile`, the `rm`. **Keep the `.tmp-` prefix** so the startup stale-scratch sweep still collects a file an interrupted run left.
 Body template:
 ```markdown
 ## Bug Report
@@ -85,8 +96,9 @@ Populate from user input where possible. Use "To be documented" only where insuf
 
 Create:
 ```bash
-gh pmu create --title "[Bug]: {title}" --label bug --status backlog --priority p1 --assignee {assignee} -F .tmp-body.md
+gh pmu create --title "[Bug]: {title}" --label bug --status backlog --priority {priority} --assignee {assignee} -F $BUG_BODY_FILE
 ```
+`{priority}` is the Step 2c value — never a literal.
 
 **Cross-repo filing (`--target <owner/name>`, #2665):** resolve BEFORE composing the issue — a refusal after the body is written wastes the work and tempts a retry against the wrong repo.
 ```javascript
@@ -99,13 +111,14 @@ const target = resolveFilingTarget(charterContent, requestedRepo);
 const { fileCompanionIssue } = require('.claude/scripts/shared/file-companion-issue.js');
 const resolution = resolveBoardFields(target.entry);   // { resolved, fields, board, reason }
 const result = fileCompanionIssue({
-  repo: target.entry.repo, title, bodyFile: '.tmp-body.md',
+  repo: target.entry.repo, title, bodyFile: $BUG_BODY_FILE,
   labels: [LABEL], assignee, status: STATUS, priority: PRIORITY,
   board: target.entry.board || null, fields: resolution.fields,
 });
 ```
 **Why not `gh pmu create -R` (#2775).** gh-pmu takes the *repository* from `-R` but the *project* from the **local** `.gh-pmu.json`, with no override — so it files into the companion and adds the issue to **this** repo's board (observed: px-manager#1155 landed on Project-Varia, reporting fields unset, which concealed the pollution).
 The helper creates the issue with the **bare `gh issue create`** form, then adds it to the *companion's* board explicitly — the one case where the bare form is correct: rule 02 prohibits it because it reaches no board, and here the **local** board is what must not be reached. Membership is redirected, not abandoned.
+`PRIORITY` is the Step 2c value, resolved against the **companion board's own** options, not this repo's `.gh-pmu.json`: no matching option → reported under `fields.unset`, filed without a priority rather than on a guess.
 **Report the envelope; re-derive none of it.** `{ok, issue:{number,url}, board:{added, owner, number, fields:{set,unset}}, errors}`.
 | Envelope | Report |
 |---|---|
@@ -116,9 +129,9 @@ The helper creates the issue with the **bare `gh issue create`** form, then adds
 | No board registered | Issue created, no board touched. Print `formatUnresolvedBoardFields(repo, resolution)` unchanged |
 **Never guess a field or option id.** The helper resolves them from the companion's own `gh project field-list` and reports anything unresolvable as unset; a guess files onto the wrong column silently.
 ```bash
-rm .tmp-body.md
+rm $BUG_BODY_FILE
 ```
-**Note:** Always `-F .tmp-body.md` (never inline `--body`).
+**Note:** Always `-F $BUG_BODY_FILE` (never inline `--body`).
 **Assignee:** substitute `{assignee}` from `node .claude/scripts/shared/lib/gh-pmu-config.js --assignee <value>` — pass the user's `--assignee` value, omit when none given. Helper returns that login, else `@me`; reads no config file. NEVER hardcode a login or drop the flag (omitted `--assignee` silently creates an unassigned issue). Unresolvable login → `gh pmu` exits 1 and creates nothing; report the error, do NOT retry without the flag.
 ### Step 4: Cleanup, Report, and STOP
 Three parts, in order. The prune is **part of** this step, and this step is **numbered** — `One task per numbered step` now covers it, so an unpruned list surfaces as an unfinished task like any other. The halt is part (3) and lives nowhere earlier: while it sat in this step's TITLE a reader stopped at the title and never reached the prune (#2641).

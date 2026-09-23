@@ -1,5 +1,5 @@
 ---
-version: "v0.105.0"
+version: "v0.106.0"
 description: Analyze paths collaboratively for proposals and enhancements, using the IDPF framework.
 argument-hint: "#issue"
 copyright: "Rubrical Works (c) 2026"
@@ -140,7 +140,7 @@ const updated = applyPathMarker(body, marker);
 **Path Analysis:** {N} paths — {destination} — Quick pass, {done}/{total} categories ({YYYY-MM-DD})
 **Path Analysis:** {N} paths — {destination} — Partial, {done}/{total} categories ({YYYY-MM-DD})
 ```
-**Both destinations are recorded, and the destination is part of the marker.** `destination` = proposal file path, or literal `issue comment` for the Step 6 fallback. The marker records that `/paths` was applied and names where output went **as data** — the comment fallback is not a second format to recognise.
+**Both destinations are recorded, and the destination is part of the marker.** `destination` = proposal file path, or literal `issue comment` for the Step 6 fallback. The marker records that `/paths` was applied and names where output went **as data** — the comment fallback is not a second format to recognize.
 **Qualifier matches the file footer.** `--quick` and interrupted runs annotate the footer `(Quick pass — 3/{total} categories)` / `(Partial — N/{total} categories)`; the marker carries the same qualifier in the same words, so **a partial or quick pass is never readable as a complete one**. Pass `run: { kind: 'quick' | 'partial', categoriesDone, categoriesTotal }`; omit `run` for a full pass. Helper refuses a qualifier without its counts.
 **Update flow** — standard body edit, never inline `--body`:
 ```bash

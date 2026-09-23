@@ -1,5 +1,5 @@
 ---
-version: "v0.105.0"
+version: "v0.106.0"
 description: Prepare a release by opening a PR, merging to main, and tagging, using the IDPF framework.
 argument-hint: "[version] [--skip-coverage] [--dry-run] [--help]"
 copyright: "Rubrical Works (c) 2026"
@@ -311,7 +311,7 @@ node .claude/scripts/shared/wait-for-ci.js
 ```bash
 node .claude/scripts/shared/announce.js --event release-starting --branch "$BRANCH" --tag "$VERSION"
 ```
-Script composes the text (never hand-compose); **forced broadcast** — every addressable peer, live `/overwatch` included, whatever `broadcast` says — honouring only the master switch (`enabled: false`, `IDPF_X_SESSION=off`, `discovery: false`); announcement groups do not apply. `announcement.shouldSend` true → `SendMessage` to every `announcement.recipients` entry with `announcement.text`, then close out with the envelope's `dispatchReport` (`--dispatch-result sent|failed --ledger-id <id>`). A failed `SendMessage` is reported and recorded `failed`; the release proceeds. `shouldSend` false → report `announcement.notice` once, continue. **Advisory, never a gate:** nothing awaits delivery, no follow-up is sent.
+Script composes the text (never hand-compose); **forced broadcast** — every addressable peer, live `/overwatch` included, whatever `broadcast` says — honoring only the master switch (`enabled: false`, `IDPF_X_SESSION=off`, `discovery: false`); announcement groups do not apply. `announcement.shouldSend` true → `SendMessage` to every `announcement.recipients` entry with `announcement.text`, then close out with the envelope's `dispatchReport` (`--dispatch-result sent|failed --ledger-id <id>`). A failed `SendMessage` is reported and recorded `failed`; the release proceeds. `shouldSend` false → report `announcement.notice` once, continue. **Advisory, never a gate:** nothing awaits delivery, no follow-up is sent.
 
 ```bash
 gh pr merge --merge
@@ -348,7 +348,7 @@ if [ "$after" -gt "$before" ]; then git stash pop; fi
 
 **Pop only when something was stashed (#2602).** On a clean tree `git stash` saves nothing and exits 0, then `git stash pop` exits **1** with `No stash entries found.` — the last command before the tag step. The pair straddles checkout/pull, so the sequence appears to work and ends on a failure immediately before an irreversible tag.
 
-The guard compares `git stash list` before and after rather than testing the tree: `git status --porcelain` can report changes `git stash push` declines to save, so a dirtiness test and the stash's own behaviour can disagree. The stash count cannot.
+The guard compares `git stash list` before and after rather than testing the tree: `git status --porcelain` can report changes `git stash push` declines to save, so a dirtiness test and the stash's own behavior can disagree. The stash count cannot.
 
 <!-- USER-EXTENSION-START: pre-tag -->
 ### Important Rules

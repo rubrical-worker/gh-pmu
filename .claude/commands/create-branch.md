@@ -1,5 +1,5 @@
 ---
-version: "v0.105.0"
+version: "v0.106.0"
 description: Create a branch with a tracker issue, using the IDPF framework.
 argument-hint: "<branch-name> (e.g., release/v0.16.0, my-feature, bugfix-123)"
 copyright: "Rubrical Works (c) 2026"
@@ -73,7 +73,7 @@ Tracker issue for branch `$BRANCH`.
 Issues assigned to this branch appear as sub-issues below.
 ```
 ```bash
-gh pmu edit [TRACKER_NUMBER] -F .tmp-body.md && rm .tmp-body.md
+gh pmu edit [TRACKER_NUMBER] -F .tmp-[TRACKER_NUMBER].md && rm .tmp-[TRACKER_NUMBER].md
 ```
 ### Step 3: Configure Branch (parallelizable)
 Switch, push, set labels, assign tracker to branch and to a person — independent after creation.

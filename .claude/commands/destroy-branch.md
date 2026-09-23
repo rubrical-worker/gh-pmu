@@ -1,5 +1,5 @@
 ---
-version: "v0.105.0"
+version: "v0.106.0"
 description: Safely delete a branch after confirmation, using the IDPF framework.
 argument-hint: "[branch-name] [--force]"
 copyright: "Rubrical Works (c) 2026"
@@ -72,7 +72,7 @@ Runs once destruction is confirmed — and on the `--force` path, where no confi
 ```bash
 node .claude/scripts/shared/announce.js --event branch-destroy-starting --branch "$BRANCH"
 ```
-Append `--issue <N>` when a tracker exists. Script composes the text (never hand-compose); **forced broadcast** — every addressable peer, live `/overwatch` included, whatever `broadcast` says — honouring only the master switch (`enabled: false`, `IDPF_X_SESSION=off`, `discovery: false`). `announcement.shouldSend` true → `SendMessage` to every `announcement.recipients` entry with `announcement.text`, then close out with the envelope's `dispatchReport` (`--dispatch-result sent|failed --ledger-id <id>`). A failed `SendMessage` is reported and recorded `failed`; destruction proceeds. `shouldSend` false → report `announcement.notice` once, continue. **Advisory, never a gate:** nothing awaits delivery, no follow-up is sent.
+Append `--issue <N>` when a tracker exists. Script composes the text (never hand-compose); **forced broadcast** — every addressable peer, live `/overwatch` included, whatever `broadcast` says — honoring only the master switch (`enabled: false`, `IDPF_X_SESSION=off`, `discovery: false`). `announcement.shouldSend` true → `SendMessage` to every `announcement.recipients` entry with `announcement.text`, then close out with the envelope's `dispatchReport` (`--dispatch-result sent|failed --ledger-id <id>`). A failed `SendMessage` is reported and recorded `failed`; destruction proceeds. `shouldSend` false → report `announcement.notice` once, continue. **Advisory, never a gate:** nothing awaits delivery, no follow-up is sent.
 
 ---
 ## Phase 2: Close Tracker

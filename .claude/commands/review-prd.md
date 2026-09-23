@@ -1,5 +1,5 @@
 ---
-version: "v0.105.0"
+version: "v0.106.0"
 description: Review a PRD with tracked history, using the IDPF framework.
 argument-hint: "#issue [--with ...] [--mode ...] [--force]"
 copyright: "Rubrical Works (c) 2026"
@@ -93,7 +93,7 @@ Write findings to `.tmp-$ISSUE-findings.json`, run:
 node ./.claude/scripts/shared/review-finalize.js $ISSUE -F .tmp-$ISSUE-findings.json
 ```
 Finalize handles: body metadata (`**Reviews:** N` increment), structured comment, label assignment (`reviewed`/`pending`). Clean up temp file. **Read** `.claude/scripts/shared/lib/findings-schema.json` for contract structure, required fields, status values, recommendation values.
-**`type` MUST be `"prd"`** — not `"story"`, `"generic"`, omitted (#2594). Drives two behaviours:
+**`type` MUST be `"prd"`** — not `"story"`, `"generic"`, omitted (#2594). Drives two behaviors:
 - **Header verb.** `review-finalize.js` derives `## PRD Review #N`. Any other value emits `## Issue Review #N`, which `/resolve-review` cannot reconcile with a PRD — reports `NO_REVIEW` against a review that exists.
 - **AC check-off suppression.** `prd` is tracker-shaped, so Step 5 leaves the tracker's lifecycle checklist alone instead of checking boxes positionally.
 Non-`--with`: append the preamble's `criteria.availableTip` **verbatim** — composed from registry keys, so this spec names no domain ids and cannot go stale against the registry (#2812); three prose copies each listed 8 against a registry of 11, leaving the surplus three accepted if typed and advertised nowhere. `null` = no readable registry: emit nothing, not an empty list. **Never re-introduce the list, not even as an example** — `tests/reference/review-extensions-registry.test.js` fails on any line naming three or more ids, in the source and in every generated copy.

@@ -1,5 +1,5 @@
 ---
-version: "v0.105.0"
+version: "v0.106.0"
 description: Complete issues with criteria verification and status transitions, using the IDPF framework.
 argument-hint: "[#issue... | --all] [--yes|-y] (optional)"
 copyright: "Rubrical Works (c) 2026"
@@ -63,7 +63,7 @@ After preamble succeeds for a single issue, check `context.issue.labels` for `ep
 **`qa_required` is its own row, not `other` (#2821).** A QA sub-issue sits there deliberately — its gate is open and a human must run the check — so "was never started" is both false and unactionable: it names no command, and the epic stalls with no route forward. The row above names the one command that closes the gate.
 
 All `done` → skip processing, proceed to epic. `in_review` exist → process each through standard `/done` (Steps 1–3); per-sub-issue `Sub-issue #N: $TITLE → Done (M/T processed)`; push deferred until after epic.
-**Complete the epic with an explicit close, NEVER the preamble:** `done-preamble.js` refuses to move an `epic`-labelled issue (guard #2367) and reports the refusal as `gates.skippedReason: "epic-guard"` plus a matching `warnings[]` entry (#2670), so running it for the epic cannot move it whatever flags are passed.
+**Complete the epic with an explicit close, NEVER the preamble:** `done-preamble.js` refuses to move an `epic`-labeled issue (guard #2367) and reports the refusal as `gates.skippedReason: "epic-guard"` plus a matching `warnings[]` entry (#2670), so running it for the epic cannot move it whatever flags are passed.
 ```bash
 gh pmu move $ISSUE --status done --force
 ```

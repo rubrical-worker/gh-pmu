@@ -1,5 +1,5 @@
 ---
-version: "v0.105.0"
+version: "v0.106.0"
 description: Create a proposal document and tracking issue, using the IDPF framework.
 argument-hint: "<title> [--prior-art] [--update [changes]]"
 copyright: "Rubrical Works (c) 2026"
@@ -47,7 +47,7 @@ Extract `<title>` from arguments. **If empty:** ask for title. **If special char
 **`--prior-art` token:** recognize anywhere in argument text, **remove it from the title**, set sweep flag. Absent → no sweep. Strip **before** name conversion, or the token lands in the filename (`Dark-Mode-Support---Prior-Art.md`). Required for direct slash-command invocation (no hook runs there); on the trigger-word path `workflow-trigger.js` already strips flag-shaped tokens by **shape**, not allowlist membership (#2515). A `--` that is not flag-shaped (bare separator, `---` rule, `--` in prose) is preserved verbatim.
 
 **`--update` token:** recognize anywhere in argument text, **remove it from the title**, set update mode. Strip **before** name conversion or the token lands in the filename (`Dark-Mode-Support---Update.md`). Text following the flag is the **change instruction**; an empty remainder selects the interactive form (Step 3b).
-**Text form works on both paths since #2770.** It was direct-invocation-only under #2767, when a recognised flag claimed **exactly one token**, so `proposal: Dark Mode --update rename the risk section` bound only `rename` and returned the rest to the title. #2767 declined to patch that because a rest-of-line variant would change attachment for **every** command sharing the convention to suit one flag — correct, and why #2770 made attachment **per flag**: `trigger-flag-allowlist.json` declares `--update` as `{"flag": "--update", "attach": "rest-of-line"}` and every other flag keeps the one-token default. A rest-of-line value **stops at the next flag-shaped token**, so `--update rewrite the intro --assignee octocat` binds `rewrite the intro` and leaves `--assignee` its own value — preserving `02-github-workflow.md`'s guarantee that no flag-shaped token is silently discarded. The **bare interactive form** is unchanged on both paths.
+**Text form works on both paths since #2770.** It was direct-invocation-only under #2767, when a recognized flag claimed **exactly one token**, so `proposal: Dark Mode --update rename the risk section` bound only `rename` and returned the rest to the title. #2767 declined to patch that because a rest-of-line variant would change attachment for **every** command sharing the convention to suit one flag — correct, and why #2770 made attachment **per flag**: `trigger-flag-allowlist.json` declares `--update` as `{"flag": "--update", "attach": "rest-of-line"}` and every other flag keeps the one-token default. A rest-of-line value **stops at the next flag-shaped token**, so `--update rewrite the intro --assignee octocat` binds `rewrite the intro` and leaves `--assignee` its own value — preserving `02-github-workflow.md`'s guarantee that no flag-shaped token is silently discarded. The **bare interactive form** is unchanged on both paths.
 
 **Name conversion:** Replace spaces with hyphens, Title-Case each word. Example: `dark mode support` → `Dark-Mode-Support`.
 
@@ -150,15 +150,15 @@ Runs **before** the proposal document is composed, so findings change what gets 
 | `already-shipped` | **STOP.** Create neither the document nor the tracking issue. Report conflicting issue numbers and file paths. |
 | `found-but-warranted` | Continue. Record `**Prior Art:**` — what exists, how this differs. |
 | `none-found` | Continue. Record `noneFoundFormat` line including terms searched. |
-**Two marker forms are recognised on read (#2700).** Emission is unchanged — always the bold inline form from `prior-art-sweep.json` `bodyFormat`. Detection also accepts a markdown heading:
+**Two marker forms are recognized on read (#2700).** Emission is unchanged — always the bold inline form from `prior-art-sweep.json` `bodyFormat`. Detection also accepts a markdown heading:
 
-| Form | Example | Recognised |
+| Form | Example | Recognized |
 |---|---|---|
 | Bold inline (emitted) | `**Prior Art:** found — …` | yes |
 | Markdown heading | `## Prior Art` / `### Prior Art:` — any level | yes |
 | Bare, neither | `Prior Art: found — …` | **no** |
 
-Before #2700 only the bold counted, so a researched `## Prior Art` read as one nobody wrote. Authoritative: `bodyFormat.recognisedForms`, pinned to `classifyMarker` by test.
+Before #2700 only the bold counted, so a researched `## Prior Art` read as one nobody wrote. Authoritative: `bodyFormat.recognizedForms`, pinned to `classifyMarker` by test.
 
 
 **Both artifacts carry the section.** Write `**Prior Art:**` into `Proposal/[Name].md` (Step 4) **and** the tracking issue body (Step 5) — a reader of either must see what was searched without opening the other.
@@ -243,8 +243,13 @@ Build issue body:
 
 **Sweep ran (Step 3a):** include the `**Prior Art:**` section here too, after `### Summary`. Both artifacts carry it.
 
+**Generate the body path first — once per invocation, before the body is composed.** A fixed path is shared by every session running this command here: a write landing between another's write and its `gh pmu create` files the second issue with the first one's body, unreported. The number cannot supply it — it does not exist until the body is written (#1034 covers editing, not creation). Shell out for the suffix, never invent it — **`/bug`'s scheme (#2980)**:
 ```bash
-gh pmu create --title "Proposal: {title}" --label proposal --status backlog --priority p2 --assignee {assignee} -F .tmp-body.md
+PROPOSAL_BODY_FILE=".tmp-proposal-body-$(node -e "console.log(require('crypto').randomBytes(4).toString('hex'))").md"
+```
+Use `$PROPOSAL_BODY_FILE` at every site below — `gh pmu create -F`, the `rm`. **Keep the `.tmp-` prefix** so the startup stale-scratch sweep still collects a file an interrupted run left.
+```bash
+gh pmu create --title "Proposal: {title}" --label proposal --status backlog --priority p2 --assignee {assignee} -F $PROPOSAL_BODY_FILE
 ```
 
 **Cross-repo filing (`--target <owner/name>`, #2665):** resolve BEFORE composing the issue — a refusal after the body is written wastes the work and tempts a retry against the wrong repo.
@@ -256,11 +261,11 @@ const target = resolveFilingTarget(charterContent, requestedRepo);
 `ok:true` → add `-R <owner/name>` to `gh pmu create`; all other flags unchanged.
 **Board fields:** `resolveBoardFields(target.entry)`. `resolved:true` → set them. `resolved:false` → **create the issue anyway**, then print `formatUnresolvedBoardFields(repo, resolution)`, naming the unset fields and why. NEVER guess a field ID — a guess files onto the wrong board column silently, which is worse than an unset field plus a line saying so.
 ```bash
-rm .tmp-body.md
+rm $PROPOSAL_BODY_FILE
 ```
 **Assignee:** substitute `{assignee}` from `node .claude/scripts/shared/lib/gh-pmu-config.js --assignee <value>` — pass the user's `--assignee` value, omit when none given. Helper returns that login, else `@me`; reads no config file. NEVER hardcode a login or drop the flag (omitted `--assignee` silently creates an unassigned issue). Unresolvable login → `gh pmu` exits 1 and creates nothing; report the error, do NOT retry without the flag.
 
-**Note:** Always use `-F .tmp-body.md` (never inline `--body`).
+**Note:** Always use `-F $PROPOSAL_BODY_FILE` (never inline `--body`).
 
 ### Step 6: Update Proposal with Issue Reference
 

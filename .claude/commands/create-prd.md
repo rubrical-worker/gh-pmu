@@ -1,5 +1,5 @@
 ---
-version: "v0.105.0"
+version: "v0.106.0"
 description: Transform a proposal into an Agile PRD using the IDPF framework.
 argument-hint: "<issue-number> | extract [<directory>]"
 copyright: "Rubrical Works (c) 2026"
@@ -244,7 +244,12 @@ Create PRD at `PRD/{name}/PRD-{name}.md`. Load template `{frameworkPath}/Templat
 ### Phase 6.6: Create Test Plan Approval Issue
 **Assignee:** substitute `{assignee}` from `node .claude/scripts/shared/lib/gh-pmu-config.js --assignee <value>` — pass the user's `--assignee` value, omit when none given. Helper returns that login, else `@me`; reads no config file. NEVER hardcode a login or drop the flag (omitted `--assignee` silently creates an unassigned issue). Unresolvable login → `gh pmu` exits 1 and creates nothing; report the error, do NOT retry without the flag. Applies to both `gh pmu create` calls below.
 **Body via temp file, never inline `--body`.** Gate `no-aspirational-mechanism`'s text contains backticks; inside a double-quoted `--body` bash runs them as command substitution. `05-windows-shell.md` requires `-F` regardless.
-Write `.tmp-test-plan-approval.md`:
+**Generate the approval body path first — once per invocation, before the body is composed.** A fixed path is shared by every session running this command here: a write landing between another's write and its `gh pmu create` files the second issue with the first one's body, unreported. The issue number cannot supply it — it does not exist until the body is written, which is why #1034's per-issue fix covers editing, not creation. Suffix from a shelled-out command, never invented — **`/bug`'s scheme (#2980)**:
+```bash
+APPROVAL_FILE=".tmp-test-plan-approval-$(node -e "console.log(require('crypto').randomBytes(4).toString('hex'))").md"
+```
+Use `$APPROVAL_FILE` at the Write tool target, `gh pmu create -F` and the `rm`. **Keep the `.tmp-` prefix** so the startup stale-scratch sweep still collects a file an interrupted run left.
+Write `$APPROVAL_FILE`:
 ```markdown
 ## Test Plan Review
 
@@ -274,9 +279,9 @@ A TDD test plan has been generated for **{Name}**.
 ```bash
 gh pmu create --label test-plan --label approval-required --assignee {assignee} \
   --title "Approve Test Plan: {Name}" \
-  -F .tmp-test-plan-approval.md \
+  -F $APPROVAL_FILE \
   --status backlog
-rm .tmp-test-plan-approval.md
+rm $APPROVAL_FILE
 ```
 **The six `## Review Checklist` lines render from `.claude/metadata/test-plan-approval-gates.json` `gates[].text`, in declared order (#2710).** Do NOT reword here — `tests/metadata/test-plan-approval-gates.test.js` compares them element-wise against the gate file AND the template `## Approval Checklist`; a one-surface change fails CI. The two were independently worded and had diverged (five items vs six).
 Update test plan frontmatter with the approval issue number after creation.
