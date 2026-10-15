@@ -1,5 +1,5 @@
 ---
-version: "v0.106.0"
+version: "v0.107.1"
 description: Complete issues with criteria verification and status transitions, using the IDPF framework.
 argument-hint: "[#issue... | --all] [--yes|-y] (optional)"
 copyright: "Rubrical Works (c) 2026"
@@ -95,7 +95,7 @@ Read `data.status` and `data.upstreamSha` — the post-fetch `@{upstream}`, the 
 | `status` | Action |
 |---|---|
 | `ahead` | Continue to 2.4. |
-| `diverged` | Another developer pushed while this branch was being worked. **Rebase, not merge:** `git rebase @{u}`. Clean → 2.4. Conflict → capture the paths with `git diff --name-only --diff-filter=U`, then `git rebase --abort`, report the paths, **STOP** — the issue is already Done on the board from Step 1; say so, and that the commits remain local. Recovery by hand: `git rebase @{u}`, resolve, `git rebase --continue`, `git push`. |
+| `diverged` | Another developer pushed while this branch was being worked. **Rebase, not merge**, through the shared guard: `node .claude/scripts/shared/lib/rebase-guard.js --rebase` (#3014 — the one sequence `/sync-branch` and `/work` Step 1c also call; referenced, not restated). `ok: true` → 2.4. `ok: false`, `action: aborted` → the helper captured the conflicting paths and aborted; report `data.conflictingPaths`, **STOP** — the issue is already Done on the board from Step 1; say so, and that the commits remain local and the tree is as it was. Recovery: resolve by hand, or `/sync-branch` (same analysis and guard, with the change in front of the user). |
 | `up-to-date`, `behind` | Nothing local to push (2.1 catches this; reaching here means the ref moved between the calls). Report, skip to Step 3 as "Nothing to push". |
 | `no-upstream` | Continue to 2.4; git's own push error is the report if none is configured. |
 **Why rebase, not merge:** the per-AC `Refs #N` commits are what `scope-drift-check.js`, `log-changed-files.js`, and `nonstop-audit.js` key off — they match on message, not SHA. A merge commit adds an unattributed commit; a rebase keeps the set intact. Step 4f ran on the pre-rebase tree; Step 3's CI monitor is the check that the rebased tree still passes.

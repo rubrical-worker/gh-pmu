@@ -1,5 +1,5 @@
 ---
-version: "v0.106.0"
+version: "v0.107.1"
 description: Prepare a release by opening a PR, merging to main, and tagging, using the IDPF framework.
 argument-hint: "[version] [--skip-coverage] [--dry-run] [--help]"
 copyright: "Rubrical Works (c) 2026"

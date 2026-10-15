@@ -1,5 +1,5 @@
 ---
-version: "v0.106.0"
+version: "v0.107.1"
 description: Review a test plan against its PRD, using the IDPF framework.
 argument-hint: "#issue [--mode ...] [--force]"
 copyright: "Rubrical Works (c) 2026"
