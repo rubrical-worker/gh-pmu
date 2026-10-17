@@ -1,5 +1,5 @@
 ---
-version: "v0.107.1"
+version: "v0.108.0"
 description: Produce DTCG-compliant design tokens with a pluggable adapter architecture, using the IDPF framework.
 argument-hint: "[--init | --discover | --export <adapter> | --theme <name> | --from-screenshot <path> | --diff | --showcase | --apply-decisions]"
 copyright: "Rubrical Works (c) 2026"

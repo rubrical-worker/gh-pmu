@@ -1,5 +1,5 @@
 ---
-version: "v0.107.1"
+version: "v0.108.0"
 description: Transform a proposal into an Agile PRD using the IDPF framework.
 argument-hint: "<issue-number> | extract [<directory>]"
 copyright: "Rubrical Works (c) 2026"
@@ -242,7 +242,7 @@ Create PRD at `PRD/{name}/PRD-{name}.md`. Load template `{frameworkPath}/Templat
 **Derivation:** parse each story's ACs; generate 2-3 test cases per AC (valid, invalid, edge); identify cross-story/cross-epic integration points; extract E2E scenarios from user journeys.
 
 ### Phase 6.6: Create Test Plan Approval Issue
-**Assignee:** substitute `{assignee}` from `node .claude/scripts/shared/lib/gh-pmu-config.js --assignee <value>` — pass the user's `--assignee` value, omit when none given. Helper returns that login, else `@me`; reads no config file. NEVER hardcode a login or drop the flag (omitted `--assignee` silently creates an unassigned issue). Unresolvable login → `gh pmu` exits 1 and creates nothing; report the error, do NOT retry without the flag. Applies to both `gh pmu create` calls below.
+**Assignee:** substitute `{assignee}` from the helper: `node .claude/scripts/shared/lib/gh-pmu-config.js --assignee <login>` when the user supplied a login, else `node .claude/scripts/shared/lib/gh-pmu-config.js --assignee` (bare flag, no value). NEVER run the helper with no arguments — it exits 1 with a usage message. Returns the login, or `@me` for the bare flag; reads no config file. NEVER hardcode a login or drop the flag (omitted `--assignee` silently creates an unassigned issue). Unresolvable login → `gh pmu` exits 1 and creates nothing; report the error, do NOT retry without the flag. Applies to both `gh pmu create` calls below.
 **Body via temp file, never inline `--body`.** Gate `no-aspirational-mechanism`'s text contains backticks; inside a double-quoted `--body` bash runs them as command substitution. `05-windows-shell.md` requires `-F` regardless.
 **Generate the approval body path first — once per invocation, before the body is composed.** A fixed path is shared by every session running this command here: a write landing between another's write and its `gh pmu create` files the second issue with the first one's body, unreported. The issue number cannot supply it — it does not exist until the body is written, which is why #1034's per-issue fix covers editing, not creation. Suffix from a shelled-out command, never invented — **`/bug`'s scheme (#2980)**:
 ```bash

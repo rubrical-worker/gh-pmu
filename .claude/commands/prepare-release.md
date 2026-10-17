@@ -1,5 +1,5 @@
 ---
-version: "v0.107.1"
+version: "v0.108.0"
 description: Prepare a release by opening a PR, merging to main, and tagging, using the IDPF framework.
 argument-hint: "[version] [--skip-coverage] [--dry-run] [--help]"
 copyright: "Rubrical Works (c) 2026"
@@ -403,7 +403,7 @@ node .claude/scripts/shared/wait-for-ci.js --branch $VERSION --timeout 900
 
 **Scope the wait to the TAG, not the checked-out branch (#2653).** This step used to resolve the branch name at runtime and pass that. After Step 4.4 the checked-out branch is `main`, and a tag-triggered run carries the **tag name** as its `headBranch` — so `matchesFilter` rejected the run the tag had just created, and the newest `main` run supplied the verdict: the already-completed post-merge `Tests` run. The gate reported a pass without waiting for anything, **vacuous in exactly the projects that have tag-triggered workflows**. `$VERSION` is the tag, so the existing filter matches with no change to `selectRun()`. (The defective form is described, not quoted: a guard test rejects that literal anywhere in this step.)
 
-**`--branch` is still not optional (#2464).** Bare, the gate passes a null filter and `selectRun()` returns the newest run **repo-wide** — an unrelated run can supply the verdict. **`--timeout 900`** states the budget explicitly rather than relying on adaptive extension of the 300s default (#2257).
+**`--branch` is still not optional (#2464).** Bare, the gate passes a null filter and `selectRun()` returns the newest run **repo-wide** — an unrelated run can supply the verdict. **`--timeout 900`** states the 15-minute budget explicitly rather than relying on adaptive extension of the 300s default (#2257) — it is `wait-for-ci.js`'s `MAX_CAP`, so the whole request is enforced; a larger one is clamped and reported (#3022).
 
 **Why the trigger check, not a file-existence check (#2653).** The old conditional asked whether *any* workflow file exists. Almost every project has one, so it passed nearly always and sent the step on to wait against a filter that could not match — a vacuous pass dressed as a gate. Whether anything triggers on tags is the question that decides whether waiting is meaningful. The `grep` is a deliberate heuristic that errs toward waiting: over-waiting costs a timeout that reports honestly; under-waiting is the defect this step just had.
 ### Step 4.8: Update Release Notes

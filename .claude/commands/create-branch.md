@@ -1,5 +1,5 @@
 ---
-version: "v0.107.1"
+version: "v0.108.0"
 description: Create a branch with a tracker issue, using the IDPF framework.
 argument-hint: "<branch-name> (e.g., release/v0.16.0, my-feature, bugfix-123)"
 copyright: "Rubrical Works (c) 2026"
@@ -90,7 +90,7 @@ gh pmu move [TRACKER_NUMBER] --branch "$BRANCH" && gh issue edit [TRACKER_NUMBER
 ```bash
 gh issue edit [TRACKER_NUMBER] --add-assignee {assignee}
 ```
-**Assignee:** substitute `{assignee}` from `node .claude/scripts/shared/lib/gh-pmu-config.js --assignee <value>` — pass the value the user supplied, omit it when they supplied none. The helper returns that login or `@me`, the branch creator by construction; it reads no config file. Never hardcode a login, never drop the flag: an omitted assignee silently leaves the tracker unassigned. An unresolvable login exits non-zero — report the error rather than retrying without the flag.
+**Assignee:** substitute `{assignee}` from the helper: `node .claude/scripts/shared/lib/gh-pmu-config.js --assignee <login>` when the user supplied a login, else `node .claude/scripts/shared/lib/gh-pmu-config.js --assignee` (bare flag, no value). NEVER run the helper with no arguments — it exits 1 with a usage message. Returns the login, or `@me` for the bare flag — the branch creator by construction; it reads no config file. Never hardcode a login, never drop the flag: an omitted assignee silently leaves the tracker unassigned. An unresolvable login exits non-zero — report the error rather than retrying without the flag.
 
 **Why `--add-assignee` (#2658):** `gh pmu branch start` exposes only `--name` and `gh pmu edit` exposes no assignee flag (gh-pmu 1.5.3), so an already-created tracker can only be assigned via raw `gh issue edit`. The user-facing argument stays `--assignee <value>`, matching `/bug` and `/enhancement`.
 

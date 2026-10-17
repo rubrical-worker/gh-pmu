@@ -1,5 +1,5 @@
 ---
-version: "v0.107.1"
+version: "v0.108.0"
 description: Manage GitHub Actions CI workflows interactively, using the IDPF framework.
 argument-hint: "[list|validate|add|recommend] (no args shows status)"
 copyright: "Rubrical Works (c) 2026"

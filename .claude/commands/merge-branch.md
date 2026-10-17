@@ -1,5 +1,5 @@
 ---
-version: "v0.107.1"
+version: "v0.108.0"
 description: Merge a branch to main through the IDPF framework's gated checks.
 argument-hint: "[--skip-gates] [--dry-run]"
 copyright: "Rubrical Works (c) 2026"

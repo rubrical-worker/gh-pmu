@@ -1,5 +1,5 @@
 ---
-version: "v0.107.1"
+version: "v0.108.0"
 description: Tag a beta from a feature branch without merging to main, using the IDPF framework.
 argument-hint: "[--skip-coverage] [--dry-run] [--help]"
 copyright: "Rubrical Works (c) 2026"
@@ -206,7 +206,7 @@ grep -lE '^[[:space:]]*tags:' .github/workflows/*.yml .github/workflows/*.yaml 2
 node .claude/scripts/shared/wait-for-ci.js --branch $VERSION --timeout 900
 ```
 **If the run fails or times out, STOP and report** its URL and conclusion.
-**Scope to the TAG, not the checked-out branch (#2889, #2653):** a tag-triggered run carries the tag name as `headBranch`; the checked-out branch would match the Step 4.1 branch-push run instead. **`--branch` is not optional (#2464):** bare, the newest run repo-wide supplies the verdict — and this is the only CI check on the beta path. `--timeout 900` states the budget explicitly (#2257).
+**Scope to the TAG, not the checked-out branch (#2889, #2653):** a tag-triggered run carries the tag name as `headBranch`; the checked-out branch would match the Step 4.1 branch-push run instead. **`--branch` is not optional (#2464):** bare, the newest run repo-wide supplies the verdict — and this is the only CI check on the beta path. `--timeout 900` states the 15-minute budget explicitly (#2257) — `wait-for-ci.js`'s `MAX_CAP`, so the whole request is enforced; a larger one is clamped and reported (#3022).
 ### Step 4.4: Update Release Notes
 ```bash
 node .claude/scripts/shared/update-release-notes.js
