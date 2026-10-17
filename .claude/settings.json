@@ -7,7 +7,7 @@
           {
             "type": "command",
             "command": "node .claude/hooks/workflow-trigger.js",
-            "timeout": 10000
+            "timeout": 10
           }
         ]
       }
@@ -18,8 +18,18 @@
         "hooks": [
           {
             "type": "command",
+            "command": "node .claude/hooks/shell-safety-hook.js",
+            "timeout": 5
+          }
+        ]
+      },
+      {
+        "matcher": "Bash|PowerShell",
+        "hooks": [
+          {
+            "type": "command",
             "command": "node .claude/hooks/block-cd.js",
-            "timeout": 5000
+            "timeout": 5
           }
         ]
       }
@@ -31,7 +41,7 @@
           {
             "type": "command",
             "command": "node .claude/hooks/startup-hook.js",
-            "timeout": 60000
+            "timeout": 60
           }
         ]
       },
@@ -41,7 +51,7 @@
           {
             "type": "command",
             "command": "node .claude/hooks/clear-hook.js",
-            "timeout": 5000
+            "timeout": 5
           }
         ]
       },
@@ -51,7 +61,7 @@
           {
             "type": "command",
             "command": "node .claude/hooks/resume-hook.js",
-            "timeout": 5000
+            "timeout": 5
           }
         ]
       },
@@ -61,10 +71,15 @@
           {
             "type": "command",
             "command": "node .claude/hooks/compact-hook.js",
-            "timeout": 5000
+            "timeout": 5
           }
         ]
       }
+    ]
+  },
+  "permissions": {
+    "deny": [
+      "Edit(/.claude/settings.json)"
     ]
   }
 }
