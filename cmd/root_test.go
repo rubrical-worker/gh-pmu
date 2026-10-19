@@ -276,6 +276,56 @@ func TestSubcommandUsageLinePrefix(t *testing.T) {
 	}
 }
 
+// executeForErrorOutput runs the root command with args and returns everything
+// it wrote (stdout and stderr share one buffer) plus the returned error.
+func executeForErrorOutput(t *testing.T, args ...string) (string, error) {
+	t.Helper()
+	cmd := NewRootCommand()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetErr(buf)
+	cmd.SetArgs(args)
+	err := cmd.Execute()
+	return buf.String(), err
+}
+
+// chdirNoConfig moves into an empty temp dir so a command fails on config load
+// inside RunE — a runtime error reached without any API call. It skips if a
+// .gh-pmu.json above the temp dir would let the command reach the network.
+func chdirNoConfig(t *testing.T) {
+	t.Helper()
+	dir := t.TempDir()
+	if _, err := config.FindConfigFile(dir); err == nil {
+		t.Skip("a .gh-pmu.json above the temp dir would let this command reach the API")
+	}
+	chdirTemp(t, dir)
+}
+
+// TestArgumentError_NoExampleShowsUseLineOnly: a subcommand without an
+// Example field still gets the usage block on an argument error, carrying its
+// Use line and no Examples section (#927).
+func TestArgumentError_NoExampleShowsUseLineOnly(t *testing.T) {
+	root := NewRootCommand()
+	addCmd, _, err := root.Find([]string{"branch", "add"})
+	if err != nil {
+		t.Fatalf("branch add command not found: %v", err)
+	}
+	if addCmd.Example != "" {
+		t.Fatal("precondition: branch add must have no Example field")
+	}
+
+	out, err := executeForErrorOutput(t, "branch", "add")
+	if err == nil {
+		t.Fatal("Expected an argument error for branch add with no issue number")
+	}
+	if !strings.Contains(out, "Usage:") || !strings.Contains(out, "gh pmu branch add <issue-number>") {
+		t.Errorf("Expected the usage block with the Use line, got:\n%s", out)
+	}
+	if strings.Contains(out, "Examples:") {
+		t.Errorf("Expected no Examples section for a subcommand without Example, got:\n%s", out)
+	}
+}
+
 // TestRootCommandUsageLinePrefix verifies that `gh pmu --help` renders
 // `Usage: gh pmu [command]`.
 func TestRootCommandUsageLinePrefix(t *testing.T) {

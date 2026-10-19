@@ -329,6 +329,38 @@ func TestViewCommand_HasJSONFlag(t *testing.T) {
 	}
 }
 
+// TestViewCommand_RuntimeErrorOmitsUsage: a failure inside RunE (here, no
+// configuration) prints the error without the usage dump (#927).
+func TestViewCommand_RuntimeErrorOmitsUsage(t *testing.T) {
+	chdirNoConfig(t)
+	out, err := executeForErrorOutput(t, "view", "42")
+	if err == nil {
+		t.Fatal("Expected a runtime error with no configuration")
+	}
+	if !strings.Contains(out, "failed to load configuration") {
+		t.Errorf("Expected the runtime error in the output, got:\n%s", out)
+	}
+	if strings.Contains(out, "Usage:") {
+		t.Errorf("Expected no usage block after a runtime error, got:\n%s", out)
+	}
+}
+
+// TestViewCommand_ArgumentErrorKeepsUsage: an argument error keeps the usage
+// block with the Use line, plus Examples whenever view defines them (#927).
+func TestViewCommand_ArgumentErrorKeepsUsage(t *testing.T) {
+	out, err := executeForErrorOutput(t, "view")
+	if err == nil {
+		t.Fatal("Expected an argument error for view with no issue number")
+	}
+	if !strings.Contains(out, "Usage:") || !strings.Contains(out, "gh pmu view <issue-number>") {
+		t.Errorf("Expected the usage block with the Use line, got:\n%s", out)
+	}
+	viewCmd, _, _ := NewRootCommand().Find([]string{"view"})
+	if viewCmd.Example != "" && strings.Count(out, "Examples:") != 1 {
+		t.Errorf("Expected exactly one Examples section, got:\n%s", out)
+	}
+}
+
 func TestViewCommand_JSONSpaceFormMatchesEqualsForm(t *testing.T) {
 	spaced := newViewCommand()
 	if err := parseJSONFlagCommand(t, spaced, []string{"42", "--json", "status,title"}); err != nil {

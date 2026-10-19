@@ -454,6 +454,50 @@ func TestMoveCommand_RequiresAtLeastOneFlag(t *testing.T) {
 	}
 }
 
+func TestMoveCommand_HasExample(t *testing.T) {
+	moveCmd, _, err := NewRootCommand().Find([]string{"move"})
+	if err != nil {
+		t.Fatalf("move command not found: %v", err)
+	}
+	if !strings.Contains(moveCmd.Example, "gh pmu move 42 --status in_progress") {
+		t.Errorf("Expected move to define an Example with an invocation, got %q", moveCmd.Example)
+	}
+}
+
+// TestMoveCommand_RuntimeErrorOmitsUsage: an error returned from RunE prints
+// the error alone — no usage dump burying the cause (#927).
+func TestMoveCommand_RuntimeErrorOmitsUsage(t *testing.T) {
+	out, err := executeForErrorOutput(t, "move", "123")
+	if err == nil {
+		t.Fatal("Expected an error when no field flags are provided")
+	}
+	if !strings.Contains(out, "at least one of --status") {
+		t.Errorf("Expected the runtime error in the output, got:\n%s", out)
+	}
+	if strings.Contains(out, "Usage:") {
+		t.Errorf("Expected no usage block after a runtime error, got:\n%s", out)
+	}
+}
+
+// TestMoveCommand_ArgumentErrorShowsUsageAndExamplesOnce: an argument error
+// keeps the usage block, whose Examples section comes from the Example field
+// and is not duplicated by an appended line (#927).
+func TestMoveCommand_ArgumentErrorShowsUsageAndExamplesOnce(t *testing.T) {
+	out, err := executeForErrorOutput(t, "move")
+	if err == nil {
+		t.Fatal("Expected an argument error for move with no issue number")
+	}
+	if !strings.Contains(out, "Usage:") || !strings.Contains(out, "gh pmu move <issue-number>") {
+		t.Errorf("Expected the usage block with the Use line, got:\n%s", out)
+	}
+	if strings.Count(out, "Examples:") != 1 {
+		t.Errorf("Expected exactly one Examples section, got %d:\n%s", strings.Count(out, "Examples:"), out)
+	}
+	if strings.Count(out, "gh pmu move 42 --status in_progress") != 1 {
+		t.Errorf("Expected the example invocation exactly once, got:\n%s", out)
+	}
+}
+
 func TestMoveCommand_HasRecursiveFlag(t *testing.T) {
 	cmd := NewRootCommand()
 	moveCmd, _, err := cmd.Find([]string{"move"})
