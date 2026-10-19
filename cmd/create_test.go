@@ -27,6 +27,7 @@ type mockCreateClient struct {
 	lastAssignees []string
 	lastMilestone string
 	setFieldCalls []createSetFieldCall
+	createCalls   int
 
 	// Error injection
 	createIssueErr          error
@@ -58,6 +59,7 @@ func newMockCreateClient() *mockCreateClient {
 }
 
 func (m *mockCreateClient) CreateIssueWithOptions(owner, repo, title, body string, labels, assignees []string, milestone string) (*api.Issue, error) {
+	m.createCalls++
 	if m.createIssueErr != nil {
 		return nil, m.createIssueErr
 	}
@@ -1764,6 +1766,48 @@ func TestRunCreateWithDeps_GetProjectError(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "failed to get project") {
 		t.Errorf("expected 'failed to get project' error, got: %v", err)
+	}
+}
+
+// #929: every lookup create needs runs before the issue is created, on both the
+// flag path and the --from-file path, so a failed lookup writes nothing.
+func TestRunCreate_LookupFailureCreatesNothing(t *testing.T) {
+	dir := t.TempDir()
+	issueFile := filepath.Join(dir, "issue.yml")
+	if err := os.WriteFile(issueFile, []byte("title: From File\nbody: body\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	paths := map[string]func() *createOptions{
+		"flag path":      func() *createOptions { return &createOptions{title: "Test Issue", release: "current"} },
+		"from-file path": func() *createOptions { return &createOptions{fromFile: issueFile, release: "current"} },
+	}
+	failures := map[string]struct {
+		inject  func(m *mockCreateClient)
+		wantErr string
+	}{
+		"get project":        {func(m *mockCreateClient) { m.getProjectErr = errors.New("boom") }, "failed to get project"},
+		"get project fields": {func(m *mockCreateClient) { m.getProjectFieldsErr = errors.New("boom") }, "failed to get project fields"},
+		"branch lookup":      {func(m *mockCreateClient) { m.getOpenIssuesByLabelErr = errors.New("boom") }, "failed to get branch issues"},
+		"no active branch":   {func(m *mockCreateClient) { m.issuesByLabel = nil }, "no active branch found"},
+	}
+
+	for pathName, newOpts := range paths {
+		for failName, f := range failures {
+			t.Run(pathName+"/"+failName, func(t *testing.T) {
+				mock := newMockCreateClient()
+				f.inject(mock)
+				cfg := &config.Config{Project: config.Project{Owner: "test-org", Number: 1}}
+
+				err := runCreateWithDeps(newCreateCommand(), newOpts(), cfg, mock, "owner", "repo")
+				if err == nil || !strings.Contains(err.Error(), f.wantErr) {
+					t.Fatalf("expected error containing %q, got: %v", f.wantErr, err)
+				}
+				if mock.createCalls != 0 {
+					t.Errorf("expected no issue to be created when the %s lookup fails; CreateIssueWithOptions called %d time(s)", failName, mock.createCalls)
+				}
+			})
+		}
 	}
 }
 
