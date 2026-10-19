@@ -160,6 +160,7 @@ type branchClient interface {
 // branchStartOptions holds the options for the branch start command
 type branchStartOptions struct {
 	branchName string
+	dryRun     bool
 }
 
 // branchAddOptions holds the options for the branch add command
@@ -244,6 +245,7 @@ Examples:
 	}
 
 	cmd.Flags().StringVar(&opts.branchName, "name", "", "Branch name to track (required)")
+	cmd.Flags().BoolVar(&opts.dryRun, "dry-run", false, "Check for an active branch, resolve the project and print what would be created, without creating the git branch or tracker")
 	_ = cmd.MarkFlagRequired("name")
 
 	return cmd
@@ -508,6 +510,10 @@ func runBranchStartWithDeps(cmd *cobra.Command, opts *branchStartOptions, cfg *c
 		return fmt.Errorf("active branch exists: %s", activeBranch.Title)
 	}
 
+	if opts.dryRun {
+		return printBranchStartDryRun(cmd, opts, cfg, client, owner, repo)
+	}
+
 	// Create the git branch
 	err = client.GitCheckoutNewBranch(opts.branchName)
 	if err != nil {
@@ -569,6 +575,32 @@ func runBranchStartWithDeps(cmd *cobra.Command, opts *branchStartOptions, cfg *c
 	fmt.Fprintf(cmd.OutOrStdout(), "Started tracking: %s\n", title)
 	fmt.Fprintf(cmd.OutOrStdout(), "Tracker issue: #%d\n", issue.Number)
 
+	return nil
+}
+
+// printBranchStartDryRun resolves the project and reports the git branch,
+// tracker issue and status that branch start would create, writing nothing
+// (#929). The active-branch check has already run, as in a real start.
+func printBranchStartDryRun(cmd *cobra.Command, opts *branchStartOptions, cfg *config.Config, client branchClient, owner, repo string) error {
+	project, err := client.GetProject(cfg.Project.Owner, cfg.Project.Number)
+	if err != nil {
+		return fmt.Errorf("failed to get project: %w", err)
+	}
+	status := "(not set: no status field configured)"
+	if statusField, ok := cfg.Fields["status"]; ok {
+		status = statusField.Values["in_progress"]
+		if status == "" {
+			status = "In progress"
+		}
+	}
+
+	w := cmd.OutOrStdout()
+	fmt.Fprintln(w, "Dry run: no git branch or tracker issue will be created.")
+	fmt.Fprintf(w, "  Git branch: %s\n", opts.branchName)
+	fmt.Fprintf(w, "  Tracker:    Branch: %s (in %s/%s)\n", opts.branchName, owner, repo)
+	fmt.Fprintln(w, "  Labels:     branch")
+	fmt.Fprintf(w, "  Project:    %s (%s #%d)\n", project.Title, cfg.Project.Owner, cfg.Project.Number)
+	fmt.Fprintf(w, "  Status:     %s\n", status)
 	return nil
 }
 

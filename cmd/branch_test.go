@@ -82,6 +82,7 @@ type mockBranchClient struct {
 	removeLabelCalls             []branchLabelCall
 	addSubIssueCalls             []subIssueLinkCall
 	removeSubIssueCalls          []subIssueLinkCall
+	gitCheckoutCalls             []string
 
 	// Error injection
 	createIssueErr             error
@@ -421,6 +422,7 @@ func (m *mockBranchClient) GitTag(tag, message string) error {
 }
 
 func (m *mockBranchClient) GitCheckoutNewBranch(branch string) error {
+	m.gitCheckoutCalls = append(m.gitCheckoutCalls, branch)
 	return nil
 }
 
@@ -544,6 +546,54 @@ func TestRunBranchStartWithDeps_CreatesTrackerIssue(t *testing.T) {
 	// Verify title matches expected pattern
 	if call.title != expectedTitle {
 		t.Errorf("Expected title '%s', got '%s'", expectedTitle, call.title)
+	}
+}
+
+// #929: --dry-run checks for an active branch and resolves the project, then
+// prints the plan without creating the git branch, the tracker or any field.
+func TestRunBranchStartWithDeps_DryRunWritesNothing(t *testing.T) {
+	mock := setupMockForBranch()
+	cfg := testBranchConfig()
+	cleanup := setupBranchTestDir(t, cfg)
+	defer cleanup()
+
+	cmd, buf := newTestBranchCmd()
+	opts := &branchStartOptions{branchName: "release/v1.2.0", dryRun: true}
+
+	if err := runBranchStartWithDeps(cmd, opts, cfg, mock); err != nil {
+		t.Fatalf("Expected no error, got: %v", err)
+	}
+	if len(mock.gitCheckoutCalls) != 0 || len(mock.createIssueCalls) != 0 ||
+		len(mock.addToProjectCalls) != 0 || len(mock.setFieldCalls) != 0 {
+		t.Errorf("dry run wrote: checkout=%v create=%d add=%d fields=%d",
+			mock.gitCheckoutCalls, len(mock.createIssueCalls), len(mock.addToProjectCalls), len(mock.setFieldCalls))
+	}
+	for _, want := range []string{"Dry run", "release/v1.2.0", "Branch: release/v1.2.0", "branch"} {
+		if !strings.Contains(buf.String(), want) {
+			t.Errorf("expected %q in dry-run output, got:\n%s", want, buf.String())
+		}
+	}
+}
+
+// #929: a dry run still refuses when a branch is already active — it checks
+// what the real run checks.
+func TestRunBranchStartWithDeps_DryRunStillRejectsActiveBranch(t *testing.T) {
+	mock := setupMockForBranch()
+	mock.openIssues = []api.Issue{{Number: 5, Title: "Branch: release/v1.1.0"}}
+	cfg := testBranchConfig()
+	cleanup := setupBranchTestDir(t, cfg)
+	defer cleanup()
+
+	cmd, _ := newTestBranchCmd()
+	err := runBranchStartWithDeps(cmd, &branchStartOptions{branchName: "release/v1.2.0", dryRun: true}, cfg, mock)
+	if err == nil || !strings.Contains(err.Error(), "active branch exists") {
+		t.Fatalf("expected 'active branch exists', got: %v", err)
+	}
+}
+
+func TestBranchStartCommand_HasDryRunFlag(t *testing.T) {
+	if newBranchStartCommand().Flags().Lookup("dry-run") == nil {
+		t.Fatal("Expected branch start to define --dry-run")
 	}
 }
 
