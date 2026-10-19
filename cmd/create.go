@@ -41,6 +41,7 @@ type createOptions struct {
 	milestone string
 	repo      string
 	fromFile  string
+	dryRun    bool
 
 	// parsedFile carries the file parsed during pre-flight validation so the
 	// execution path does not re-read it (single parse). Nil when the execution
@@ -86,6 +87,7 @@ any specified field values (status, priority) are set.`,
 	cmd.Flags().StringVarP(&opts.milestone, "milestone", "m", "", "Set milestone (title or number)")
 	cmd.Flags().StringVarP(&opts.repo, "repo", "R", "", "Target repository (owner/repo format)")
 	cmd.Flags().StringVarP(&opts.fromFile, "from-file", "f", "", "Create issue from YAML/JSON file")
+	cmd.Flags().BoolVar(&opts.dryRun, "dry-run", false, "Resolve the repository, project and fields and print what would be created, without creating anything")
 
 	return cmd
 }
@@ -310,6 +312,15 @@ func runCreateWithDeps(cmd *cobra.Command, opts *createOptions, cfg *config.Conf
 		return err
 	}
 
+	if opts.dryRun {
+		printCreateDryRun(cmd, cfg, targets, createPreview{
+			repo: owner + "/" + repo, title: title, bodySource: createBodySource(opts),
+			labels: labels, assignees: opts.assignees, milestone: opts.milestone,
+			status: opts.status, priority: opts.priority,
+		})
+		return nil
+	}
+
 	// Create the issue with extended options
 	issue, err := client.CreateIssueWithOptions(owner, repo, title, body, labels, opts.assignees, opts.milestone)
 	if err != nil {
@@ -336,6 +347,73 @@ func finishCreate(client createClient, cfg *config.Config, targets *createTarget
 		return createPartialSuccess(issue, failedSteps, firstErr)
 	}
 	return nil
+}
+
+// createPreview is what create would write, for --dry-run.
+type createPreview struct {
+	repo, title, bodySource, milestone, status, priority string
+	labels, assignees                                    []string
+}
+
+// printCreateDryRun reports the resolved repository, project, fields and body
+// source without creating anything (#929). Status and priority fall back to
+// the config defaults exactly as a real create would apply them.
+func printCreateDryRun(cmd *cobra.Command, cfg *config.Config, targets *createTargets, p createPreview) {
+	w := cmd.OutOrStdout()
+	orNone := func(values []string) string {
+		if len(values) == 0 {
+			return "(none)"
+		}
+		return strings.Join(values, ", ")
+	}
+	fieldValue := func(field, value, defaultValue string) string {
+		switch {
+		case value != "":
+			return cfg.ResolveFieldValue(field, value)
+		case defaultValue != "":
+			return cfg.ResolveFieldValue(field, defaultValue) + " (config default)"
+		default:
+			return "(none)"
+		}
+	}
+	branch := "(none)"
+	if targets.branchValue != "" {
+		branch = fmt.Sprintf("%s (%s field)", targets.branchValue, targets.branchFieldName)
+	}
+	milestone := p.milestone
+	if milestone == "" {
+		milestone = "(none)"
+	}
+
+	fmt.Fprintln(w, "Dry run: no issue will be created.")
+	fmt.Fprintf(w, "  Repository: %s\n", p.repo)
+	fmt.Fprintf(w, "  Project:    %s (%s #%d)\n", targets.project.Title, cfg.Project.Owner, cfg.Project.Number)
+	fmt.Fprintf(w, "  Title:      %s\n", p.title)
+	fmt.Fprintf(w, "  Body:       %s\n", p.bodySource)
+	fmt.Fprintf(w, "  Labels:     %s\n", orNone(p.labels))
+	fmt.Fprintf(w, "  Assignees:  %s\n", orNone(p.assignees))
+	fmt.Fprintf(w, "  Milestone:  %s\n", milestone)
+	fmt.Fprintf(w, "  Status:     %s\n", fieldValue("status", p.status, cfg.Defaults.Status))
+	fmt.Fprintf(w, "  Priority:   %s\n", fieldValue("priority", p.priority, cfg.Defaults.Priority))
+	fmt.Fprintf(w, "  Branch:     %s\n", branch)
+}
+
+// createBodySource names where create takes the issue body from.
+func createBodySource(opts *createOptions) string {
+	switch {
+	case opts.fromFile != "" && opts.body == "":
+		return "--from-file " + opts.fromFile
+	case opts.bodyStdin, opts.bodyFile == "-":
+		return "standard input"
+	case opts.bodyFile != "":
+		return "--body-file " + opts.bodyFile
+	case opts.template != "":
+		return "--template " + opts.template
+	case opts.body != "":
+		return "--body"
+	default:
+		return "(empty)"
+	}
 }
 
 func printCreatedIssue(issue *api.Issue) {
@@ -417,6 +495,15 @@ func runCreateFromFileWithDeps(cmd *cobra.Command, opts *createOptions, cfg *con
 	targets, err := resolveCreateTargets(client, cfg, owner, repo, opts.release)
 	if err != nil {
 		return err
+	}
+
+	if opts.dryRun {
+		printCreateDryRun(cmd, cfg, targets, createPreview{
+			repo: owner + "/" + repo, title: title, bodySource: createBodySource(opts),
+			labels: labels, assignees: assignees, milestone: milestone,
+			status: status, priority: priority,
+		})
+		return nil
 	}
 
 	// Create the issue

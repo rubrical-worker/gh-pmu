@@ -1859,6 +1859,68 @@ func TestRunCreate_PostCreateFailureIsPartialSuccess(t *testing.T) {
 	}
 }
 
+// #929: --dry-run resolves everything create would use and prints it, on both
+// creation paths, without creating the issue or writing any field.
+func TestRunCreate_DryRunWritesNothing(t *testing.T) {
+	dir := t.TempDir()
+	issueFile := filepath.Join(dir, "issue.yml")
+	if err := os.WriteFile(issueFile, []byte("title: From File\nbody: body\nlabels: [bug]\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	bodyFile := filepath.Join(dir, "body.md")
+	if err := os.WriteFile(bodyFile, []byte("Body from file"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	tests := map[string]struct {
+		opts *createOptions
+		want []string
+	}{
+		"flag path": {
+			opts: &createOptions{title: "Dry Issue", bodyFile: bodyFile, status: "todo", priority: "p1", release: "current", labels: []string{"enhancement"}, dryRun: true},
+			want: []string{"Dry run", "owner/repo", "Test Project", "Dry Issue", "--body-file " + bodyFile, "Todo", "P1", "v2.0.0", "enhancement"},
+		},
+		"from-file path": {
+			opts: &createOptions{fromFile: issueFile, dryRun: true},
+			want: []string{"Dry run", "owner/repo", "Test Project", "From File", "--from-file " + issueFile, "bug"},
+		},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			mock := newMockCreateClient()
+			mock.issuesByLabel = []api.Issue{{Number: 9, Title: "Branch: release/v2.0.0", Labels: []api.Label{{Name: "branch"}, {Name: "active"}}}}
+			cfg := &config.Config{
+				Project: config.Project{Owner: "test-org", Number: 1},
+				Fields: map[string]config.Field{
+					"status":   {Field: "Status", Values: map[string]string{"todo": "Todo"}},
+					"priority": {Field: "Priority", Values: map[string]string{"p1": "P1"}},
+				},
+			}
+			cmd := newCreateCommand()
+			buf := new(bytes.Buffer)
+			cmd.SetOut(buf)
+
+			if err := runCreateWithDeps(cmd, tt.opts, cfg, mock, "owner", "repo"); err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if mock.createCalls != 0 || len(mock.setFieldCalls) != 0 {
+				t.Errorf("dry run wrote: %d create call(s), %d field write(s)", mock.createCalls, len(mock.setFieldCalls))
+			}
+			for _, w := range tt.want {
+				if !strings.Contains(buf.String(), w) {
+					t.Errorf("expected %q in dry-run output, got:\n%s", w, buf.String())
+				}
+			}
+		})
+	}
+}
+
+func TestCreateCommand_HasDryRunFlag(t *testing.T) {
+	if newCreateCommand().Flags().Lookup("dry-run") == nil {
+		t.Fatal("Expected create to define --dry-run")
+	}
+}
+
 // #929: total failure — nothing was created — stays a plain error (exit 1).
 func TestRunCreateWithDeps_CreateFailureIsNotPartialSuccess(t *testing.T) {
 	mock := newMockCreateClient()
