@@ -3,6 +3,7 @@ package api
 import (
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 )
@@ -31,6 +32,41 @@ func TestIsNotFound_WithOtherError(t *testing.T) {
 func TestIsNotFound_WithNil(t *testing.T) {
 	if IsNotFound(nil) {
 		t.Error("Expected IsNotFound to return false for nil")
+	}
+}
+
+func TestPartialSuccessError_NamesResourceURLAndSteps(t *testing.T) {
+	err := &PartialSuccessError{
+		Resource: "issue #42",
+		URL:      "https://github.com/o/r/issues/42",
+		Steps:    []string{"set status", "set priority"},
+		Err:      errors.New("field update failed"),
+	}
+	msg := err.Error()
+	for _, want := range []string{"issue #42", "https://github.com/o/r/issues/42", "set status", "set priority", "field update failed"} {
+		if !strings.Contains(msg, want) {
+			t.Errorf("Expected %q in error message, got: %s", want, msg)
+		}
+	}
+}
+
+func TestPartialSuccessError_DetectableThroughWrapping(t *testing.T) {
+	inner := errors.New("add failed")
+	err := fmt.Errorf("create: %w", &PartialSuccessError{Resource: "issue #1", Steps: []string{"add to project"}, Err: inner})
+	if !IsPartialSuccess(err) {
+		t.Error("Expected IsPartialSuccess to see a wrapped PartialSuccessError")
+	}
+	if !errors.Is(err, inner) {
+		t.Error("Expected PartialSuccessError to unwrap to its cause")
+	}
+	if IsPartialSuccess(inner) || IsPartialSuccess(nil) {
+		t.Error("Expected IsPartialSuccess false for a plain error and for nil")
+	}
+}
+
+func TestExitCodePartialSuccess_IsSix(t *testing.T) {
+	if ExitCodePartialSuccess != 6 {
+		t.Errorf("ExitCodePartialSuccess = %d, want 6 (#914 tranche A numbering)", ExitCodePartialSuccess)
 	}
 }
 
