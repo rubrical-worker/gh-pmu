@@ -32,11 +32,20 @@ concurrency:
 
 jobs:
   # Test and Lint run in parallel
+  # Unit tests on every supported OS (#930). Offline only: -short, no build
+  # tags, so no integration/e2e test (live GitHub API, #876) is compiled in.
+  # fail-fast is off so one OS failing still reports the others.
   test:
-    runs-on: ubuntu-latest
+    name: test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
     strategy:
+      fail-fast: false
       matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
         go-version: ['1.23']
+    defaults:
+      run:
+        shell: bash
 
     steps:
       - uses: actions/checkout@v4
@@ -52,22 +61,31 @@ jobs:
       - name: Download dependencies
         run: go mod download
 
+      # -race needs cgo and a C toolchain, which the Windows runner is not
+      # guaranteed to have, so Windows runs without it. Coverage is collected
+      # on Linux only: the floor is one number, computed once.
       - name: Run tests
-        run: go test -v -short -race -coverprofile=coverage.out -covermode=atomic ./...
+        run: |
+          flags="-v -short"
+          if [ "$RUNNER_OS" != "Windows" ]; then flags="$flags -race"; fi
+          if [ "$RUNNER_OS" = "Linux" ]; then flags="$flags -coverprofile=coverage.out -covermode=atomic"; fi
+          go test $flags ./...
 
       - name: Verify config not corrupted by tests
         run: node .claude/scripts/open-release/verify-config.js
 
       - name: Upload coverage reports to Codecov
-        if: matrix.go-version == '1.23'
+        if: runner.os == 'Linux'
         uses: codecov/codecov-action@v5
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
 
       - name: Generate coverage report
+        if: runner.os == 'Linux'
         run: go tool cover -func=coverage.out
 
       - name: Check coverage threshold
+        if: runner.os == 'Linux'
         run: |
           COVERAGE=$(go tool cover -func=coverage.out | grep total | awk '{print substr($3, 1, length($3)-1)}')
           echo "Total coverage: ${COVERAGE}%"
@@ -122,9 +140,13 @@ jobs:
     needs: [test, lint]
     runs-on: ${{ matrix.os }}
     strategy:
+      fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        os: [ubuntu-latest, macos-latest, windows-latest]
         go-version: ['1.23']
+    defaults:
+      run:
+        shell: bash
 
     steps:
       - uses: actions/checkout@v4
@@ -141,11 +163,14 @@ jobs:
       - name: Build
         run: go build -v ./...
 
+      # GOEXE is ".exe" on Windows and empty elsewhere.
       - name: Build binary
-        run: go build -o gh-pmu .
+        run: go build -o "gh-pmu$(go env GOEXE)" .
 
+      # Must fail the job when the binary cannot start (#930). --version
+      # needs no config, terms acceptance or network.
       - name: Verify binary
-        run: ./gh-pmu --version || true
+        run: ./gh-pmu$(go env GOEXE) --version
 
   # Release waits for Build to pass (only on tags)
   release:
