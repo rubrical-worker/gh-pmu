@@ -326,6 +326,60 @@ func TestArgumentError_NoExampleShowsUseLineOnly(t *testing.T) {
 	}
 }
 
+// TestSubcommandExamples: the most-used commands carry an Example field, so
+// --help shows an Examples section and an argument error can show one (#928).
+func TestSubcommandExamples(t *testing.T) {
+	tests := []struct {
+		path []string
+		want []string // substrings the Example must contain
+	}{
+		{[]string{"create"}, []string{"gh pmu create --title", "-F "}},
+		{[]string{"view"}, []string{"gh pmu view 42 --json="}},
+		{[]string{"list"}, []string{"gh pmu list"}},
+		{[]string{"accept"}, []string{"gh pmu accept --yes"}},
+		{[]string{"branch", "current"}, []string{"gh pmu branch current"}},
+	}
+	for _, tt := range tests {
+		name := strings.Join(tt.path, " ")
+		t.Run(name, func(t *testing.T) {
+			sub, _, err := NewRootCommand().Find(tt.path)
+			if err != nil {
+				t.Fatalf("%s command not found: %v", name, err)
+			}
+			if strings.TrimSpace(sub.Example) == "" {
+				t.Fatalf("Expected %s to define a non-empty Example field", name)
+			}
+			for _, w := range tt.want {
+				if !strings.Contains(sub.Example, w) {
+					t.Errorf("Expected %s Example to contain %q, got:\n%s", name, w, sub.Example)
+				}
+			}
+
+			out, _ := executeForErrorOutput(t, append(tt.path, "--help")...)
+			if !strings.Contains(out, "Examples:") {
+				t.Errorf("Expected %s --help to show an Examples section, got:\n%s", name, out)
+			}
+		})
+	}
+}
+
+// TestCreateExample_NonInteractiveUsesBodyFile: create's -F example sets every
+// field a non-interactive run needs, so it can be copied as-is (#928).
+func TestCreateExample_NonInteractiveUsesBodyFile(t *testing.T) {
+	createCmd, _, _ := NewRootCommand().Find([]string{"create"})
+	for _, line := range strings.Split(createCmd.Example, "\n") {
+		if strings.Contains(line, "gh pmu create") && strings.Contains(line, "-F ") {
+			for _, flag := range []string{"--title", "--status", "--priority"} {
+				if !strings.Contains(line, flag) {
+					t.Errorf("Expected the -F example to set %s, got: %s", flag, line)
+				}
+			}
+			return
+		}
+	}
+	t.Fatalf("Expected a create example using -F, got:\n%s", createCmd.Example)
+}
+
 // TestRootCommandUsageLinePrefix verifies that `gh pmu --help` renders
 // `Usage: gh pmu [command]`.
 func TestRootCommandUsageLinePrefix(t *testing.T) {

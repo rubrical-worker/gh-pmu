@@ -111,6 +111,17 @@ JSON output (--json) returns an array for multiple issues, a single object for o
 Also shows sub-issues if any exist, and parent issue if this is a sub-issue.
 
 Note: --body-file and --body-stdout are only supported for single issues.`,
+		Example: `  # View an issue with its project fields
+  gh pmu view 42
+
+  # Select JSON fields and extract one with jq
+  gh pmu view 42 --json=status --jq='.status'
+
+  # Several issues at once (JSON array)
+  gh pmu view 42 43 --json=number,title,status
+
+  # Write the raw body to stdout for editing
+  gh pmu view 42 --body-stdout > body.md`,
 		Args: func(cmd *cobra.Command, args []string) error {
 			// --json-fields doesn't require an issue number
 			if listFields, _ := cmd.Flags().GetBool("json-fields"); listFields {

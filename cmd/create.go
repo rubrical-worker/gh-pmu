@@ -58,6 +58,14 @@ func newCreateCommand() *cobra.Command {
 
 The issue is automatically added to the configured project and
 any specified field values (status, priority) are set.`,
+		Example: `  # Create non-interactively with the body read from a file
+  gh pmu create --title "Fix login redirect" --label bug --status backlog --priority p1 -F body.md
+
+  # Create on the active branch (ready/in_progress statuses require --branch)
+  gh pmu create --title "Add retry" --status ready --priority p2 --branch current -F body.md
+
+  # Read the body from standard input
+  cat body.md | gh pmu create --title "Update docs" --status backlog -F -`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runCreate(cmd, opts)
 		},

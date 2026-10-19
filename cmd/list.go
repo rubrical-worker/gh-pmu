@@ -62,6 +62,17 @@ func newListCommand() *cobra.Command {
 
 By default, displays Title, Status, Priority, and Assignees for each issue.
 Use filters to narrow down the results.`,
+		Example: `  # Issues in a status, highest priority only
+  gh pmu list --status ready --priority p1
+
+  # Issues on the active branch
+  gh pmu list --branch current
+
+  # JSON with selected fields, filtered with jq
+  gh pmu list --status backlog --json=number,title --jq='.items[].number'
+
+  # Show which fields --json accepts
+  gh pmu list --json-fields`,
 		Aliases: []string{"ls"},
 		Args:    cobra.NoArgs,
 		PreRunE: func(cmd *cobra.Command, args []string) error {

@@ -327,6 +327,14 @@ func newBranchCurrentCommand() *cobra.Command {
 		Use:   "current",
 		Short: "Show the active branch",
 		Long:  `Displays details about the currently active branch.`,
+		Example: `  # Show the active branch, its tracker and issue count
+  gh pmu branch current
+
+  # Tracker issue number only
+  gh pmu branch current --json=tracker
+
+  # Branch name and its issues as JSON
+  gh pmu branch current --json=name,issues`,
 		PreRunE: func(cmd *cobra.Command, args []string) error {
 			return validateBranchCurrentJSONFlag(cmd, opts)
 		},
