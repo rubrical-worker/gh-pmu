@@ -149,6 +149,47 @@ func TestSubCreateCommand_RequiresTitleFlag(t *testing.T) {
 	}
 }
 
+// TestSubCreate_DryRunWritesNothing: --dry-run resolves the parent and prints
+// the plan without sending CreateIssue or AddSubIssue (#929). Offline: the
+// scenario harness redirects every request to a local mock server.
+func TestSubCreate_DryRunWritesNothing(t *testing.T) {
+	handler := newMockGraphQLHandler()
+	handler.respondTo("GetIssue", gqlData(map[string]interface{}{
+		"repository": map[string]interface{}{
+			"issue": map[string]interface{}{
+				"id": "parent-node", "number": 10, "title": "Parent epic", "state": "OPEN",
+				"url":       "https://github.com/test-org/test-repo/issues/10",
+				"author":    map[string]interface{}{"login": "someone"},
+				"assignees": map[string]interface{}{"nodes": []interface{}{}},
+				"labels":    map[string]interface{}{"nodes": []interface{}{}},
+				"milestone": map[string]interface{}{"title": ""},
+			},
+		},
+	}))
+	_, cleanup := setupTestEnvironment(t, handler)
+	defer cleanup()
+
+	cmd := newSubCreateCommand()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetErr(buf)
+	cmd.SetArgs([]string{"--parent", "10", "--title", "Dry child", "--label", "task", "--dry-run"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("sub create --dry-run: unexpected error: %v\n%s", err, buf.String())
+	}
+
+	for _, op := range []string{"CreateIssue", "AddSubIssue"} {
+		if n := len(handler.requestsFor(op)); n != 0 {
+			t.Errorf("dry run sent %d %s mutation(s); ops: %v", n, op, handler.operationNames())
+		}
+	}
+	for _, want := range []string{"Dry run", "test-org/test-repo", "Parent epic", "Dry child", "task"} {
+		if !strings.Contains(buf.String(), want) {
+			t.Errorf("expected %q in dry-run output, got:\n%s", want, buf.String())
+		}
+	}
+}
+
 func TestSubListCommand_Exists(t *testing.T) {
 	cmd := NewRootCommand()
 	cmd.SetArgs([]string{"sub", "list", "--help"})

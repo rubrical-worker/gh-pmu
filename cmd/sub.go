@@ -207,6 +207,7 @@ type subCreateOptions struct {
 	inheritLabels    bool
 	inheritAssign    bool
 	inheritMilestone bool
+	dryRun           bool
 }
 
 func newSubCreateCommand() *cobra.Command {
@@ -249,11 +250,64 @@ Examples:
 	cmd.Flags().BoolVar(&opts.inheritLabels, "inherit-labels", false, "Inherit labels from parent (same repo only)")
 	cmd.Flags().BoolVar(&opts.inheritAssign, "inherit-assignees", false, "Inherit assignees from parent (same repo only)")
 	cmd.Flags().BoolVar(&opts.inheritMilestone, "inherit-milestone", true, "Inherit milestone from parent (same repo only)")
+	cmd.Flags().BoolVar(&opts.dryRun, "dry-run", false, "Resolve the parent, labels, assignees and milestone and print what would be created, without creating anything")
 
 	_ = cmd.MarkFlagRequired("parent")
 	_ = cmd.MarkFlagRequired("title")
 
 	return cmd
+}
+
+// subCreatePreview is what sub create would write, for --dry-run.
+type subCreatePreview struct {
+	target, parent, parentTitle, milestone string
+	labels, assignees                      []string
+}
+
+// printSubCreateDryRun reports the resolved parent, target repository, labels,
+// assignees, milestone and project without creating or linking anything (#929).
+// A --project that fails to resolve is an error here, unlike the real run's
+// warning: a dry run exists to surface exactly that before anything is written.
+func printSubCreateDryRun(cmd *cobra.Command, client *api.Client, cfg *config.Config, opts *subCreateOptions, p subCreatePreview) error {
+	project := "(none)"
+	if opts.project > 0 {
+		proj, err := client.GetProject(cfg.Project.Owner, opts.project)
+		if err != nil {
+			return fmt.Errorf("failed to find project %d: %w", opts.project, err)
+		}
+		project = fmt.Sprintf("%s (%s #%d)", proj.Title, cfg.Project.Owner, opts.project)
+	}
+	orNone := func(values []string) string {
+		if len(values) == 0 {
+			return "(none)"
+		}
+		return strings.Join(values, ", ")
+	}
+	body := "(empty)"
+	switch {
+	case opts.bodyFile == "-":
+		body = "standard input"
+	case opts.bodyFile != "":
+		body = "--body-file " + opts.bodyFile
+	case opts.body != "":
+		body = "--body"
+	}
+	milestone := p.milestone
+	if milestone == "" {
+		milestone = "(none)"
+	}
+
+	w := cmd.OutOrStdout()
+	fmt.Fprintln(w, "Dry run: no issue will be created or linked.")
+	fmt.Fprintf(w, "  Repository: %s\n", p.target)
+	fmt.Fprintf(w, "  Parent:     %s: %s\n", p.parent, p.parentTitle)
+	fmt.Fprintf(w, "  Title:      %s\n", opts.title)
+	fmt.Fprintf(w, "  Body:       %s\n", body)
+	fmt.Fprintf(w, "  Labels:     %s\n", orNone(p.labels))
+	fmt.Fprintf(w, "  Assignees:  %s\n", orNone(p.assignees))
+	fmt.Fprintf(w, "  Milestone:  %s\n", milestone)
+	fmt.Fprintf(w, "  Project:    %s\n", project)
+	return nil
 }
 
 func runSubCreate(cmd *cobra.Command, opts *subCreateOptions) error {
@@ -365,6 +419,14 @@ func runSubCreate(cmd *cobra.Command, opts *subCreateOptions) error {
 	assignees, resolveErr := client.ResolveAssignees(assignees)
 	if resolveErr != nil {
 		return resolveErr
+	}
+
+	if opts.dryRun {
+		return printSubCreateDryRun(cmd, client, cfg, opts, subCreatePreview{
+			target: targetOwner + "/" + targetRepo,
+			parent: fmt.Sprintf("%s/%s#%d", parentOwner, parentRepo, parentNumber),
+			parentTitle: parentIssue.Title, labels: labels, assignees: assignees, milestone: milestone,
+		})
 	}
 
 	// Create the new issue in target repository with extended options
