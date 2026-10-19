@@ -1,6 +1,6 @@
 # Architecture: gh-pmu
 
-**Last Updated:** 2026-09-14
+**Last Updated:** 2026-10-19
 
 ---
 
@@ -24,8 +24,8 @@ gh-pmu is a GitHub CLI extension built as a single Go binary. It extends `gh` wi
 │  ┌───────────────────────────────────────────┐  │
 │  │              gh-pmu Extension              │  │
 │  │  ┌─────────┐  ┌─────────┐  ┌──────────┐  │  │
-│  │  │   cmd   │  │ internal │  │ templates│  │  │
-│  │  │(Cobra)  │  │  /api    │  │  (YAML)  │  │  │
+│  │  │   cmd   │  │ internal │  │ defaults │  │  │
+│  │  │(Cobra)  │  │  /api    │  │(embedded)│  │  │
 │  │  └────┬────┘  └────┬────┘  └──────────┘  │  │
 │  │       │            │                      │  │
 │  │       └────────────┼──────────────────────│  │
@@ -110,7 +110,7 @@ User Input → Cobra Parsing → Config Load → API Call → Format Output
 | Scalability | Single-user CLI, no scaling concerns |
 | Security | Delegated to `gh` auth, no credential storage |
 | Performance | < 500ms startup, batched API calls |
-| Observability | Error messages to stderr, `--verbose` flag |
+| Observability | Error messages to stderr; fail-loud partial-failure exit codes |
 
 ---
 

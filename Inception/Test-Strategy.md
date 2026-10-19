@@ -20,6 +20,7 @@ Multi-layer testing with emphasis on table-driven unit tests against mocked API 
 | e2e | go test (subprocess invocation) (`go-subprocess-e2e`) | `go test -tags e2e ./test/e2e/ -v` | manual-only — live GitHub API, requires `gh` auth; run locally before release |
 | integration | go test -tags=integration (`go-test-integration`) | `go test -tags=integration ./...` | manual-only — live GitHub API calls; never run from CI or `/work` (#876) |
 | compile-check | go vet (`go-vet`) | `go vet -tags "integration e2e" ./...` | gate |
+| compile-check | golangci-lint (`golangci-lint`) | `golangci-lint run --timeout=5m ./...` | gate |
 
 ---
 

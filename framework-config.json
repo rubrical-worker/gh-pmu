@@ -71,6 +71,18 @@
         "scoped": {
           "mode": "package"
         }
+      },
+      {
+        "id": "golangci-lint",
+        "role": "compile-check",
+        "kind": "script",
+        "match": [
+          "**/*.go"
+        ],
+        "full": "golangci-lint run --timeout=5m ./...",
+        "scoped": {
+          "mode": "package"
+        }
       }
     ]
   }

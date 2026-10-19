@@ -1,13 +1,13 @@
 # Milestones: gh-pmu
 
-**Last Updated:** 2026-07-23
+**Last Updated:** 2026-10-19
 
 ---
 
 ## Current Focus
 
-**Version:** v1.5.x
-**Status:** Active — stabilize the correctness and error-surfacing work shipped in v1.5.0
+**Version:** v1.6.x
+**Status:** Active — stabilize v1.6.0: batched intake, Status field reconcile, persistent 1.x terms acceptance
 
 ---
 
@@ -15,6 +15,10 @@
 
 | Version | Date | Key Deliverables |
 |---------|------|------------------|
+| v1.6.0 | 2026-09-14 | Batched intake via repository-scoped search (12.2s → 1.2s); `status --update` reconciles required Status values; `intake --list` explicit mode; terms acceptance valid across 1.x |
+| v1.5.3 | 2026-08-25 | Config `version` refreshed when stale; `Config.Save` preserves unmodeled keys; CommonMark-correct checkbox counting; `MigrateYAML` removed |
+| v1.5.2 | 2026-08-19 | `config verify --resolve-view`; unused `release` config section removed |
+| v1.5.1 | 2026-07-28 | `--assignee @me` resolves on every command; an unresolvable assignee fails before creating the issue |
 | v1.5.0 | 2026-07-23 | Correctness and error-surfacing overhaul; pagination for user-facing fetches; fail-loud partial-failure exit codes; test-quality overhaul with offline GraphQL schema validation |
 | v1.4.10 | 2026-05-14 | Cached-metadata fallback for the ProjectV2 fields resolver during the upstream HTTP 500 rollout |
 | v1.4.9 | 2026-05-05 | Atomic `init` with rollback; transparent retry on transient 5xx |

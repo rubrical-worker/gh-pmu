@@ -1,6 +1,6 @@
 # Constraints: gh-pmu
 
-**Last Updated:** 2026-03-27
+**Last Updated:** 2026-10-19
 
 ---
 
@@ -27,7 +27,7 @@
 
 | Requirement | Specification |
 |-------------|---------------|
-| OS support | Windows, macOS, Linux |
+| OS support | Windows, macOS, Linux (amd64, arm64 release binaries); CI builds and tests natively on Linux and macOS only — Windows is cross-compiled by GoReleaser, not in the CI build matrix |
 | gh CLI version | v2.0+ |
 | GitHub | Projects v2 (not classic) |
 
