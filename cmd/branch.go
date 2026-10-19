@@ -175,7 +175,7 @@ type branchRemoveOptions struct {
 // branchCurrentOptions holds the options for the branch current command
 type branchCurrentOptions struct {
 	jsonFlag string // empty=text output, "*"=full JSON, "field,field"=selected fields
-	jsonSet  bool   // whether --json flag was provided (even without value)
+	jsonSet  bool   // whether --json was given a field list
 }
 
 // branchCloseOptions holds the options for the branch close command
@@ -327,7 +327,14 @@ func newBranchCurrentCommand() *cobra.Command {
 		Use:   "current",
 		Short: "Show the active branch",
 		Long:  `Displays details about the currently active branch.`,
+		PreRunE: func(cmd *cobra.Command, args []string) error {
+			return validateBranchCurrentJSONFlag(cmd, opts)
+		},
 		RunE: func(cmd *cobra.Command, args []string) error {
+			// --json-fields needs no config or API access
+			if listFields, _ := cmd.Flags().GetBool("json-fields"); listFields {
+				return listAvailableFields(cmd, branchCurrentJSONFields)
+			}
 			cwd, err := os.Getwd()
 			if err != nil {
 				return fmt.Errorf("failed to get current directory: %w", err)
@@ -340,20 +347,47 @@ func newBranchCurrentCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			// Detect if --json was explicitly provided (even without a value)
-			if cmd.Flags().Changed("json") {
-				opts.jsonSet = true
-				if opts.jsonFlag == "" {
-					opts.jsonFlag = "*"
-				}
-			}
+			opts.jsonSet = opts.jsonFlag != ""
 			return runBranchCurrentWithDeps(cmd, opts, cfg, client)
 		},
 	}
 
-	cmd.Flags().StringVar(&opts.jsonFlag, "json", "", "Output as JSON. Optional field selection: --json=tracker,issues")
+	cmd.Flags().StringVar(&opts.jsonFlag, "json", "", "Output JSON with specified fields (comma-separated, e.g. tracker,issues). Use --json-fields to list available fields")
+	cmd.Flags().Bool("json-fields", false, "List available JSON fields")
 
 	return cmd
+}
+
+// branchCurrentJSONFields lists the fields `branch current --json` accepts
+var branchCurrentJSONFields = []string{"issues", "name", "tracker"}
+
+// validateBranchCurrentJSONFlag checks --json before any config load or API
+// call: the value is required and every field must be known, so a typo exits
+// non-zero rather than being silently dropped from the output (#926).
+func validateBranchCurrentJSONFlag(cmd *cobra.Command, opts *branchCurrentOptions) error {
+	if err := requireJSONValue(cmd); err != nil {
+		return err
+	}
+	if opts.jsonFlag == "" {
+		return nil
+	}
+	for _, f := range strings.Split(opts.jsonFlag, ",") {
+		field := strings.TrimSpace(f)
+		if field == "" {
+			continue
+		}
+		known := false
+		for _, available := range branchCurrentJSONFields {
+			if field == available {
+				known = true
+				break
+			}
+		}
+		if !known {
+			return fmt.Errorf("unknown field %q in --json=%s. Run 'gh pmu branch current --json-fields' to see available fields", field, opts.jsonFlag)
+		}
+	}
+	return nil
 }
 
 // newBranchCloseCommand creates the release close subcommand

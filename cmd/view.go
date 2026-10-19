@@ -121,6 +121,9 @@ Note: --body-file and --body-stdout are only supported for single issues.`,
 			}
 			return nil
 		},
+		PreRunE: func(cmd *cobra.Command, args []string) error {
+			return requireJSONValue(cmd)
+		},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runView(cmd, args, opts)
 		},
@@ -989,6 +992,17 @@ func listAvailableFields(cmd *cobra.Command, fields []string) error {
 		fmt.Fprintf(cmd.OutOrStdout(), "  %s\n", field)
 	}
 	return nil
+}
+
+// requireJSONValue rejects an explicitly empty --json=. list, view and branch
+// current all take a required field list (#926); an empty one would otherwise
+// fall through to text output and exit 0, the silent-ignore this guards.
+func requireJSONValue(cmd *cobra.Command) error {
+	flag := cmd.Flags().Lookup("json")
+	if flag == nil || !flag.Changed || strings.TrimSpace(flag.Value.String()) != "" {
+		return nil
+	}
+	return fmt.Errorf("--json requires a comma-separated field list; run '%s --json-fields' to list available fields", cmd.CommandPath())
 }
 
 // parseJSONFields parses comma-separated field names and returns a slice

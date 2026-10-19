@@ -329,6 +329,38 @@ func TestViewCommand_HasJSONFlag(t *testing.T) {
 	}
 }
 
+func TestViewCommand_JSONSpaceFormMatchesEqualsForm(t *testing.T) {
+	spaced := newViewCommand()
+	if err := parseJSONFlagCommand(t, spaced, []string{"42", "--json", "status,title"}); err != nil {
+		t.Fatalf("--json status,title: unexpected error: %v", err)
+	}
+	equals := newViewCommand()
+	if err := parseJSONFlagCommand(t, equals, []string{"42", "--json=status,title"}); err != nil {
+		t.Fatalf("--json=status,title: unexpected error: %v", err)
+	}
+	a, _ := spaced.Flags().GetString("json")
+	b, _ := equals.Flags().GetString("json")
+	if a != b || a != "status,title" {
+		t.Errorf("space form parsed %q, equals form parsed %q; want both \"status,title\"", a, b)
+	}
+	if got := spaced.Flags().Args(); len(got) != 1 || got[0] != "42" {
+		t.Errorf("space form positional args = %v, want [42]: the field list must not leak into issue numbers", got)
+	}
+}
+
+func TestViewCommand_JSONValueIsRequired(t *testing.T) {
+	if err := newViewCommand().ParseFlags([]string{"42", "--json"}); err == nil {
+		t.Error("Expected bare --json to be rejected; use --json-fields to list fields")
+	}
+	err := parseJSONFlagCommand(t, newViewCommand(), []string{"42", "--json="})
+	if err == nil {
+		t.Fatal("Expected --json= with no fields to be rejected rather than silently printing text")
+	}
+	if !strings.Contains(err.Error(), "--json-fields") {
+		t.Errorf("Expected error to point at --json-fields, got: %v", err)
+	}
+}
+
 func TestViewCommand_HasCommentsFlag(t *testing.T) {
 	cmd := NewRootCommand()
 	viewCmd, _, err := cmd.Find([]string{"view"})

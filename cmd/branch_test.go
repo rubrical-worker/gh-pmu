@@ -2246,6 +2246,61 @@ func TestBranchCurrentCommand_HasJsonFlag(t *testing.T) {
 	}
 }
 
+func TestBranchCurrentCommand_JSONSpaceFormMatchesEqualsForm(t *testing.T) {
+	spaced := newBranchCurrentCommand()
+	if err := parseJSONFlagCommand(t, spaced, []string{"--json", "tracker"}); err != nil {
+		t.Fatalf("--json tracker: unexpected error: %v", err)
+	}
+	equals := newBranchCurrentCommand()
+	if err := parseJSONFlagCommand(t, equals, []string{"--json=tracker"}); err != nil {
+		t.Fatalf("--json=tracker: unexpected error: %v", err)
+	}
+	a, _ := spaced.Flags().GetString("json")
+	b, _ := equals.Flags().GetString("json")
+	if a != b || a != "tracker" {
+		t.Errorf("space form parsed %q, equals form parsed %q; want both \"tracker\"", a, b)
+	}
+}
+
+func TestBranchCurrentCommand_JSONValueIsRequired(t *testing.T) {
+	if err := newBranchCurrentCommand().ParseFlags([]string{"--json"}); err == nil {
+		t.Error("Expected bare --json to be rejected; use --json-fields to list fields")
+	}
+	err := parseJSONFlagCommand(t, newBranchCurrentCommand(), []string{"--json="})
+	if err == nil {
+		t.Fatal("Expected --json= with no fields to be rejected")
+	}
+	if !strings.Contains(err.Error(), "--json-fields") {
+		t.Errorf("Expected error to point at --json-fields, got: %v", err)
+	}
+}
+
+func TestBranchCurrentCommand_JSONUnknownFieldRejected(t *testing.T) {
+	err := parseJSONFlagCommand(t, newBranchCurrentCommand(), []string{"--json", "status"})
+	if err == nil {
+		t.Fatal("Expected an unknown --json field to be rejected rather than silently dropped")
+	}
+	if !strings.Contains(err.Error(), "--json=status") {
+		t.Errorf("Expected error to name --json=status, got: %v", err)
+	}
+}
+
+func TestBranchCurrentCommand_JSONFieldsListsFields(t *testing.T) {
+	cmd := newBranchCurrentCommand()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetErr(buf)
+	cmd.SetArgs([]string{"--json-fields"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("branch current --json-fields: unexpected error: %v", err)
+	}
+	for _, field := range []string{"issues", "name", "tracker"} {
+		if !strings.Contains(buf.String(), field) {
+			t.Errorf("Expected --json-fields output to include %q, got:\n%s", field, buf.String())
+		}
+	}
+}
+
 func TestBranchAddCommand_Structure(t *testing.T) {
 	cmd := NewRootCommand()
 	addCmd, _, err := cmd.Find([]string{"branch", "add"})
