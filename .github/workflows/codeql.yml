@@ -25,9 +25,19 @@ concurrency:
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/') }}
 
 jobs:
+  # One analysis per target GOOS (#930): the extractor sees the file set each
+  # platform compiles. The build is explicit (build-mode: manual) so it is
+  # certain to run under the matrix GOOS; autobuild gives no such guarantee.
+  # Each GOOS uploads under its own category so results do not overwrite.
   analyze:
-    name: Analyze
+    name: Analyze (${{ matrix.goos }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        goos: [linux, darwin, windows]
+    env:
+      GOOS: ${{ matrix.goos }}
 
     steps:
       - name: Checkout repository
@@ -43,13 +53,14 @@ jobs:
         uses: github/codeql-action/init@v3
         with:
           languages: go
+          build-mode: manual
           # Use extended query suite for more thorough analysis
           queries: security-extended
 
-      - name: Autobuild
-        uses: github/codeql-action/autobuild@v3
+      - name: Build
+        run: go build ./...
 
       - name: Perform CodeQL Analysis
         uses: github/codeql-action/analyze@v3
         with:
-          category: "/language:go"
+          category: "/language:go/goos:${{ matrix.goos }}"
