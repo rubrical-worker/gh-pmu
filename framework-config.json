@@ -48,6 +48,29 @@
         ],
         "full": "go test -tags e2e ./test/e2e/ -v",
         "note": "Live GitHub API; requires gh auth. Run locally before release, never from CI or /work (#876)."
+      },
+      {
+        "id": "go-test-integration",
+        "role": "integration",
+        "kind": "framework",
+        "execution": "manual-only",
+        "full": "go test -tags=integration ./...",
+        "scoped": {
+          "mode": "package"
+        },
+        "note": "Live GitHub API calls; never run from CI or /work (#876)."
+      },
+      {
+        "id": "go-vet",
+        "role": "compile-check",
+        "kind": "script",
+        "match": [
+          "**/*.go"
+        ],
+        "full": "go vet -tags \"integration e2e\" ./...",
+        "scoped": {
+          "mode": "package"
+        }
       }
     ]
   }
