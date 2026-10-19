@@ -221,7 +221,9 @@ GitHub Actions workflows:
 
 | Workflow | Trigger | Purpose |
 |----------|---------|---------|
-| `ci.yml` | Push/PR/Tag | Test (`-short`), lint (incl. compile-check of `integration`/`e2e`-tagged tests), build, release |
+| `ci.yml` | Push/PR/Tag | Test (`-short`) on Linux, macOS and Windows (`-race` on Linux/macOS; coverage and its floor on Linux only), lint (incl. compile-check of `integration`/`e2e`-tagged tests), build and run `--version` on Linux, macOS and Windows, release |
+| `gosec.yml` | Push/PR to main, weekly | gosec security scan once per `GOOS` (linux, darwin, windows); SARIF uploaded per GOOS |
+| `codeql.yml` | Push/PR to main, weekly | CodeQL `security-extended` analysis once per `GOOS` (linux, darwin, windows); results categorized per GOOS |
 
 > **Live-API tests never run in CI.** The integration (`-tags integration`)
 > and e2e (`-tags e2e`) suites make real GitHub API calls and are run
