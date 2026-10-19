@@ -105,10 +105,10 @@ gh pmu list --has-sub-issues
 # Combine filters
 gh pmu list --status ready --priority p1
 
-# JSON output (list available fields)
-gh pmu list --json
+# List available JSON fields
+gh pmu list --json-fields
 
-# JSON output with specific fields (use = syntax)
+# JSON output with specific fields (--json takes a required field list)
 gh pmu list --json=number,title,state
 
 # JSON output with jq filtering
@@ -146,10 +146,10 @@ View issue with project fields and sub-issue progress.
 # View issue
 gh pmu view 42
 
-# JSON output (list available fields)
-gh pmu view 42 --json
+# List available JSON fields
+gh pmu view --json-fields
 
-# JSON output with specific fields (use = syntax)
+# JSON output with specific fields (--json takes a required field list)
 gh pmu view 42 --json=number,title,body,state
 
 # JSON output with jq filtering
@@ -766,6 +766,9 @@ gh pmu move 42 --branch current
 
 # View current branch
 gh pmu branch current
+
+# Current branch as JSON (fields: name, tracker, issues)
+gh pmu branch current --json=tracker
 
 # Close branch (closes tracker, optional tag)
 gh pmu branch close
