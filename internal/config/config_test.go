@@ -1191,6 +1191,18 @@ func TestLoadFromDirectoryAndNormalize_PreservesExistingFramework(t *testing.T) 
 // Temp File Handling Tests
 // ============================================================================
 
+// resolvedPath returns p with symlinks resolved. os.Getwd reports the resolved
+// path, so on macOS a t.TempDir() under /var comes back as /private/var; both
+// sides of a path comparison are resolved so the check holds on every OS (#930).
+func resolvedPath(t *testing.T, p string) string {
+	t.Helper()
+	resolved, err := filepath.EvalSymlinks(p)
+	if err != nil {
+		t.Fatalf("Failed to resolve %s: %v", p, err)
+	}
+	return resolved
+}
+
 func TestGetTempDir_CreatesTmpDirectory(t *testing.T) {
 	// ARRANGE: Create temp dir with config file and change to it
 	testDir := t.TempDir()
@@ -1218,7 +1230,7 @@ func TestGetTempDir_CreatesTmpDirectory(t *testing.T) {
 	}
 
 	expectedPath := filepath.Join(testDir, TempDirName)
-	if tempDir != expectedPath {
+	if resolvedPath(t, tempDir) != resolvedPath(t, expectedPath) {
 		t.Errorf("Expected temp dir '%s', got '%s'", expectedPath, tempDir)
 	}
 
@@ -1380,7 +1392,7 @@ func TestCreateTempFile_CreatesFileInTmpDir(t *testing.T) {
 
 	// ASSERT: File is in tmp directory
 	expectedDir := filepath.Join(testDir, TempDirName)
-	if filepath.Dir(file.Name()) != expectedDir {
+	if resolvedPath(t, filepath.Dir(file.Name())) != resolvedPath(t, expectedDir) {
 		t.Errorf("Expected file in '%s', got '%s'", expectedDir, filepath.Dir(file.Name()))
 	}
 
