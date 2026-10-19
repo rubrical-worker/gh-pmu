@@ -423,9 +423,12 @@ func runSubCreate(cmd *cobra.Command, opts *subCreateOptions) error {
 
 	if opts.dryRun {
 		return printSubCreateDryRun(cmd, client, cfg, opts, subCreatePreview{
-			target: targetOwner + "/" + targetRepo,
-			parent: fmt.Sprintf("%s/%s#%d", parentOwner, parentRepo, parentNumber),
-			parentTitle: parentIssue.Title, labels: labels, assignees: assignees, milestone: milestone,
+			target:      targetOwner + "/" + targetRepo,
+			parent:      fmt.Sprintf("%s/%s#%d", parentOwner, parentRepo, parentNumber),
+			parentTitle: parentIssue.Title,
+			labels:      labels,
+			assignees:   assignees,
+			milestone:   milestone,
 		})
 	}
 
