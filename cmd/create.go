@@ -316,18 +316,40 @@ func runCreateWithDeps(cmd *cobra.Command, opts *createOptions, cfg *config.Conf
 		return fmt.Errorf("failed to create issue: %w", err)
 	}
 
+	return finishCreate(client, cfg, targets, issue, opts.status, opts.priority)
+}
+
+// finishCreate adds the new issue to the project, writes its fields and reports
+// it. The issue already exists here, so any failure is a partial success that
+// names the issue and the failed steps, never a plain error a caller would
+// retry into a duplicate (#929).
+func finishCreate(client createClient, cfg *config.Config, targets *createTargets, issue *api.Issue, status, priority string) error {
 	itemID, err := client.AddIssueToProject(targets.project.ID, issue.ID)
 	if err != nil {
-		return fmt.Errorf("failed to add issue to project: %w", err)
+		printCreatedIssue(issue)
+		return createPartialSuccess(issue, []string{"add to project"}, fmt.Errorf("failed to add issue to project: %w", err))
 	}
 
-	setCreateFields(client, cfg, targets, itemID, opts.status, opts.priority)
+	failedSteps, firstErr := setCreateFields(client, cfg, targets, itemID, status, priority)
+	printCreatedIssue(issue)
+	if len(failedSteps) > 0 {
+		return createPartialSuccess(issue, failedSteps, firstErr)
+	}
+	return nil
+}
 
-	// Output the result
+func printCreatedIssue(issue *api.Issue) {
 	fmt.Printf("Created issue #%d: %s\n", issue.Number, issue.Title)
 	fmt.Printf("%s\n", issue.URL)
+}
 
-	return nil
+func createPartialSuccess(issue *api.Issue, steps []string, err error) error {
+	return &api.PartialSuccessError{
+		Resource: fmt.Sprintf("issue #%d", issue.Number),
+		URL:      issue.URL,
+		Steps:    steps,
+		Err:      err,
+	}
 }
 
 // runCreateFromFileWithDeps is the testable implementation of runCreateFromFile
@@ -403,18 +425,7 @@ func runCreateFromFileWithDeps(cmd *cobra.Command, opts *createOptions, cfg *con
 		return fmt.Errorf("failed to create issue: %w", err)
 	}
 
-	itemID, err := client.AddIssueToProject(targets.project.ID, issue.ID)
-	if err != nil {
-		return fmt.Errorf("failed to add issue to project: %w", err)
-	}
-
-	setCreateFields(client, cfg, targets, itemID, status, priority)
-
-	// Output the result
-	fmt.Printf("Created issue #%d: %s\n", issue.Number, issue.Title)
-	fmt.Printf("%s\n", issue.URL)
-
-	return nil
+	return finishCreate(client, cfg, targets, issue, status, priority)
 }
 
 // validateCreateOptions validates IDPF rules for issue creation
@@ -520,38 +531,42 @@ func resolveCreateTargets(client createClient, cfg *config.Config, owner, repo, 
 
 // setCreateFields writes status, priority (or their config defaults) and branch
 // onto the new project item. Field names come from cfg.Fields, falling back to
-// the capitalized defaults. Failures warn and continue, so one bad field does
-// not block the rest.
-func setCreateFields(client createClient, cfg *config.Config, targets *createTargets, itemID, status, priority string) {
+// the capitalized defaults. Every write is attempted even after one fails, so a
+// single bad field does not leave the others unset; the failed steps and the
+// first error are returned for the partial-success report.
+func setCreateFields(client createClient, cfg *config.Config, targets *createTargets, itemID, status, priority string) ([]string, error) {
 	projectID := targets.project.ID
+	var failedSteps []string
+	var firstErr error
+	set := func(step, fieldName, value string) {
+		if err := client.SetProjectItemField(projectID, itemID, fieldName, value); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to %s: %v\n", step, err)
+			failedSteps = append(failedSteps, step)
+			if firstErr == nil {
+				firstErr = fmt.Errorf("failed to %s: %w", step, err)
+			}
+		}
+	}
+
 	statusFieldName := cfg.GetFieldNameOr("status", "Status")
 	priorityFieldName := cfg.GetFieldNameOr("priority", "Priority")
 
 	if status != "" {
-		if err := client.SetProjectItemField(projectID, itemID, statusFieldName, cfg.ResolveFieldValue("status", status)); err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: failed to set status: %v\n", err)
-		}
+		set("set status", statusFieldName, cfg.ResolveFieldValue("status", status))
 	} else if cfg.Defaults.Status != "" {
-		if err := client.SetProjectItemField(projectID, itemID, statusFieldName, cfg.ResolveFieldValue("status", cfg.Defaults.Status)); err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: failed to set default status: %v\n", err)
-		}
+		set("set status (config default)", statusFieldName, cfg.ResolveFieldValue("status", cfg.Defaults.Status))
 	}
 
 	if priority != "" {
-		if err := client.SetProjectItemField(projectID, itemID, priorityFieldName, cfg.ResolveFieldValue("priority", priority)); err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: failed to set priority: %v\n", err)
-		}
+		set("set priority", priorityFieldName, cfg.ResolveFieldValue("priority", priority))
 	} else if cfg.Defaults.Priority != "" {
-		if err := client.SetProjectItemField(projectID, itemID, priorityFieldName, cfg.ResolveFieldValue("priority", cfg.Defaults.Priority)); err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: failed to set default priority: %v\n", err)
-		}
+		set("set priority (config default)", priorityFieldName, cfg.ResolveFieldValue("priority", cfg.Defaults.Priority))
 	}
 
 	if targets.branchValue != "" {
-		if err := client.SetProjectItemField(projectID, itemID, targets.branchFieldName, targets.branchValue); err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: failed to set branch: %v\n", err)
-		}
+		set("set branch", targets.branchFieldName, targets.branchValue)
 	}
+	return failedSteps, firstErr
 }
 
 // maxBodyFileSize is the maximum size for body/template file reads (1MB).

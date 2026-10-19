@@ -1811,6 +1811,66 @@ func TestRunCreate_LookupFailureCreatesNothing(t *testing.T) {
 	}
 }
 
+// #929: once the issue exists, a later failure is a partial success — the error
+// names the new issue, its URL and the failed step, and maps to exit 6 — so a
+// caller does not retry and file a duplicate. Covers both creation paths.
+func TestRunCreate_PostCreateFailureIsPartialSuccess(t *testing.T) {
+	dir := t.TempDir()
+	issueFile := filepath.Join(dir, "issue.yml")
+	if err := os.WriteFile(issueFile, []byte("title: From File\nbody: body\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	paths := map[string]func() *createOptions{
+		"flag path":      func() *createOptions { return &createOptions{title: "Test Issue", status: "todo", priority: "p1"} },
+		"from-file path": func() *createOptions { return &createOptions{fromFile: issueFile, status: "todo", priority: "p1"} },
+	}
+	failures := map[string]struct {
+		inject    func(m *mockCreateClient)
+		wantSteps []string
+	}{
+		"add to project": {func(m *mockCreateClient) { m.addIssueToProjectErr = errors.New("add failed") }, []string{"add to project"}},
+		"field updates":  {func(m *mockCreateClient) { m.setProjectItemFieldErr = errors.New("field failed") }, []string{"set status", "set priority"}},
+	}
+
+	for pathName, newOpts := range paths {
+		for failName, f := range failures {
+			t.Run(pathName+"/"+failName, func(t *testing.T) {
+				mock := newMockCreateClient()
+				f.inject(mock)
+				cfg := &config.Config{Project: config.Project{Owner: "test-org", Number: 1}}
+
+				err := runCreateWithDeps(newCreateCommand(), newOpts(), cfg, mock, "owner", "repo")
+				if err == nil {
+					t.Fatal("expected a partial-success error")
+				}
+				var partial *api.PartialSuccessError
+				if !errors.As(err, &partial) {
+					t.Fatalf("expected *api.PartialSuccessError (exit %d), got %T: %v", api.ExitCodePartialSuccess, err, err)
+				}
+				msg := err.Error()
+				for _, want := range append([]string{"issue #42", "https://github.com/owner/repo/issues/42"}, f.wantSteps...) {
+					if !strings.Contains(msg, want) {
+						t.Errorf("expected %q in error, got: %s", want, msg)
+					}
+				}
+			})
+		}
+	}
+}
+
+// #929: total failure — nothing was created — stays a plain error (exit 1).
+func TestRunCreateWithDeps_CreateFailureIsNotPartialSuccess(t *testing.T) {
+	mock := newMockCreateClient()
+	mock.createIssueErr = errors.New("API error")
+	cfg := &config.Config{Project: config.Project{Owner: "test-org", Number: 1}}
+
+	err := runCreateWithDeps(newCreateCommand(), &createOptions{title: "Test Issue"}, cfg, mock, "owner", "repo")
+	if err == nil || api.IsPartialSuccess(err) {
+		t.Fatalf("expected a plain error when creation itself fails, got: %v", err)
+	}
+}
+
 func TestRunCreateWithDeps_AddIssueToProjectError(t *testing.T) {
 	mock := newMockCreateClient()
 	mock.addIssueToProjectErr = errors.New("add failed")
