@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node .claude/hooks/workflow-trigger.js",
+            "command": "node \"${CLAUDE_PROJECT_DIR}/.claude/hooks/workflow-trigger.js\"",
             "timeout": 10
           }
         ]
@@ -18,7 +18,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node .claude/hooks/shell-safety-hook.js",
+            "command": "node \"${CLAUDE_PROJECT_DIR}/.claude/hooks/shell-safety-hook.js\"",
             "timeout": 5
           }
         ]
@@ -28,7 +28,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node .claude/hooks/block-cd.js",
+            "command": "node \"${CLAUDE_PROJECT_DIR}/.claude/hooks/block-cd.js\"",
             "timeout": 5
           }
         ]
@@ -40,7 +40,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node .claude/hooks/startup-hook.js",
+            "command": "node \"${CLAUDE_PROJECT_DIR}/.claude/hooks/startup-hook.js\"",
             "timeout": 60
           }
         ]
@@ -50,7 +50,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node .claude/hooks/clear-hook.js",
+            "command": "node \"${CLAUDE_PROJECT_DIR}/.claude/hooks/clear-hook.js\"",
             "timeout": 5
           }
         ]
@@ -60,7 +60,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node .claude/hooks/resume-hook.js",
+            "command": "node \"${CLAUDE_PROJECT_DIR}/.claude/hooks/resume-hook.js\"",
             "timeout": 5
           }
         ]
@@ -70,7 +70,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node .claude/hooks/compact-hook.js",
+            "command": "node \"${CLAUDE_PROJECT_DIR}/.claude/hooks/compact-hook.js\"",
             "timeout": 5
           }
         ]
