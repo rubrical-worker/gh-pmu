@@ -1,7 +1,7 @@
 ---
-version: "v0.108.0"
+version: "v0.109.0"
 description: Review a test plan against its PRD, using the IDPF framework.
-argument-hint: "#issue [--mode ...] [--force]"
+argument-hint: "#issue [--mode ...] [--force] [--help]"
 copyright: "Rubrical Works (c) 2026"
 ---
 <!-- EXTENSIBLE -->
@@ -19,6 +19,10 @@ Review a TDD test plan against its source PRD for coverage completeness. Delegat
 | `#issue` | Issue linked to test plan (e.g., `#42`) |
 | `--mode` | Transient: `solo`, `team`, `enterprise` |
 | `--force` | Force re-review even if `reviewed` label |
+| `--help` | Open this command's docs page. Takes precedence over every other argument and performs no action. |
+
+**`--help` takes precedence over every other argument and performs no action:** run `node .claude/scripts/shared/command-help.js review-test-plan`, report its output, and STOP.
+
 ---
 ## Execution
 **REQUIRED — routed command, two-phase task creation:** Phase 1 creates one preamble task; Phase 2 bulk-creates the rest once the preamble confirms the path, **emitted in one message as parallel tool calls** — not one call per message (`07-task-creation-timing.md` § Emission). Redirect or early exit → mark preamble done, prune the task list per Closing Notification and Cleanup part (2), stop.

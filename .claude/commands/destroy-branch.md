@@ -1,19 +1,23 @@
 ---
-version: "v0.108.0"
+version: "v0.109.0"
 description: Safely delete a branch after confirmation, using the IDPF framework.
-argument-hint: "[branch-name] [--force]"
+argument-hint: "[branch-name] [--force] [--help]"
 copyright: "Rubrical Works (c) 2026"
 ---
 <!-- EXTENSIBLE -->
 # /destroy-branch
 Safely abandon and delete a branch. Destructive — requires explicit confirmation.
-**Extension Points:** `.claude/metadata/extension-points.json` or `/extensions list --command destroy-branch`
+**Extension Points:** `.claude/metadata/extension-points.json` or `/extensions --list --command destroy-branch`
 ---
 ## Arguments
 | Argument | Description |
 |----------|-------------|
 | `[branch-name]` | Branch to destroy (defaults to current) |
 | `--force` | Skip confirmation (dangerous) |
+| `--help` | Open this command's docs page. Takes precedence over every other argument and performs no action. |
+
+**`--help` takes precedence over every other argument and performs no action:** run `node .claude/scripts/shared/command-help.js destroy-branch`, report its output, and STOP.
+
 ---
 ## Pre-Checks
 ### Identify Target

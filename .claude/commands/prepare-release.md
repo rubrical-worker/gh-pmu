@@ -1,7 +1,7 @@
 ---
-version: "v0.108.0"
+version: "v0.109.0"
 description: Prepare a release by opening a PR, merging to main, and tagging, using the IDPF framework.
-argument-hint: "[version] [--skip-coverage] [--dry-run] [--help]"
+argument-hint: "[version] [--skip-coverage] [--skip-review] [--dry-run] [--help]"
 copyright: "Rubrical Works (c) 2026"
 ---
 
@@ -10,14 +10,17 @@ copyright: "Rubrical Works (c) 2026"
 
 Validate, create PR to main, merge, and tag for deployment.
 
-**Extension Points:** See `.claude/metadata/extension-points.json` or run `/extensions list --command prepare-release`
+**Extension Points:** See `.claude/metadata/extension-points.json` or run `/extensions --list --command prepare-release`
 ## Arguments
 | Argument | Description |
 |----------|-------------|
 | `[version]` | Version to release (e.g., v1.2.0) |
 | `--skip-coverage` | Skip coverage gate |
+| `--skip-review` | Skip the branch diff review gate (Step 2.1); skip recorded in the Summary Checklist |
 | `--dry-run` | Preview without changes |
-| `--help` | Show extension points |
+| `--help` | Open this command's docs page. Takes precedence over every other argument and performs no action. |
+
+**`--help` takes precedence over every other argument and performs no action:** run `node .claude/scripts/shared/command-help.js prepare-release`, report its output, and STOP.
 
 ## Execution Instructions
 
@@ -230,6 +233,21 @@ The script outputs JSON: `{"success": true/false, "testsRun": N, "testsPassed": 
 
 E2E tests validate complete workflows against the test project.
 <!-- USER-EXTENSION-END: post-validation -->
+
+### Step 2.1: Branch Diff Review Gate
+Refuses a release with an unreviewed change or an introduced high-severity finding; runs before Phase 3 touches version files. The step **does not run the review**: it reads the `lastDiffReview` record `/code-review --diff` writes to `.code-review-manifest.json` (`baseRef`, `baseSha`, `headSha`, `reviewedAt`, `workingTreeIncluded`, `filesReviewed`, `findings.introduced`/`findings.preExisting` counts by severity, `issues`). Never nest `/code-review` via the Skill tool — Skill does not return, and its prose report is no gate input.
+**First** resolve base + changed set with `changedFilesSinceBase({ cwd })` from `.claude/scripts/shared/lib/branch-diff.js` (calls `resolveBranchBase`) — decides empty diff and unresolvable base without a record; `/code-review --diff` writes no record on an empty diff, so reading `filesReviewed` would STOP every docs-only release.
+**Freshness rule — decided by `reviewRecordFreshness({ cwd, record })` from `branch-diff.js` (#3183); never re-derive it.** Current when `headSha` equals `git rev-parse HEAD`, or every commit since `headSha` changes only review output (`.code-review-manifest.json`, `Construction/Code-Reviews/**`), so `/code-review --diff` committing its own output does not stale it; **and** the working tree has no uncommitted change outside review output, or `workingTreeIncluded` is `true`. Otherwise stale; the helper's `reason` and `offending` paths say why. A review covering uncommitted source goes stale once that source is committed (outside review output) — deliberate: the rule compares paths, not content.
+**Severity policy.** `findings.introduced.high` > 0 blocks; `findings.introduced.medium` > 0 with `high` 0 asks; `low`/`info` reported, never stop; `findings.preExisting` never blocks at any severity (inherited debt).
+**Outcomes, in order:**
+- `--skip-review` → report `Review gate skipped (--skip-review).`, continue.
+- `--dry-run` → report that the gate would check the `lastDiffReview` record against `<ref>..HEAD`; stops nothing.
+- `resolveBranchBase` cannot resolve a base ref, or not a git repository → **STOP** with the helper's `error`; a gate that cannot examine anything must not pass.
+- `changedFilesSinceBase` returns an empty set → report `No files changed on this branch relative to <ref> (<sha>); review gate passed vacuously.`, continue.
+- No `lastDiffReview` record, or stale → **STOP** with `Branch diff review missing or stale (record headSha <sha|none>, HEAD <sha>). Run /code-review --diff, then re-run /prepare-release.` Report the helper's `reason` and any `offending` paths.
+- `findings.introduced.high` > 0 → **STOP**, naming filed `issues` and introduced counts. `findings.preExisting` counts reported alongside, never block.
+- `findings.introduced.medium` > 0 and `findings.introduced.high` = 0 → **ASK USER** via `AskUserQuestion`: continue, or stop to address them.
+- Only `low`/`info` counts in `findings.introduced`, or none → report counts, continue.
 
 **ASK USER:** Confirm validation passed.
 
@@ -453,6 +471,7 @@ Do NOT auto-close issues just because they shipped.
 - [ ] Commits analyzed
 - [ ] Version confirmed
 - [ ] CHANGELOG updated
+- [ ] Branch diff review passed (or `--skip-review`)
 - [ ] PR merged
 
 <!-- USER-EXTENSION-START: checklist-before-tag -->

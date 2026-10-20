@@ -75,6 +75,18 @@
           }
         ]
       }
+    ],
+    "WorktreeCreate": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PROJECT_DIR}/.claude/hooks/worktree-create-hook.js\"",
+            "timeout": 120
+          }
+        ]
+      }
     ]
   },
   "permissions": {

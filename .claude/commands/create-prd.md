@@ -1,13 +1,13 @@
 ---
-version: "v0.108.0"
+version: "v0.109.0"
 description: Transform a proposal into an Agile PRD using the IDPF framework.
-argument-hint: "<issue-number> | extract [<directory>]"
+argument-hint: "<issue-number> | --extract [<directory>] [--help]"
 copyright: "Rubrical Works (c) 2026"
 ---
 <!-- EXTENSIBLE -->
 # /create-prd
 Transform a proposal document into an Agile PRD with user stories, acceptance criteria, and epic groupings.
-**Extension Points:** `.claude/metadata/extension-points.json` or `/extensions list --command create-prd`
+**Extension Points:** `.claude/metadata/extension-points.json` or `/extensions --list --command create-prd`
 
 ## Prerequisites
 Load shared from `.claude/metadata/command-boilerplate.json` -> `prerequisites.common`. **Graceful degradation when boilerplate not found:** use defaults — `gh pmu` installed, `.gh-pmu.json` configured.
@@ -17,15 +17,20 @@ Load shared from `.claude/metadata/command-boilerplate.json` -> `prerequisites.c
 | Argument | Description |
 |----------|-------------|
 | `<issue-number>` | Proposal issue (`123` or `#123`) |
-| `extract` | Extract PRD from codebase (requires `/charter`) |
-| `extract <directory>` | Extract from specific directory |
+| `--extract` | Extract PRD from codebase (requires `/charter`) |
+| `--extract <directory>` | Extract from specific directory |
 | `--assignee <value>` | GitHub login for the new issue. Omitted → `@me`. |
+| `--help` | Open this command's docs page. Takes precedence over every other argument and performs no action. |
+
+**`--help` takes precedence over every other argument and performs no action:** run `node .claude/scripts/shared/command-help.js create-prd`, report its output, and STOP.
+
+**Retired forms:** `extract` typed bare is no longer accepted — reject it with a message naming `--extract`, and do nothing else.
 
 ## Modes
 | Mode | Invocation | Description |
 |------|------------|-------------|
 | **Issue-Driven** | `/create-prd 123` | Transform proposal to PRD |
-| **Extract** | `/create-prd extract [src/]` | Extract PRD from codebase |
+| **Extract** | `/create-prd --extract [src/]` | Extract PRD from codebase |
 | **Interactive** | `/create-prd` | Prompt for mode selection |
 
 ## Execution Instructions
@@ -375,7 +380,7 @@ Next: /create-backlog {prd_issue_num}
 For `/create-prd` (no arguments): prompt `1. From a proposal issue (enter issue number)` / `2. From existing code (extraction)`. Option 1: prompt for issue number, run Issue-Driven workflow.
 
 ## Workflow (Extract Mode)
-For `/create-prd extract` or `/create-prd extract <directory>`:
+For `/create-prd --extract` or `/create-prd --extract <directory>`:
 
 ### Step 1: Check Prerequisites
 Verify `.claude/skills/codebase-analysis/SKILL.md` exists. Check `Inception/`.

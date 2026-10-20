@@ -141,3 +141,7 @@ runa_claude.cmd
 # IDPF Framework (managed by Praxis Hub Manager)
 .claude/framework
 .claude/commands/sync-branch.md
+.claude/skills/diff-review/
+
+# Project defaults (managed by Praxis Hub Manager)
+.release-authorized

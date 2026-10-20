@@ -1,13 +1,13 @@
 ---
-version: "v0.108.0"
+version: "v0.109.0"
 description: Analyze paths collaboratively for proposals and enhancements, using the IDPF framework.
-argument-hint: "#issue"
+argument-hint: "#issue [--help]"
 copyright: "Rubrical Works (c) 2026"
 ---
 <!-- EXTENSIBLE -->
 # /paths
 Turn-based collaborative scenario path discovery on proposals/enhancements. AI and user work through scenario categories to identify paths early.
-**Extension Points:** `.claude/metadata/extension-points.json` or `/extensions list --command paths`
+**Extension Points:** `.claude/metadata/extension-points.json` or `/extensions --list --command paths`
 ## Prerequisites
 - `gh pmu` installed
 - `.gh-pmu.json` in repo root
@@ -19,6 +19,10 @@ Turn-based collaborative scenario path discovery on proposals/enhancements. AI a
 | `--dry-run` | No | Non-interactive summary, no prompts/file changes |
 | `--categories IDs` | No | CSV IDs for selective re-run. Valid: `nominal`, `alternative`, `exception`, `edge`, `corner`, `negative` |
 | `--from-code [path]` | No | Delegate to `code-path-discovery` skill |
+| `--help` | No | Open this command's docs page. Takes precedence over every other argument and performs no action. |
+
+**`--help` takes precedence over every other argument and performs no action:** run `node .claude/scripts/shared/command-help.js paths`, report its output, and STOP.
+
 ## Execution
 **REQUIRED:** `TaskCreate` tasks from steps + one per non-empty `USER-EXTENSION` block; mark `in_progress`→`completed`; post-compaction re-read and regenerate.
 ## Workflow

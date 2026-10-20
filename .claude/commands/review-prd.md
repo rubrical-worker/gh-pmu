@@ -1,13 +1,13 @@
 ---
-version: "v0.108.0"
+version: "v0.109.0"
 description: Review a PRD with tracked history, using the IDPF framework.
-argument-hint: "#issue [--with ...] [--mode ...] [--force]"
+argument-hint: "#issue [--with ...] [--mode ...] [--force] [--help]"
 copyright: "Rubrical Works (c) 2026"
 ---
 <!-- EXTENSIBLE -->
 # /review-prd
 Review a PRD document linked from a GitHub issue. Delegates setup to `review-preamble.js`, cleanup to `review-finalize.js`. Self-contained: handles document updates, issue finalization, AC check-off directly.
-**Extension Points:** `.claude/metadata/extension-points.json` or `/extensions list --command review-prd`
+**Extension Points:** `.claude/metadata/extension-points.json` or `/extensions --list --command review-prd`
 ---
 ## Prerequisites
 - `gh pmu` installed
@@ -21,7 +21,10 @@ Review a PRD document linked from a GitHub issue. Delegates setup to `review-pre
 | `--with` | Comma-sep domain extensions or `all` |
 | `--mode` | Transient mode: `solo`, `team`, `enterprise` |
 | `--force` | Force re-review even if `reviewed` label present |
----
+| `--help` | Open this command's docs page. Takes precedence over every other argument and performs no action. |
+
+**`--help` takes precedence over every other argument and performs no action:** run `node .claude/scripts/shared/command-help.js review-prd`, report its output, and STOP.
+
 ## Execution Instructions
 **REQUIRED — routed command, two-phase task creation:**
 1. **Phase 1 — Preamble task only:** `TaskCreate` single preamble task.

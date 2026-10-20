@@ -1,13 +1,13 @@
 ---
-version: "v0.108.0"
+version: "v0.109.0"
 description: Create a branch with a tracker issue, using the IDPF framework.
-argument-hint: "<branch-name> (e.g., release/v0.16.0, my-feature, bugfix-123)"
+argument-hint: "<branch-name> (e.g., release/v0.16.0, my-feature, bugfix-123) [--help]"
 copyright: "Rubrical Works (c) 2026"
 ---
 <!-- EXTENSIBLE -->
 # /create-branch
 Create a new branch and associated tracker issue for any branch type.
-**Extension Points:** `.claude/metadata/extension-points.json` or `/extensions list --command create-branch`
+**Extension Points:** `.claude/metadata/extension-points.json` or `/extensions --list --command create-branch`
 ---
 ## Prerequisites
 - `gh pmu` extension installed
@@ -18,6 +18,10 @@ Create a new branch and associated tracker issue for any branch type.
 |----------|-------------|
 | `$1` | Branch name (valid git name) |
 | `--assignee <value>` | GitHub login for the tracker issue. Omitted → `@me`. |
+| `--help` | Open this command's docs page. Takes precedence over every other argument and performs no action. |
+
+**`--help` takes precedence over every other argument and performs no action:** run `node .claude/scripts/shared/command-help.js create-branch`, report its output, and STOP.
+
 ---
 ## Execution Guidance
 Use 2-3 coarse tasks: "Validate and create", "Configure", "Report and commit". Validate inline. Chain independent commands with `&&` or parallel where noted.

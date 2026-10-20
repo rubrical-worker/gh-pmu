@@ -1,13 +1,13 @@
 ---
-version: "v0.108.0"
+version: "v0.109.0"
 description: Manage GitHub Actions CI workflows interactively, using the IDPF framework.
-argument-hint: "[list|validate|add|recommend] (no args shows status)"
+argument-hint: "[--list|--validate|--add <feature>|--recommend|--watch [--sha <commit>]] (no args shows status) [--help]"
 copyright: "Rubrical Works (c) 2026"
 ---
 <!-- EXTENSIBLE -->
 # /ci
 Interactive CI workflow management for GitHub Actions.
-**Extension Points:** See `.claude/metadata/extension-points.json` or run `/extensions list --command ci`
+**Extension Points:** See `.claude/metadata/extension-points.json` or run `/extensions --list --command ci`
 ## Prerequisites
 - `.github/workflows/` directory (created if adding features)
 - GitHub Actions enabled
@@ -15,23 +15,29 @@ Interactive CI workflow management for GitHub Actions.
 | Argument | Description |
 |----------|-------------|
 | *(none)* | Show workflow status (default) |
-| `list` | List available CI features |
-| `validate` | Validate workflow YAML files |
-| `add <feature>` | Add a CI feature to workflows |
-| `recommend` | Analyze project and suggest improvements |
-| `watch [--sha <commit>]` | Monitor CI run status for a commit |
+| `--list` | List available CI features |
+| `--validate` | Validate workflow YAML files |
+| `--add <feature>` | Add a CI feature to workflows |
+| `--recommend` | Analyze project and suggest improvements |
+| `--watch [--sha <commit>]` | Monitor CI run status for a commit |
+| `--help` | Open this command's docs page. Takes precedence over every other argument and performs no action. |
+
+**`--help` takes precedence over every other argument and performs no action:** run `node .claude/scripts/shared/command-help.js ci`, report its output, and STOP.
+
+**Retired forms:** `list`, `validate`, `add`, `recommend` and `watch` typed bare are no longer accepted — reject them with a message naming `--list`, `--validate`, `--add`, `--recommend` or `--watch`, and do nothing else.
+
 ## Subcommands
 ### `/ci` (no arguments) — View Workflow Status
 Display summary of existing workflows: name, trigger events, OS targets, language versions in table format. Reports if no workflows directory.
 ```bash
 node .claude/scripts/shared/ci-status.js
 ```
-### `/ci list` — List Available CI Features
+### `/ci --list` — List Available CI Features
 Lists all 11 CI features grouped by tier (v1 High Value, v2 Medium Value) with enabled/disabled status and one-line descriptions. Shows summary count.
 ```bash
 node .claude/scripts/shared/ci-list.js
 ```
-### `/ci validate` — Validate Workflow YAML
+### `/ci --validate` — Validate Workflow YAML
 Validates all `.github/workflows/*.yml` files:
 - YAML syntax errors
 - Deprecated action versions (e.g., `checkout@v2`)
@@ -42,7 +48,7 @@ Findings grouped by severity (error/warning/info).
 ```bash
 node .claude/scripts/shared/ci-validate.js
 ```
-### `/ci add <feature>` — Add CI Feature
+### `/ci --add <feature>` — Add CI Feature
 
 <!-- USER-EXTENSION-START: pre-add -->
 <!-- USER-EXTENSION-END: pre-add -->
@@ -62,7 +68,7 @@ node .claude/scripts/shared/ci-validate.js
 ```bash
 node .claude/scripts/shared/ci-add.js <feature>
 ```
-### `/ci recommend` — Analyze and Recommend
+### `/ci --recommend` — Analyze and Recommend
 
 <!-- USER-EXTENSION-START: pre-recommend -->
 <!-- USER-EXTENSION-END: pre-recommend -->
@@ -82,7 +88,7 @@ node .claude/scripts/shared/ci-add.js <feature>
 node .claude/scripts/shared/ci-analyze.js
 node .claude/scripts/shared/ci-recommend.js
 ```
-### `/ci watch` — Monitor CI Run
+### `/ci --watch` — Monitor CI Run
 Monitor a workflow run by commit SHA; report structured results.
 | Argument | Required | Default | Description |
 |----------|----------|---------|-------------|
@@ -118,11 +124,11 @@ To set up CI manually: create .github/workflows/ and add workflow YAML files.
 | Subcommand | Action |
 |------------|--------|
 | *(none)* or `status` | Execute `ci-status.js` |
-| `list` | Execute `ci-list.js` |
-| `validate` | Execute `ci-validate.js` |
-| `add <feature>` | Execute `ci-add.js <feature>` |
-| `recommend` | Execute `ci-analyze.js` + `ci-recommend.js` flow |
-| `watch [--sha X]` | Execute `ci-watch.js --sha X` (default: HEAD) |
+| `--list` | Execute `ci-list.js` |
+| `--validate` | Execute `ci-validate.js` |
+| `--add <feature>` | Execute `ci-add.js <feature>` |
+| `--recommend` | Execute `ci-analyze.js` + `ci-recommend.js` flow |
+| `--watch [--sha X]` | Execute `ci-watch.js --sha X` (default: HEAD) |
 | Other | Error: `Unknown subcommand: $1` |
 ### Step 4: Execute Handler
 ```bash
@@ -138,6 +144,6 @@ node .claude/scripts/shared/ci-status.js
 | No `.github/workflows/` | "No .github/workflows/ directory found" |
 | Empty workflows directory | "No workflow files found" |
 | YAML parse error | Report file and error, continue with other files |
-| Unknown subcommand | "Unknown subcommand: {name}. Use: ci, ci list, ci validate, ci watch" |
+| Unknown subcommand | "Unknown subcommand: {name}. Use: /ci, /ci --list, /ci --validate, /ci --add, /ci --recommend, /ci --watch" |
 
 **End of /ci Command**

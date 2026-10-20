@@ -1,19 +1,23 @@
 ---
-version: "v0.108.0"
+version: "v0.109.0"
 description: Merge a branch to main through the IDPF framework's gated checks.
-argument-hint: "[--skip-gates] [--dry-run]"
+argument-hint: "[--skip-gates] [--dry-run] [--help]"
 copyright: "Rubrical Works (c) 2026"
 ---
 <!-- EXTENSIBLE -->
 # /merge-branch
 Merge current branch to main with gated validation. For merges without version tags (features, refactoring). For versioned releases, use `/prepare-release`.
-**Extension Points:** `.claude/metadata/extension-points.json` or `/extensions list --command merge-branch`
+**Extension Points:** `.claude/metadata/extension-points.json` or `/extensions --list --command merge-branch`
 ---
 ## Arguments
 | Argument | Description |
 |----------|-------------|
 | `--skip-gates` | Emergency bypass (caution) |
 | `--dry-run` | Preview only |
+| `--help` | Open this command's docs page. Takes precedence over every other argument and performs no action. |
+
+**`--help` takes precedence over every other argument and performs no action:** run `node .claude/scripts/shared/command-help.js merge-branch`, report its output, and STOP.
+
 ---
 ## Execution
 **REQUIRED:**

@@ -1,13 +1,13 @@
 ---
-version: "v0.108.0"
+version: "v0.109.0"
 description: Create an enhancement issue from the IDPF framework's standard template.
-argument-hint: "<title> [--prior-art]"
+argument-hint: "<title> [--prior-art] [--help]"
 copyright: "Rubrical Works (c) 2026"
 ---
 <!-- EXTENSIBLE -->
 # /enhancement
 Create a labeled enhancement issue with standard template and add to project board.
-**Extension Points:** `.claude/metadata/extension-points.json` or `/extensions list --command enhancement`
+**Extension Points:** `.claude/metadata/extension-points.json` or `/extensions --list --command enhancement`
 ---
 ## Prerequisites
 - `gh pmu` extension installed
@@ -20,6 +20,9 @@ Create a labeled enhancement issue with standard template and add to project boa
 | `--prior-art` | Run prior-art sweep before composing body. Absent = current behavior, no sweep. |
 | `--assignee <value>` | GitHub login for the new issue. Omitted → `@me`. |
 | `--target <owner/name>` | File the issue against a registered companion repository instead of this one. |
+| `--help` | Open this command's docs page. Takes precedence over every other argument and performs no action. |
+
+**`--help` takes precedence over every other argument and performs no action:** run `node .claude/scripts/shared/command-help.js enhancement`, report its output, and STOP.
 
 If not provided, prompt user.
 ---
@@ -127,7 +130,7 @@ Report from `results[0]`: `number`, `url`, `priority`. `ok: false` → "Failed t
 const { resolveFilingTarget, resolveBoardFields, formatUnresolvedBoardFields } = require('.claude/scripts/shared/lib/companion-projects.js');
 const target = resolveFilingTarget(charterContent, requestedRepo);   // charterContent = CHARTER.md
 ```
-`ok:false` → report `reason` verbatim, **STOP**. Two refusals, never merged: not registered → register with `/charter update --register-proj`; registered with `fileIssues:false` → marked read-only on purpose, enable with `--register-proj`. Searchable-but-not-filable is the common case — usually deliberate; one combined message sends the user to the wrong remedy.
+`ok:false` → report `reason` verbatim, **STOP**. Two refusals, never merged: not registered → register with `/charter --update --register-proj`; registered with `fileIssues:false` → marked read-only on purpose, enable with `--register-proj`. Searchable-but-not-filable is the common case — usually deliberate; one combined message sends the user to the wrong remedy.
 `ok: true` → **do NOT run `file-issue.js --input`, and never `gh pmu create -R`.** Render the same template into a body file, then delegate to the companion helper:
 ```bash
 ENHANCEMENT_BODY_FILE=".tmp-enhancement-body-$(node -e "console.log(require('crypto').randomBytes(4).toString('hex'))").md"

@@ -1,7 +1,7 @@
 ---
-version: "v0.108.0"
+version: "v0.109.0"
 description: Create text-based or diagrammatic screen mockups, using the IDPF framework.
-argument-hint: "[#NN] [--from-image <path>] [--serve [{Name}]] [--port <N>] [--open] [--showcase] [--apply-decisions]"
+argument-hint: "[#NN] [--from-image <path>] [--serve [{Name}]] [--port <N>] [--open] [--showcase] [--apply-decisions] [--help]"
 copyright: "Rubrical Works (c) 2026"
 ---
 
@@ -10,7 +10,7 @@ copyright: "Rubrical Works (c) 2026"
 
 Creates text-based or diagrammatic screen mockups. Fully interactive via `AskUserQuestion`. Accepts optional issue reference (`#NN`) to pre-populate context from a bug, enhancement, proposal, or PRD.
 
-**Extension Points:** See `.claude/metadata/extension-points.json` or `/extensions list --command mockups`
+**Extension Points:** See `.claude/metadata/extension-points.json` or `/extensions --list --command mockups`
 
 ## Prerequisites
 
@@ -27,6 +27,9 @@ Creates text-based or diagrammatic screen mockups. Fully interactive via `AskUse
 | `--open` | No | Spawn platform default browser to the listening URL. `win32` → `start "" "<url>"`; `darwin` → `open "<url>"`; `linux` → `xdg-open "<url>"`. Launch failure warns, does not fail command. |
 | `--showcase` | No | Launch Living Style Guide showcase (#2429, Story 1.3). Mockups command bundles into showcase the same way `/design-system` does — categories sourced from screen catalog (UI Components, Iconography). Mutex with `--apply-decisions`. |
 | `--apply-decisions` | No | Apply pending decisions from `Design-System/showcase/decisions.json` without launching server (#2429, Story 1.4). Implicit resume on subsequent invocations: `applyMockups` in `.claude/scripts/shared/showcase-resume.js` appends rows to `Mockups/.showcase-applied.jsonl`. |
+| `--help` | No | Open this command's docs page. Takes precedence over every other argument and performs no action. |
+
+**`--help` takes precedence over every other argument and performs no action:** run `node .claude/scripts/shared/command-help.js mockups`, report its output, and STOP.
 
 ```
 /mockups                           # Fully interactive, no context
@@ -38,6 +41,7 @@ Creates text-based or diagrammatic screen mockups. Fully interactive via `AskUse
 /mockups --serve --port 8080 --open
 /mockups --showcase                # Launch Living Style Guide showcase
 /mockups --apply-decisions         # Apply pending showcase decisions, no server
+/mockups --help                    # Open this command's docs page, do nothing else
 ```
 
 ## Execution Instructions

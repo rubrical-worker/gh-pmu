@@ -1,5 +1,5 @@
 ---
-version: "v0.108.0"
+version: "v0.109.0"
 description: Tag a beta from a feature branch without merging to main, using the IDPF framework.
 argument-hint: "[--skip-coverage] [--dry-run] [--help]"
 copyright: "Rubrical Works (c) 2026"
@@ -8,14 +8,17 @@ copyright: "Rubrical Works (c) 2026"
 <!-- EXTENSIBLE -->
 # /prepare-beta
 Tag a beta from a feature branch without merging to main.
-**Extension Points:** `.claude/metadata/extension-points.json` or `/extensions list --command prepare-beta`
+**Extension Points:** `.claude/metadata/extension-points.json` or `/extensions --list --command prepare-beta`
 ---
 ## Arguments
 | Argument | Description |
 |----------|-------------|
 | `--skip-coverage` | Skip coverage gate |
 | `--dry-run` | Preview without changes |
-| `--help` | Show extension points |
+| `--help` | Open this command's docs page. Takes precedence over every other argument and performs no action. |
+
+**`--help` takes precedence over every other argument and performs no action:** run `node .claude/scripts/shared/command-help.js prepare-beta`, report its output, and STOP.
+
 ---
 ## Execution Instructions
 **REQUIRED:** `TaskCreate` one task per numbered phase/step and one per non-empty `USER-EXTENSION` block; skip commented-out extensions. Mark `in_progress` -> `completed`. **Post-Compaction:** re-read spec, `TaskList`, resume from first incomplete task.

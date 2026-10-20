@@ -1,13 +1,13 @@
 ---
-version: "v0.108.0"
+version: "v0.109.0"
 description: Review a proposal with tracked history, using the IDPF framework.
-argument-hint: "#issue [--with ...] [--mode ...] [--force] [--prior-art]"
+argument-hint: "#issue [--with ...] [--mode ...] [--force] [--prior-art] [--help]"
 copyright: "Rubrical Works (c) 2026"
 ---
 <!-- EXTENSIBLE -->
 # /review-proposal
 Reviews a proposal document linked from a GitHub issue. Delegates setup to `review-preamble.js` and cleanup to `review-finalize.js`. Self-contained: document updates, issue finalization and AC check-off handled directly (not delegated to calling orchestrator — restores behavior lost in #1810, matching `/review-prd` and `/review-test-plan`).
-**Extension Points:** `/extensions list --command review-proposal`
+**Extension Points:** `/extensions --list --command review-proposal`
 
 ## Prerequisites
 - `gh pmu` extension installed
@@ -22,6 +22,9 @@ Reviews a proposal document linked from a GitHub issue. Delegates setup to `revi
 | `--mode` | No | Transient override: `solo`, `team`, `enterprise` |
 | `--force` | No | Force re-review even if `reviewed` label present |
 | `--prior-art` | No | Force the 2a-iv sweep whatever the `reviewSweep` mode (except `off`). Boolean, takes no value. Typed directly or passed through the `/review-issue` redirect (#2725) |
+| `--help` | No | Open this command's docs page. Takes precedence over every other argument and performs no action. |
+
+**`--help` takes precedence over every other argument and performs no action:** run `node .claude/scripts/shared/command-help.js review-proposal`, report its output, and STOP.
 
 ## Execution Instructions
 **REQUIRED:** Routed command — two-phase task creation:
