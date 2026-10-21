@@ -1,5 +1,5 @@
 ---
-version: "v0.109.0"
+version: "v0.109.1"
 description: Tag a beta from a feature branch without merging to main, using the IDPF framework.
 argument-hint: "[--skip-coverage] [--dry-run] [--help]"
 copyright: "Rubrical Works (c) 2026"

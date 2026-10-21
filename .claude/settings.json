@@ -87,11 +87,25 @@
           }
         ]
       }
+    ],
+    "WorktreeRemove": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PROJECT_DIR}/.claude/hooks/worktree-remove-hook.js\"",
+            "timeout": 120
+          }
+        ]
+      }
     ]
   },
   "permissions": {
     "deny": [
-      "Edit(/.claude/settings.json)"
+      "Edit(/.claude/settings.json)",
+      "Bash(git worktree remove *)",
+      "PowerShell(git worktree remove *)"
     ]
   }
 }

@@ -1,5 +1,5 @@
 ---
-version: "v0.109.0"
+version: "v0.109.1"
 description: Create a proposal document and tracking issue, using the IDPF framework.
 argument-hint: "<title> [--prior-art] [--update [changes]] [--help]"
 copyright: "Rubrical Works (c) 2026"

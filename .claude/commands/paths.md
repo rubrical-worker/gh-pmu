@@ -1,5 +1,5 @@
 ---
-version: "v0.109.0"
+version: "v0.109.1"
 description: Analyze paths collaboratively for proposals and enhancements, using the IDPF framework.
 argument-hint: "#issue [--help]"
 copyright: "Rubrical Works (c) 2026"
