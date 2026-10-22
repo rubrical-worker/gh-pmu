@@ -182,6 +182,12 @@ func (c *Client) SetProjectItemFieldWithFields(projectID, itemID, fieldName, val
 		return fmt.Errorf("field %q not found in project", fieldName)
 	}
 
+	// An org issue field displayed by the project is written through the
+	// issue, not the project item (#932).
+	if field.IssueField != nil {
+		return c.setIssueFieldValue(itemID, field, value)
+	}
+
 	// Handle different field types
 	switch field.DataType {
 	case "SINGLE_SELECT":
@@ -1825,6 +1831,7 @@ func (c *Client) BatchUpdateProjectItemFields(projectID string, updates []FieldU
 
 	// Validate and prepare all updates
 	var validUpdates []FieldUpdate
+	var issueFieldUpdates []FieldUpdate
 	var results []BatchUpdateResult
 
 	for _, update := range updates {
@@ -1836,6 +1843,22 @@ func (c *Client) BatchUpdateProjectItemFields(projectID string, updates []FieldU
 				Success:   false,
 				Error:     fmt.Sprintf("field %q not found in project", update.FieldName),
 			})
+			continue
+		}
+
+		// Org issue fields cannot ride the aliased project mutation; they are
+		// validated here and written one by one through setIssueFieldValue (#932).
+		if field.IssueField != nil {
+			if _, err := issueFieldEntry(field, update.Value); err != nil {
+				results = append(results, BatchUpdateResult{
+					ItemID:    update.ItemID,
+					FieldName: update.FieldName,
+					Success:   false,
+					Error:     err.Error(),
+				})
+				continue
+			}
+			issueFieldUpdates = append(issueFieldUpdates, update)
 			continue
 		}
 
@@ -1916,6 +1939,15 @@ func (c *Client) BatchUpdateProjectItemFields(projectID string, updates []FieldU
 		}
 
 		results = append(results, batchResults...)
+	}
+
+	for _, update := range issueFieldUpdates {
+		result := BatchUpdateResult{ItemID: update.ItemID, FieldName: update.FieldName, Success: true}
+		if err := c.setIssueFieldValue(update.ItemID, fieldMap[update.FieldName], update.Value); err != nil {
+			result.Success = false
+			result.Error = err.Error()
+		}
+		results = append(results, result)
 	}
 
 	return results, nil

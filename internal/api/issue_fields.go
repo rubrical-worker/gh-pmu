@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	graphql "github.com/cli/shurcooL-graphql"
 
@@ -290,4 +291,115 @@ func (c *Client) fetchIssueFieldPairs(projectID string) (map[string]string, erro
 		}
 	}
 	return pairs, nil
+}
+
+// SetIssueFieldValueInput is the input of the setIssueFieldValue mutation.
+// The Go type name is the GraphQL input type name the mutation document uses.
+type SetIssueFieldValueInput struct {
+	IssueID     graphql.ID                      `json:"issueId"`
+	IssueFields []IssueFieldCreateOrUpdateInput `json:"issueFields"`
+}
+
+// IssueFieldCreateOrUpdateInput sets or deletes one issue field value.
+type IssueFieldCreateOrUpdateInput struct {
+	FieldID              graphql.ID `json:"fieldId"`
+	SingleSelectOptionID string     `json:"singleSelectOptionId,omitempty"`
+	DateValue            string     `json:"dateValue,omitempty"`
+	Delete               bool       `json:"delete,omitempty"`
+}
+
+// issueFieldEntry resolves value into the setIssueFieldValue entry for an
+// issue-backed field, or returns why it cannot be written. Nothing is sent
+// when this fails.
+func issueFieldEntry(field *ProjectField, value string) (IssueFieldCreateOrUpdateInput, error) {
+	entry := IssueFieldCreateOrUpdateInput{FieldID: graphql.ID(field.IssueField.ID)}
+
+	// Cached metadata may be stale and must never drive a mutation (#917);
+	// issue field option IDs come only from a live organization.issueFields
+	// query.
+	if field.FromCache {
+		return entry, fmt.Errorf("field %q is an organization issue field, and its option IDs came from cached .gh-pmu.json metadata because the live field query was unavailable; cached metadata cannot drive a write — retry when GitHub is reachable", field.Name)
+	}
+
+	switch field.IssueField.DataType {
+	case "SINGLE_SELECT":
+		if value == "" {
+			entry.Delete = true
+			return entry, nil
+		}
+		for _, opt := range field.Options {
+			if opt.Name == value {
+				entry.SingleSelectOptionID = opt.ID
+				return entry, nil
+			}
+		}
+		return entry, fmt.Errorf("option %q not found for field %q", value, field.Name)
+	case "DATE":
+		if value == "" {
+			entry.Delete = true
+			return entry, nil
+		}
+		if _, err := time.Parse("2006-01-02", value); err != nil {
+			return entry, fmt.Errorf("invalid date format for field %q (expected YYYY-MM-DD): %s", field.Name, value)
+		}
+		entry.DateValue = value
+		return entry, nil
+	default:
+		return entry, fmt.Errorf("field %q is backed by an organization issue field of kind %s, which gh pmu cannot set (supported: SINGLE_SELECT, DATE)", field.Name, field.IssueField.DataType)
+	}
+}
+
+// setIssueFieldValue writes an issue-backed field through setIssueFieldValue.
+// That mutation is keyed on the Issue node ID, so the project item's content
+// ID is resolved first.
+func (c *Client) setIssueFieldValue(itemID string, field *ProjectField, value string) error {
+	entry, err := issueFieldEntry(field, value)
+	if err != nil {
+		return err
+	}
+	issueID, err := c.issueIDForProjectItem(itemID)
+	if err != nil {
+		return err
+	}
+	return c.mutateIssueFieldValue(issueID, entry, field.Name)
+}
+
+func (c *Client) mutateIssueFieldValue(issueID string, entry IssueFieldCreateOrUpdateInput, fieldName string) error {
+	var mutation struct {
+		SetIssueFieldValue struct {
+			ClientMutationID string `graphql:"clientMutationId"`
+		} `graphql:"setIssueFieldValue(input: $input)"`
+	}
+	input := SetIssueFieldValueInput{
+		IssueID:     graphql.ID(issueID),
+		IssueFields: []IssueFieldCreateOrUpdateInput{entry},
+	}
+	if err := c.gql.Mutate("SetIssueFieldValue", &mutation, map[string]interface{}{"input": input}); err != nil {
+		return fmt.Errorf("failed to set issue field %q: %w", fieldName, err)
+	}
+	return nil
+}
+
+// issueIDForProjectItem returns the Issue node ID behind a project item.
+func (c *Client) issueIDForProjectItem(itemID string) (string, error) {
+	var query struct {
+		Node struct {
+			ProjectV2Item struct {
+				Content struct {
+					TypeName string `graphql:"__typename"`
+					Issue    struct {
+						ID string
+					} `graphql:"... on Issue"`
+				}
+			} `graphql:"... on ProjectV2Item"`
+		} `graphql:"node(id: $itemId)"`
+	}
+	if err := c.gql.Query("GetProjectItemContent", &query, map[string]interface{}{"itemId": graphql.ID(itemID)}); err != nil {
+		return "", fmt.Errorf("failed to resolve the issue behind project item %s: %w", itemID, err)
+	}
+	content := query.Node.ProjectV2Item.Content
+	if content.TypeName != "Issue" || content.Issue.ID == "" {
+		return "", fmt.Errorf("project item %s is not an issue (content type %q); organization issue fields apply only to issues", itemID, content.TypeName)
+	}
+	return content.Issue.ID, nil
 }
