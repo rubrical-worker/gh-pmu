@@ -16,6 +16,12 @@ const (
 	issuePriorityValueNode = `{"__typename":"ProjectV2ItemIssueFieldValue","field":{"name":"Priority"},"issueFieldValue":{"name":"P1"}}`
 	issueStartDateNode     = `{"__typename":"ProjectV2ItemIssueFieldValue","field":{"name":"Start date"},"issueFieldValue":{"value":"2026-10-22"}}`
 	projectStatusValueNode = `{"__typename":"ProjectV2ItemFieldSingleSelectValue","name":"In progress","field":{"name":"Status"}}`
+	// TEXT, NUMBER and MULTI_SELECT issue field values (#934). Number arrives
+	// under the numberValue alias, multi-select as its selected options.
+	issueNotesTextNode      = `{"__typename":"ProjectV2ItemIssueFieldValue","field":{"name":"Notes"},"issueFieldValue":{"__typename":"IssueFieldTextValue","value":"needs design"}}`
+	issueEstimateNumberNode = `{"__typename":"ProjectV2ItemIssueFieldValue","field":{"name":"Estimate"},"issueFieldValue":{"__typename":"IssueFieldNumberValue","numberValue":3}}`
+	issueEffortNumberNode   = `{"__typename":"ProjectV2ItemIssueFieldValue","field":{"name":"Effort"},"issueFieldValue":{"__typename":"IssueFieldNumberValue","numberValue":2.5}}`
+	issueAreasMultiNode     = `{"__typename":"ProjectV2ItemIssueFieldValue","field":{"name":"Areas"},"issueFieldValue":{"__typename":"IssueFieldMultiSelectValue","options":[{"name":"api"},{"name":"cli"}]}}`
 )
 
 func fieldValueMap(values []FieldValue) map[string]string {
@@ -38,10 +44,25 @@ func assertIssueFieldValues(t *testing.T, values []FieldValue) {
 	if got["Status"] != "In progress" {
 		t.Errorf("Status = %q, want the project field value kept (values: %v)", got["Status"], got)
 	}
+	if got["Notes"] != "needs design" {
+		t.Errorf("Notes = %q, want the TEXT issue field value (values: %v)", got["Notes"], got)
+	}
+	if got["Estimate"] != "3" {
+		t.Errorf("Estimate = %q, want 3 with no trailing .0 (values: %v)", got["Estimate"], got)
+	}
+	if got["Effort"] != "2.5" {
+		t.Errorf("Effort = %q, want 2.5 (values: %v)", got["Effort"], got)
+	}
+	if got["Areas"] != "api, cli" {
+		t.Errorf("Areas = %q, want comma-joined option names (values: %v)", got["Areas"], got)
+	}
 }
 
 func fieldValueNodes() string {
-	return strings.Join([]string{projectStatusValueNode, issuePriorityValueNode, issueStartDateNode}, ",")
+	return strings.Join([]string{
+		projectStatusValueNode, issuePriorityValueNode, issueStartDateNode,
+		issueNotesTextNode, issueEstimateNumberNode, issueEffortNumberNode, issueAreasMultiNode,
+	}, ",")
 }
 
 func TestAppendRawFieldValues_IssueFieldValues(t *testing.T) {

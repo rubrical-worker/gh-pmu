@@ -1,5 +1,10 @@
 package api
 
+import (
+	"strconv"
+	"strings"
+)
+
 // Shared extraction of ProjectV2 field values (#874).
 //
 // Six call sites in queries.go previously duplicated the __typename switch that
@@ -26,13 +31,50 @@ const (
 	typeIssueFieldValue = "ProjectV2ItemIssueFieldValue"
 )
 
-// issueFieldValueText renders an issue field value: a single-select's option
-// name, otherwise its value (a date's YYYY-MM-DD).
-func issueFieldValueText(name, value string) string {
-	if name != "" {
-		return name
+// Members of the IssueFieldValue union whose rendering is not a plain string
+// (#934). Single-select, date and text need no case: they render as their
+// option name or value.
+const (
+	typeIssueFieldNumberValue      = "IssueFieldNumberValue"
+	typeIssueFieldMultiSelectValue = "IssueFieldMultiSelectValue"
+)
+
+// issueFieldValueParts is one decoded IssueFieldValue, from either the typed or
+// the raw selection.
+type issueFieldValueParts struct {
+	TypeName string
+	Name     string   // single-select option name
+	Value    string   // date (YYYY-MM-DD) or text
+	Number   *float64 // number
+	Options  []string // multi-select option names
+}
+
+// text renders an issue field value: a number without a trailing .0, a
+// multi-select as its comma-joined option names, a single-select as its option
+// name, otherwise its value (a date's YYYY-MM-DD or a text).
+func (p issueFieldValueParts) text() string {
+	switch p.TypeName {
+	case typeIssueFieldNumberValue:
+		if p.Number == nil {
+			return ""
+		}
+		return strconv.FormatFloat(*p.Number, 'f', -1, 64)
+	case typeIssueFieldMultiSelectValue:
+		return strings.Join(p.Options, ", ")
 	}
-	return value
+	if p.Name != "" {
+		return p.Name
+	}
+	return p.Value
+}
+
+// fieldOptionNames returns the option names of a multi-select value.
+func fieldOptionNames(options []struct{ Name string }) []string {
+	names := make([]string, 0, len(options))
+	for _, o := range options {
+		names = append(names, o.Name)
+	}
+	return names
 }
 
 // typedFieldValueNode mirrors the ProjectV2ItemFieldValue union selection used
@@ -62,25 +104,44 @@ type typedFieldValueNode struct {
 				Name string
 			} `graphql:"... on ProjectV2FieldCommon"`
 		}
+		// Number's value is aliased: `value` is String! on date and text,
+		// Float! on number and nullable String on multi-select, and
+		// GraphQL's FieldsInSetCanMerge rule rejects the unaliased set, which
+		// would fail every query sharing this selection (#934).
 		IssueFieldValue struct {
+			TypeName                    string `graphql:"__typename"`
 			IssueFieldSingleSelectValue struct {
 				Name string
 			} `graphql:"... on IssueFieldSingleSelectValue"`
 			IssueFieldDateValue struct {
 				Value string
 			} `graphql:"... on IssueFieldDateValue"`
+			IssueFieldTextValue struct {
+				Value string
+			} `graphql:"... on IssueFieldTextValue"`
+			IssueFieldNumberValue struct {
+				NumberValue float64 `graphql:"numberValue: value"`
+			} `graphql:"... on IssueFieldNumberValue"`
+			IssueFieldMultiSelectValue struct {
+				Options []struct{ Name string }
+			} `graphql:"... on IssueFieldMultiSelectValue"`
 		}
 	} `graphql:"... on ProjectV2ItemIssueFieldValue"`
 }
 
 // rawIssueFieldValueSelection is the ProjectV2ItemIssueFieldValue member of the
 // field-value union for the raw-JSON queries, decoded by rawFieldValueNode.
+// numberValue is aliased for the same FieldsInSetCanMerge reason as the typed
+// selection.
 const rawIssueFieldValueSelection = `... on ProjectV2ItemIssueFieldValue {
 									field { ... on ProjectV2FieldCommon { name } }
 									issueFieldValue {
 										__typename
 										... on IssueFieldSingleSelectValue { name }
 										... on IssueFieldDateValue { value }
+										... on IssueFieldTextValue { value }
+										... on IssueFieldNumberValue { numberValue: value }
+										... on IssueFieldMultiSelectValue { options { name } }
 									}
 								}`
 
@@ -94,8 +155,11 @@ type rawFieldValueNode struct {
 		Name string `json:"name"`
 	} `json:"field"`
 	IssueFieldValue struct {
-		Name  string `json:"name"`
-		Value string `json:"value"`
+		TypeName    string                  `json:"__typename"`
+		Name        string                  `json:"name"`
+		Value       string                  `json:"value"`
+		NumberValue *float64                `json:"numberValue"`
+		Options     []struct{ Name string } `json:"options"`
 	} `json:"issueFieldValue"`
 }
 
@@ -128,7 +192,20 @@ func appendTypedFieldValues(dst []FieldValue, nodes []typedFieldValueNode) []Fie
 		case typeIssueFieldValue:
 			v := n.ProjectV2ItemIssueFieldValue
 			fieldName = v.Field.Common.Name
-			value = issueFieldValueText(v.IssueFieldValue.IssueFieldSingleSelectValue.Name, v.IssueFieldValue.IssueFieldDateValue.Value)
+			ifv := v.IssueFieldValue
+			// Date and text both select `value`, so the decoder fills both
+			// fragments from the one JSON key; either holds the value.
+			dateOrText := ifv.IssueFieldDateValue.Value
+			if dateOrText == "" {
+				dateOrText = ifv.IssueFieldTextValue.Value
+			}
+			value = issueFieldValueParts{
+				TypeName: ifv.TypeName,
+				Name:     ifv.IssueFieldSingleSelectValue.Name,
+				Value:    dateOrText,
+				Number:   &ifv.IssueFieldNumberValue.NumberValue,
+				Options:  fieldOptionNames(ifv.IssueFieldMultiSelectValue.Options),
+			}.text()
 		}
 		if fv, ok := newFieldValue(n.TypeName, fieldName, value); ok {
 			dst = append(dst, fv)
@@ -147,7 +224,14 @@ func appendRawFieldValues(dst []FieldValue, nodes []rawFieldValueNode) []FieldVa
 		case typeTextValue:
 			value = n.Text
 		case typeIssueFieldValue:
-			value = issueFieldValueText(n.IssueFieldValue.Name, n.IssueFieldValue.Value)
+			ifv := n.IssueFieldValue
+			value = issueFieldValueParts{
+				TypeName: ifv.TypeName,
+				Name:     ifv.Name,
+				Value:    ifv.Value,
+				Number:   ifv.NumberValue,
+				Options:  fieldOptionNames(ifv.Options),
+			}.text()
 		}
 		if fv, ok := newFieldValue(n.TypeName, n.Field.Name, value); ok {
 			dst = append(dst, fv)
