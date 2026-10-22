@@ -124,3 +124,41 @@ func TestWriteConfigWithMetadata_ReInitKeepsIssueFieldOverride(t *testing.T) {
 		t.Errorf("re-init dropped the priority issue_field override: got %q", got)
 	}
 }
+
+// An override on an alias init does not regenerate was dropped with its alias,
+// silently reverting the user's classification decision (#936).
+func TestWriteConfigWithMetadata_ReInitKeepsOverrideOnUngeneratedAlias(t *testing.T) {
+	tmpDir := t.TempDir()
+	existing := `{
+  "project": {"owner": "acme", "number": 2},
+  "repositories": ["acme/app"],
+  "fields": {"severity": {"field": "Severity", "values": {"high": "High"}, "issue_field": "none"}}
+}`
+	if err := os.WriteFile(filepath.Join(tmpDir, ".gh-pmu.json"), []byte(existing), 0600); err != nil {
+		t.Fatalf("write existing config: %v", err)
+	}
+
+	cfg := &InitConfig{ProjectOwner: "acme", ProjectNumber: 2, Repositories: []string{"acme/app"}}
+	metadata := &ProjectMetadata{
+		ProjectID: "PVT_org",
+		Fields: []FieldMetadata{{
+			ID: "PVTSSF_status", Name: "Status", DataType: "SINGLE_SELECT", Kind: api.FieldKindProject,
+			Options: []OptionMetadata{{ID: "opt_backlog", Name: "Backlog"}},
+		}},
+	}
+	if err := writeConfigWithMetadata(tmpDir, cfg, metadata); err != nil {
+		t.Fatalf("writeConfigWithMetadata: %v", err)
+	}
+
+	loaded, err := config.Load(filepath.Join(tmpDir, ".gh-pmu.json"))
+	if err != nil {
+		t.Fatalf("reload config: %v", err)
+	}
+	severity, ok := loaded.Fields["severity"]
+	if !ok {
+		t.Fatalf("re-init dropped the severity alias carrying an issue_field override; fields: %v", loaded.Fields)
+	}
+	if severity.Field != "Severity" || severity.IssueField != "none" || severity.Values["high"] != "High" {
+		t.Errorf("severity alias = %+v, want it kept as written", severity)
+	}
+}

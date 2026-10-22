@@ -739,12 +739,19 @@ func writeConfigWithMetadata(dir string, cfg *InitConfig, metadata *ProjectMetad
 		if prev, ok := existingCfg.Fields["branch"]; ok && prev.Field != "" {
 			fieldMappings["branch"] = FieldMapping{Field: prev.Field}
 		}
-		// Keep user-set issue field overrides (#932) across re-init.
+		// Keep user-set issue field overrides (#932) across re-init. An
+		// override on an alias init does not regenerate keeps its whole alias:
+		// the override means nothing without it (#936).
 		for alias, prev := range existingCfg.Fields {
-			if m, ok := fieldMappings[alias]; ok && prev.IssueField != "" {
+			if prev.IssueField == "" {
+				continue
+			}
+			if m, ok := fieldMappings[alias]; ok {
 				m.IssueField = prev.IssueField
 				fieldMappings[alias] = m
+				continue
 			}
+			fieldMappings[alias] = FieldMapping{Field: prev.Field, Values: prev.Values, IssueField: prev.IssueField}
 		}
 	}
 
