@@ -1357,9 +1357,14 @@ func (c *Client) getBoardItemsPage(projectID string, cursor *string) ([]BoardIte
 								}
 							} `graphql:"... on Issue"`
 						}
+						// 20 matches the other item queries; hasNextPage flags an
+						// item whose Status or Priority may lie past the page (#934).
 						FieldValues struct {
-							Nodes []typedFieldValueNode
-						} `graphql:"fieldValues(first: 10)"`
+							Nodes    []typedFieldValueNode
+							PageInfo struct {
+								HasNextPage bool
+							}
+						} `graphql:"fieldValues(first: 20)"`
 					}
 					PageInfo struct {
 						HasNextPage bool
@@ -1391,10 +1396,11 @@ func (c *Client) getBoardItemsPage(projectID string, cursor *string) ([]BoardIte
 		}
 
 		item := BoardItem{
-			Number:     node.Content.Issue.Number,
-			Title:      node.Content.Issue.Title,
-			State:      node.Content.Issue.State,
-			Repository: node.Content.Issue.Repository.NameWithOwner,
+			Number:               node.Content.Issue.Number,
+			Title:                node.Content.Issue.Title,
+			State:                node.Content.Issue.State,
+			Repository:           node.Content.Issue.Repository.NameWithOwner,
+			FieldValuesTruncated: node.FieldValues.PageInfo.HasNextPage,
 		}
 
 		// Extract Status and Priority from field values. Priority may be an

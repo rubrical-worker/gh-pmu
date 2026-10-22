@@ -170,6 +170,9 @@ type BoardItem struct {
 	Status     string
 	Priority   string
 	Repository string // "owner/repo" format for filtering
+	// FieldValuesTruncated is true when the item has more field values than
+	// one page fetched, so Status or Priority may be missing (#934).
+	FieldValuesTruncated bool
 }
 
 // IssueRef represents a reference to a GitHub issue by owner/repo/number.

@@ -136,6 +136,39 @@ func TestGetProjectFieldsForIssues_IssueFieldValues(t *testing.T) {
 	assertIssueFieldValues(t, byIssue[issueID])
 }
 
+// board: an item with more field values than one page must be flagged, and the
+// board must fetch as many values per item as the other item queries (#934).
+func TestGetProjectItemsForBoard_FieldValuesTruncated(t *testing.T) {
+	var query string
+	c, _ := newScriptedClient(t, func(req scriptedRequest) string {
+		if req.Op != "GetProjectItemsForBoard" {
+			return ""
+		}
+		query = req.Query
+		return `{"data":{"node":{"items":{"nodes":[` +
+			`{"content":{"__typename":"Issue","number":7,"title":"t","state":"OPEN","repository":{"nameWithOwner":"acme/app"}},"fieldValues":{"nodes":[` + projectStatusValueNode + `],"pageInfo":{"hasNextPage":true}}},` +
+			`{"content":{"__typename":"Issue","number":8,"title":"u","state":"OPEN","repository":{"nameWithOwner":"acme/app"}},"fieldValues":{"nodes":[` + projectStatusValueNode + `],"pageInfo":{"hasNextPage":false}}}` +
+			`],"pageInfo":{"hasNextPage":false,"endCursor":""}}}}}`
+	})
+
+	items, err := c.GetProjectItemsForBoard("PVT_org", nil)
+	if err != nil {
+		t.Fatalf("GetProjectItemsForBoard: %v", err)
+	}
+	if !strings.Contains(query, "fieldValues(first: 20)") {
+		t.Errorf("board query should fetch 20 field values per item like the other item queries; query: %s", query)
+	}
+	if len(items) != 2 {
+		t.Fatalf("items = %d, want 2", len(items))
+	}
+	if !items[0].FieldValuesTruncated {
+		t.Error("item #7 has more field values than fetched and should be flagged truncated")
+	}
+	if items[1].FieldValuesTruncated {
+		t.Error("item #8 fetched every field value and should not be flagged")
+	}
+}
+
 // board.
 func TestGetProjectItemsForBoard_IssueFieldPriority(t *testing.T) {
 	c, _ := newScriptedClient(t, func(req scriptedRequest) string {
