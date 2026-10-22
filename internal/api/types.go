@@ -55,6 +55,33 @@ type ProjectField struct {
 	// because the live resolver was unavailable. Cached fields carry only IDs
 	// and names and may be stale, so they must never drive a mutation (#917).
 	FromCache bool
+	// IssueField is set when this project field displays an organization-level
+	// issue field (#932). The project API returns such a field as an ordinary,
+	// option-less ProjectV2 field, so reads and writes must go through the
+	// issue field instead; Options then holds the issue field's options. nil
+	// for an ordinary project field.
+	IssueField *IssueFieldInfo
+}
+
+// IssueFieldInfo identifies the organization issue field behind a project field.
+type IssueFieldInfo struct {
+	ID       string // IFSS_… / IFD_… node ID
+	DataType string // SINGLE_SELECT, DATE, MULTI_SELECT, NUMBER or TEXT
+}
+
+// Field kinds, as reported by ProjectField.Kind and cached in .gh-pmu.json.
+const (
+	FieldKindProject    = "PROJECT_FIELD"
+	FieldKindIssueField = "ISSUE_FIELD"
+)
+
+// Kind reports whether the field is an ordinary project field or an
+// organization issue field.
+func (f ProjectField) Kind() string {
+	if f.IssueField != nil {
+		return FieldKindIssueField
+	}
+	return FieldKindProject
 }
 
 // FieldOption represents an option for a single-select field

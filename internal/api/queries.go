@@ -138,9 +138,10 @@ func (c *Client) GetProjectFields(projectID string) ([]ProjectField, error) {
 
 	var allFields []ProjectField
 	var cursor *string
+	var orgLogin string
 
 	for {
-		fields, pInfo, err := c.getProjectFieldsPage(projectID, cursor)
+		fields, pInfo, owner, err := c.getProjectFieldsPageWithOwner(projectID, cursor)
 		if err != nil {
 			if errors.Is(err, ErrFieldResolverUnavailable) && !fallbackOptions.NoCacheFallback {
 				cached, fallbackErr := loadCachedProjectFieldsOrError(err)
@@ -165,6 +166,9 @@ func (c *Client) GetProjectFields(projectID string) ([]ProjectField, error) {
 		}
 
 		allFields = append(allFields, fields...)
+		if owner != "" {
+			orgLogin = owner
+		}
 
 		if !pInfo.HasNextPage {
 			break
@@ -172,14 +176,32 @@ func (c *Client) GetProjectFields(projectID string) ([]ProjectField, error) {
 		cursor = &pInfo.EndCursor
 	}
 
+	// Only organization-owned projects can display org issue fields (#932);
+	// a user-owned project never issues the issueFields query.
+	if orgLogin != "" {
+		return c.classifyIssueFields(projectID, orgLogin, allFields)
+	}
 	return allFields, nil
 }
 
 // getProjectFieldsPage fetches a single page of project fields
 func (c *Client) getProjectFieldsPage(projectID string, cursor *string) ([]ProjectField, pageInfo, error) {
+	fields, pInfo, _, err := c.getProjectFieldsPageWithOwner(projectID, cursor)
+	return fields, pInfo, err
+}
+
+// getProjectFieldsPageWithOwner fetches a single page of project fields plus
+// the owning organization's login. orgLogin is empty for a user-owned project.
+func (c *Client) getProjectFieldsPageWithOwner(projectID string, cursor *string) (fields []ProjectField, pInfo pageInfo, orgLogin string, err error) {
 	var query struct {
 		Node struct {
 			ProjectV2 struct {
+				Owner struct {
+					TypeName     string `graphql:"__typename"`
+					Organization struct {
+						Login string
+					} `graphql:"... on Organization"`
+				}
 				Fields struct {
 					Nodes []struct {
 						TypeName string `graphql:"__typename"`
@@ -219,7 +241,7 @@ func (c *Client) getProjectFieldsPage(projectID string, cursor *string) ([]Proje
 		variables["cursor"] = graphql.String(*cursor)
 	}
 
-	err := c.gql.Query("GetProjectFields", &query, variables)
+	err = c.gql.Query("GetProjectFields", &query, variables)
 	if err != nil {
 		// When GitHub's ProjectV2.fields resolver is crashing (e.g., the
 		// 2026-05-14 timestamp-fields auto-rollout), wrap the original error
@@ -230,10 +252,13 @@ func (c *Client) getProjectFieldsPage(projectID string, cursor *string) ([]Proje
 		if IsFieldResolverUnavailable(err) {
 			err = errors.Join(ErrFieldResolverUnavailable, err)
 		}
-		return nil, pageInfo{}, fmt.Errorf("failed to get project fields: %w", err)
+		return nil, pageInfo{}, "", fmt.Errorf("failed to get project fields: %w", err)
 	}
 
-	var fields []ProjectField
+	if query.Node.ProjectV2.Owner.TypeName == "Organization" {
+		orgLogin = query.Node.ProjectV2.Owner.Organization.Login
+	}
+
 	for _, node := range query.Node.ProjectV2.Fields.Nodes {
 		field := ProjectField{}
 
@@ -265,7 +290,7 @@ func (c *Client) getProjectFieldsPage(projectID string, cursor *string) ([]Proje
 	return fields, pageInfo{
 		HasNextPage: query.Node.ProjectV2.Fields.PageInfo.HasNextPage,
 		EndCursor:   query.Node.ProjectV2.Fields.PageInfo.EndCursor,
-	}, nil
+	}, orgLogin, nil
 }
 
 // fetchProjectFieldByName resolves a single ProjectV2 field by name.

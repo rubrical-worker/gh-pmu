@@ -103,6 +103,8 @@ func namedOperationInvocations() []func(c *Client) {
 		func(c *Client) { _, _, _ = c.getProjectViewsPage("owner", 1, &cursor) },
 		func(c *Client) { _, _ = c.fetchProjectFieldByName("PVT_kw1", "Status") },
 		func(c *Client) { _, _, _ = c.getProjectFieldsPage("PVT_kw1", &cursor) },
+		func(c *Client) { _, _ = c.fetchOrgIssueFields("acme") },
+		func(c *Client) { _, _ = c.fetchIssueFieldPairs("PVT_kw1") },
 		func(c *Client) { _, _ = c.GetIssue("owner", "repo", 1) },
 		func(c *Client) { _, _, _ = c.GetIssueWithProjectFields("PVT_kw1", "owner", "repo", 1) },
 		func(c *Client) { _, _ = c.GetProjectItemIDForIssue("PVT_kw1", "owner", "repo", 1) },

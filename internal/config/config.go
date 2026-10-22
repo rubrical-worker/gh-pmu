@@ -178,6 +178,9 @@ type Defaults struct {
 type Field struct {
 	Field  string            `yaml:"field" json:"field"`
 	Values map[string]string `yaml:"values,omitempty" json:"values,omitempty"`
+	// IssueField overrides org issue field detection for this field (#932):
+	// an issue field ID (IFSS_…/IFD_…) pins it, "none" keeps it a project field.
+	IssueField string `yaml:"issue_field,omitempty" json:"issue_field,omitempty"`
 }
 
 // Triage contains configuration for triage rules
