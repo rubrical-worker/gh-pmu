@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 	"sync"
 
 	"github.com/rubrical-works/gh-pmu/internal/config"
@@ -109,18 +110,34 @@ func defaultFieldsCacheLoader() ([]ProjectField, error) {
 	return projectFieldsFromMetadataShape(shapes), nil
 }
 
-// checkCachedIssueFieldClassification refuses a cache written before org issue
-// fields were detected (#932). Such a cache stores an issue-backed field as the
-// option-less single-select the project API reports, with no kind, and
-// proceeding on it would silently leave that field unset. A single-select with
-// no options and no kind is exactly that shape.
+// checkCachedIssueFieldClassification refuses a cache whose entries are not
+// classified (#932). A cache written before org issue fields were detected, or
+// by an init that could not classify a field, stores no kind, and proceeding on
+// it routes an issue-backed field to the project-field write. Any data type can
+// be issue-backed — the single-select-only check let a DATE field through
+// (#933) — so every entry without a kind is refused, as is an issue field entry
+// missing the issue field ID its write needs.
 func checkCachedIssueFieldClassification(shapes []cachedFieldShape) error {
+	var unclassified, incomplete []string
 	for _, s := range shapes {
-		if s.Kind == "" && s.DataType == "SINGLE_SELECT" && len(s.Options) == 0 {
-			return fmt.Errorf("cached metadata for field %q predates organization issue field detection (a single-select with no options and no recorded kind) — run 'gh pmu init' to refresh .gh-pmu.json", s.Name)
+		switch {
+		case s.Kind == "":
+			unclassified = append(unclassified, fmt.Sprintf("%q", s.Name))
+		case s.Kind == FieldKindIssueField && s.IssueFieldID == "":
+			incomplete = append(incomplete, fmt.Sprintf("%q", s.Name))
 		}
 	}
-	return nil
+	var problems []string
+	if len(unclassified) > 0 {
+		problems = append(problems, fmt.Sprintf("field(s) %s have no recorded kind", strings.Join(unclassified, ", ")))
+	}
+	if len(incomplete) > 0 {
+		problems = append(problems, fmt.Sprintf("issue field(s) %s have no recorded issue field ID", strings.Join(incomplete, ", ")))
+	}
+	if len(problems) == 0 {
+		return nil
+	}
+	return fmt.Errorf("cached field metadata is not classified for organization issue fields (%s) — run 'gh pmu init' to refresh .gh-pmu.json", strings.Join(problems, "; "))
 }
 
 // projectFieldsFromMetadataShape is a pure converter from cached metadata

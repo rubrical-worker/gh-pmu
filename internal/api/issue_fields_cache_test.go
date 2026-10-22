@@ -63,6 +63,46 @@ func TestGetProjectFields_Fallback_PreFixIssueFieldCacheFailsNamingInit(t *testi
 	}
 }
 
+// The guard keyed only on the single-select shape, so a pre-#932 entry for an
+// issue-backed DATE field passed it and was routed to the project-field write
+// (#933). Any entry with no recorded kind is unclassified, whatever its type.
+func TestGetProjectFields_Fallback_PreFixDateFieldCacheFailsNamingInit(t *testing.T) {
+	resetFieldsCacheWarningForTesting()
+	withConfigFixture(t, `
+    {"name": "Status", "id": "PVTSSF_status", "data_type": "SINGLE_SELECT", "kind": "PROJECT_FIELD",
+     "options": [{"name": "Backlog", "id": "opt_backlog"}]},
+    {"name": "Start date", "id": "PVTF_start", "data_type": "DATE"}`)
+
+	fields, err := crashingFieldsClient().GetProjectFields("PVT_org")
+	if err == nil {
+		t.Fatalf("expected the unclassified DATE entry to be refused, got %d fields", len(fields))
+	}
+	msg := err.Error()
+	if !strings.Contains(msg, "gh pmu init") {
+		t.Errorf("error should name 'gh pmu init' as the remedy: %v", msg)
+	}
+	if !strings.Contains(msg, "Start date") {
+		t.Errorf("error should name the unclassified field: %v", msg)
+	}
+	if strings.Contains(msg, "Status") {
+		t.Errorf("Status has a recorded kind and should not be named: %v", msg)
+	}
+}
+
+// An issue field entry without its issue field ID cannot be written through
+// setIssueFieldValue; status --update used to write exactly that shape (#933).
+func TestGetProjectFields_Fallback_IncompleteIssueFieldCacheFailsNamingInit(t *testing.T) {
+	resetFieldsCacheWarningForTesting()
+	withConfigFixture(t, `
+    {"name": "Status", "id": "PVTSSF_status", "data_type": "SINGLE_SELECT", "kind": "ISSUE_FIELD",
+     "options": [{"name": "Backlog", "id": "opt_backlog"}]}`)
+
+	_, err := crashingFieldsClient().GetProjectFields("PVT_org")
+	if err == nil || !strings.Contains(err.Error(), "gh pmu init") || !strings.Contains(err.Error(), "Status") {
+		t.Fatalf("expected the incomplete issue field entry to be refused naming Status and 'gh pmu init', got: %v", err)
+	}
+}
+
 func TestGetProjectFields_Fallback_LoadsCachedIssueFieldKind(t *testing.T) {
 	resetFieldsCacheWarningForTesting()
 	withConfigFixture(t, `
