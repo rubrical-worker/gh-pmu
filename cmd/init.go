@@ -545,6 +545,26 @@ func fieldMetadataFromProjectField(f api.ProjectField) FieldMetadata {
 	return fm
 }
 
+// configFieldMetadata converts a field into a config metadata entry carrying
+// the same classification fieldMetadataFromProjectField records, with options
+// supplied by the caller. Commands that update .gh-pmu.json after init use it
+// so they never cache a partial classification (#933).
+func configFieldMetadata(f api.ProjectField, options []api.FieldOption) config.FieldMetadata {
+	fm := fieldMetadataFromProjectField(f)
+	meta := config.FieldMetadata{
+		Name:               fm.Name,
+		ID:                 fm.ID,
+		DataType:           fm.DataType,
+		Kind:               fm.Kind,
+		IssueFieldID:       fm.IssueFieldID,
+		IssueFieldDataType: fm.IssueFieldDataType,
+	}
+	for _, opt := range options {
+		meta.Options = append(meta.Options, config.OptionMetadata{Name: opt.Name, ID: opt.ID})
+	}
+	return meta
+}
+
 // OptionMetadata holds option information for single-select fields.
 type OptionMetadata struct {
 	ID   string
