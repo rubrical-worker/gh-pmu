@@ -1,12 +1,12 @@
 {
   "version": 1,
-  "lastRun": "2026-10-22",
+  "lastRun": "2026-10-22T21:29:50.286Z",
   "charter": {
     "contentHash": "sha256:9549d1555ebb13b1e9092f835815b04fa9e1c873efe761d137fbafac882364f3"
   },
   "files": {
     "main.go": {
-      "contentHash": "sha256:db133a2faefb69e1a434bd341e6e5d40ad6ab3b27862d1308e32296e614c16a0",
+      "contentHash": "sha256:5f39e1adf83c384194576d292d638257cbb901cb144e11812187746fa0063ea9",
       "status": "approved",
       "reviewedAt": "2026-10-22",
       "findingCount": 0,
@@ -34,10 +34,10 @@
       ]
     },
     "cmd/board.go": {
-      "contentHash": "sha256:9b080150caa8a2838bfbb76da6ca7e5da121773a3958b8e8a11713d7b532dc90",
-      "status": "flagged",
-      "reviewedAt": "2026-07-13",
-      "findingCount": 4,
+      "contentHash": "sha256:cfa94f35e7ebe10f17396d188ff4a08bf584136a6b72694f7f6607929822ccea",
+      "status": "approved",
+      "reviewedAt": "2026-10-22",
+      "findingCount": 0,
       "findings": [],
       "issueRefs": [
         868
@@ -48,21 +48,11 @@
       ]
     },
     "cmd/branch.go": {
-      "contentHash": "sha256:acd09e77730a46f14e6c08cb18c3abaec760a82b3c011bdccbe43fcc0b6d8595",
+      "contentHash": "sha256:a15bfb9b94fff791bde4a4cb51cc38811a3d3940570263f21735b90f9f358018",
       "status": "flagged",
       "reviewedAt": "2026-10-22",
-      "findingCount": 3,
+      "findingCount": 2,
       "findings": [
-        {
-          "file": "cmd/branch.go",
-          "startLine": 1171,
-          "endLine": 1236,
-          "category": "error-handling",
-          "severity": "high",
-          "description": "branch close reports all issues moved and exits 0 when some moves failed",
-          "tag": "pre-existing",
-          "issue": 938
-        },
         {
           "file": "cmd/branch.go",
           "startLine": 732,
@@ -70,8 +60,7 @@
           "category": "correctness",
           "severity": "medium",
           "description": "branch add fails after setting Branch when the issue already has a parent",
-          "tag": "pre-existing",
-          "issue": null
+          "tag": "pre-existing"
         },
         {
           "file": "cmd/branch.go",
@@ -80,8 +69,7 @@
           "category": "correctness",
           "severity": "low",
           "description": "branch current --json=, passes; '*' documented but rejected",
-          "tag": "introduced",
-          "issue": null
+          "tag": "introduced"
         }
       ],
       "issueRefs": [
@@ -182,32 +170,11 @@
       ]
     },
     "cmd/field.go": {
-      "contentHash": "sha256:1fc1aaeb3cad386313ddd381403b4a4fcf1d2b1ae450d8a810696e766af29e7a",
-      "status": "flagged",
+      "contentHash": "sha256:de1793f142d75aa4e31ea444f2d34b7ab8b1ba87b621d48c57dbd25d570c35f6",
+      "status": "approved",
       "reviewedAt": "2026-10-22",
-      "findingCount": 2,
-      "findings": [
-        {
-          "file": "cmd/field.go",
-          "startLine": 183,
-          "endLine": 188,
-          "category": "correctness",
-          "severity": "low",
-          "description": "field create hard-codes PROJECT_FIELD kind in cache",
-          "tag": "introduced",
-          "issue": 933
-        },
-        {
-          "file": "cmd/field.go",
-          "startLine": 176,
-          "endLine": 205,
-          "category": "error-handling",
-          "severity": "medium",
-          "description": "field create exits 0 when config update fails after creating the field",
-          "tag": "introduced",
-          "issue": 938
-        }
-      ],
+      "findingCount": 0,
+      "findings": [],
       "issueRefs": [
         933,
         938
@@ -256,31 +223,11 @@
       ]
     },
     "cmd/init.go": {
-      "contentHash": "sha256:891dff7ade975fc13afdb00d03fb37b4d4fb2ae934717cf952d94fae3b81f36e",
+      "contentHash": "sha256:38ac52b82f971e3519f677a8a253eaeb4473d18fe400804c1249b25198de676a",
       "status": "flagged",
       "reviewedAt": "2026-10-22",
-      "findingCount": 5,
+      "findingCount": 3,
       "findings": [
-        {
-          "file": "cmd/init.go",
-          "startLine": 318,
-          "endLine": 336,
-          "category": "correctness",
-          "severity": "medium",
-          "description": "init per-name fallback caches issue-backed fields as PROJECT_FIELD",
-          "tag": "pre-existing",
-          "issue": 933
-        },
-        {
-          "file": "cmd/init.go",
-          "startLine": 717,
-          "endLine": 723,
-          "category": "correctness",
-          "severity": "medium",
-          "description": "Re-init drops issue_field overrides on non-regenerated aliases",
-          "tag": "introduced",
-          "issue": 936
-        },
         {
           "file": "cmd/init.go",
           "startLine": 96,
@@ -288,18 +235,7 @@
           "category": "correctness",
           "severity": "medium",
           "description": "init --source-project can read another project's cached fields",
-          "tag": "pre-existing",
-          "issue": null
-        },
-        {
-          "file": "cmd/init.go",
-          "startLine": 707,
-          "endLine": 767,
-          "category": "security",
-          "severity": "medium",
-          "description": "Re-init drops unmodeled top-level keys such as configIntegrity",
-          "tag": "introduced",
-          "issue": 936
+          "tag": "pre-existing"
         },
         {
           "file": "cmd/init.go",
@@ -308,8 +244,16 @@
           "category": "correctness",
           "severity": "medium",
           "description": "init --yes from a subdirectory shadows the parent config",
-          "tag": "pre-existing",
-          "issue": null
+          "tag": "pre-existing"
+        },
+        {
+          "file": "cmd/init.go",
+          "startLine": 222,
+          "endLine": 238,
+          "category": "error-handling",
+          "severity": "low",
+          "description": "init --source-project omits the \"Created .gh-pmu.json\" line when it returns partial success after a refetch failure, though the config was written",
+          "tag": "pre-existing"
         }
       ],
       "issueRefs": [
@@ -324,22 +268,11 @@
       ]
     },
     "cmd/init_atomic.go": {
-      "contentHash": "sha256:6af2dc4c4314a47afc01e8f87ff7570e8e94fdc4be1ad1efcce1f1b57d873dbe",
-      "status": "flagged",
+      "contentHash": "sha256:742d4567133148e686acc90ed2a3d4e5cbd08499f0a4a7eb8d089daf8d33de3a",
+      "status": "approved",
       "reviewedAt": "2026-10-22",
-      "findingCount": 1,
-      "findings": [
-        {
-          "file": "cmd/init_atomic.go",
-          "startLine": 86,
-          "endLine": 100,
-          "category": "error-handling",
-          "severity": "medium",
-          "description": "init refetch failure writes empty metadata and exits 0",
-          "tag": "introduced",
-          "issue": 938
-        }
-      ],
+      "findingCount": 0,
+      "findings": [],
       "issueRefs": [
         938
       ],
@@ -428,60 +361,28 @@
       ]
     },
     "cmd/move.go": {
-      "contentHash": "sha256:a102809c34232a7038206572a336b5bbcf8a6c35e7f3cbcfd603ac189102579c",
+      "contentHash": "sha256:9829b14d9b06c3b1e024a1720e990d389de25728f6b022aaddb76637d686bbed",
       "status": "flagged",
       "reviewedAt": "2026-10-22",
-      "findingCount": 5,
+      "findingCount": 2,
       "findings": [
         {
           "file": "cmd/move.go",
-          "startLine": 376,
-          "endLine": 390,
+          "startLine": 383,
+          "endLine": 397,
           "category": "correctness",
           "severity": "medium",
           "description": "move --branch current picks the first tracker and keeps codename suffix",
-          "tag": "pre-existing",
-          "issue": null
+          "tag": "pre-existing"
         },
         {
           "file": "cmd/move.go",
-          "startLine": 404,
-          "endLine": 411,
-          "category": "error-handling",
-          "severity": "medium",
-          "description": "move discards active-branch fetch error, disabling validation",
-          "tag": "pre-existing",
-          "issue": 939
-        },
-        {
-          "file": "cmd/move.go",
-          "startLine": 304,
-          "endLine": 334,
-          "category": "error-handling",
-          "severity": "medium",
-          "description": "Recursive move counts enrichment failures as skipped and exits 0",
-          "tag": "pre-existing",
-          "issue": 938
-        },
-        {
-          "file": "cmd/move.go",
-          "startLine": 772,
-          "endLine": 793,
-          "category": "error-handling",
-          "severity": "medium",
-          "description": "Recursive move silently drops subtrees it could not list",
-          "tag": "pre-existing",
-          "issue": 938
-        },
-        {
-          "file": "cmd/move.go",
-          "startLine": 400,
-          "endLine": 466,
+          "startLine": 407,
+          "endLine": 476,
           "category": "correctness",
           "severity": "low",
           "description": "move validationResults keyed by number collides across repos",
-          "tag": "pre-existing",
-          "issue": null
+          "tag": "introduced"
         }
       ],
       "issueRefs": [
@@ -528,40 +429,19 @@
       ]
     },
     "cmd/sub.go": {
-      "contentHash": "sha256:9d1895f2e907c27b765784ccb12a9aacd6ed08df7a4d4af2a73f02eb6cc0fa2c",
+      "contentHash": "sha256:3031293bf250d37cb123a43b1761dd5ee37362286bee3209b2f572e19ce52e84",
       "status": "flagged",
       "reviewedAt": "2026-10-22",
-      "findingCount": 3,
+      "findingCount": 1,
       "findings": [
         {
           "file": "cmd/sub.go",
-          "startLine": 451,
-          "endLine": 488,
-          "category": "error-handling",
-          "severity": "medium",
-          "description": "sub create exits 0 when adding to --project fails",
-          "tag": "pre-existing",
-          "issue": 938
-        },
-        {
-          "file": "cmd/sub.go",
-          "startLine": 668,
-          "endLine": 701,
-          "category": "error-handling",
-          "severity": "medium",
-          "description": "sub list discards parent and sibling fetch errors",
-          "tag": "pre-existing",
-          "issue": 939
-        },
-        {
-          "file": "cmd/sub.go",
-          "startLine": 703,
-          "endLine": 711,
+          "startLine": 718,
+          "endLine": 726,
           "category": "correctness",
           "severity": "medium",
           "description": "sub list --limit computes summary from the truncated slice",
-          "tag": "pre-existing",
-          "issue": null
+          "tag": "pre-existing"
         }
       ],
       "issueRefs": [
@@ -605,31 +485,11 @@
       ]
     },
     "cmd/view.go": {
-      "contentHash": "sha256:b3467eb9903011c9ca7898e89b21d642d2f06e6d616f74d553ad51c3d6579d15",
+      "contentHash": "sha256:efb9295cedbf6d8f0b1877dae8fc77f00ce3002d9d5925e113bef3e73f9307c2",
       "status": "flagged",
       "reviewedAt": "2026-10-22",
-      "findingCount": 3,
+      "findingCount": 1,
       "findings": [
-        {
-          "file": "cmd/view.go",
-          "startLine": 345,
-          "endLine": 369,
-          "category": "error-handling",
-          "severity": "high",
-          "description": "Multi-issue view exits 0 when some issues fail to load",
-          "tag": "pre-existing",
-          "issue": 938
-        },
-        {
-          "file": "cmd/view.go",
-          "startLine": 461,
-          "endLine": 481,
-          "category": "error-handling",
-          "severity": "medium",
-          "description": "view discards sub-issue, parent and comment fetch errors",
-          "tag": "pre-existing",
-          "issue": 939
-        },
         {
           "file": "cmd/view.go",
           "startLine": 135,
@@ -637,8 +497,7 @@
           "category": "error-handling",
           "severity": "medium",
           "description": "view --json silently ignores unknown field names",
-          "tag": "introduced",
-          "issue": null
+          "tag": "introduced"
         }
       ],
       "issueRefs": [
@@ -653,10 +512,10 @@
       ]
     },
     "internal/api/client.go": {
-      "contentHash": "sha256:75793b297b650891ad9ca50f99b587117789ebeb45b0af22c30ee32d7a876710",
-      "status": "flagged",
-      "reviewedAt": "2026-07-13",
-      "findingCount": 2,
+      "contentHash": "sha256:dbc1cc3910dc1e0e60429763abdc486a0a6a8c91030677c29ee3019ff51ceb3f",
+      "status": "approved",
+      "reviewedAt": "2026-10-22",
+      "findingCount": 0,
       "findings": [],
       "issueRefs": [
         859
@@ -671,7 +530,7 @@
       ]
     },
     "internal/api/errors.go": {
-      "contentHash": "sha256:9431e53389d026524cf0aa03df5a5b5a9e104603397cecf5a718e7f31b7fc227",
+      "contentHash": "sha256:2a9c13f94279ce1402f744f5740dbfcce7a06a0abdfb89ed57e697fe3e701b56",
       "status": "approved",
       "reviewedAt": "2026-10-22",
       "findingCount": 0,
@@ -683,22 +542,11 @@
       ]
     },
     "internal/api/fields_fallback.go": {
-      "contentHash": "sha256:b5d30d276b862375204bf7fb0a1a96c4cdbb7a9d7b4571976ef5e10601a615a5",
-      "status": "flagged",
+      "contentHash": "sha256:b4987293ac5f03beaddf06d0bc77cb2833684afbeb6e0f4a112f7c5fbdc422fa",
+      "status": "approved",
       "reviewedAt": "2026-10-22",
-      "findingCount": 1,
-      "findings": [
-        {
-          "file": "internal/api/fields_fallback.go",
-          "startLine": 112,
-          "endLine": 124,
-          "category": "correctness",
-          "severity": "medium",
-          "description": "Pre-#932 cache guard misses issue-backed DATE fields",
-          "tag": "introduced",
-          "issue": 933
-        }
-      ],
+      "findingCount": 0,
+      "findings": [],
       "issueRefs": [
         933
       ],
@@ -738,70 +586,19 @@
       ]
     },
     "internal/api/queries.go": {
-      "contentHash": "sha256:4c0647d4bfc1e50b127ac0641bb07b34d86bd553868de6f82ccd6801442fb9a5",
+      "contentHash": "sha256:8881534696d364e23336b12e3eb67c380d8f9f9ad3dff6dc077f734d6cf00270",
       "status": "flagged",
       "reviewedAt": "2026-10-22",
-      "findingCount": 6,
+      "findingCount": 1,
       "findings": [
         {
           "file": "internal/api/queries.go",
-          "startLine": 1983,
-          "endLine": 2024,
-          "category": "error-handling",
-          "severity": "high",
-          "description": "GetProjectFieldsForIssues ignores GraphQL errors and returns an empty map",
-          "tag": "pre-existing",
-          "issue": 937
-        },
-        {
-          "file": "internal/api/queries.go",
-          "startLine": 1360,
-          "endLine": 1409,
-          "category": "correctness",
-          "severity": "medium",
-          "description": "Board query fieldValues(first: 10) can truncate Priority",
-          "tag": "introduced",
-          "issue": 934
-        },
-        {
-          "file": "internal/api/queries.go",
-          "startLine": 1141,
-          "endLine": 1161,
-          "category": "correctness",
-          "severity": "medium",
-          "description": "Issue field value fragment is unconditional; schemas without it fail every read",
-          "tag": "introduced",
-          "issue": 935
-        },
-        {
-          "file": "internal/api/queries.go",
-          "startLine": 2930,
-          "endLine": 2953,
-          "category": "error-handling",
-          "severity": "medium",
-          "description": "Batch view reports document-level GraphQL errors as issue not found",
-          "tag": "pre-existing",
-          "issue": 937
-        },
-        {
-          "file": "internal/api/queries.go",
-          "startLine": 3073,
-          "endLine": 3095,
-          "category": "error-handling",
-          "severity": "medium",
-          "description": "parseParentIssueBatchResponse ignores GraphQL errors",
-          "tag": "pre-existing",
-          "issue": 937
-        },
-        {
-          "file": "internal/api/queries.go",
-          "startLine": 1141,
-          "endLine": 1145,
+          "startLine": 1179,
+          "endLine": 1183,
           "category": "correctness",
           "severity": "low",
           "description": "Batch projectItems queries truncate without warning",
-          "tag": "pre-existing",
-          "issue": null
+          "tag": "pre-existing"
         }
       ],
       "issueRefs": [
@@ -849,7 +646,7 @@
       "domains": []
     },
     "internal/api/types.go": {
-      "contentHash": "sha256:58d75ab99e776a4aadbafee328ca52f4e5bf54fb0a79ec3a0b2bd2af7d2f8864",
+      "contentHash": "sha256:2a5ead22397459bb272b13080096c397974d60f514d5e2b2538edb27471efea4",
       "status": "approved",
       "reviewedAt": "2026-10-22",
       "findingCount": 0,
@@ -886,20 +683,19 @@
       ]
     },
     "internal/config/config.go": {
-      "contentHash": "sha256:11588f18530ee0cf0d6e6fcf9b97d560ccb2327f3e9d3c075b7330fb0b9d53dd",
+      "contentHash": "sha256:a863b439ce3d64e7c7fca6eb0b62b5a424afa4b2f43d593f20ed77350a9e3bc1",
       "status": "flagged",
       "reviewedAt": "2026-10-22",
       "findingCount": 1,
       "findings": [
         {
           "file": "internal/config/config.go",
-          "startLine": 30,
-          "endLine": 98,
+          "startLine": 622,
+          "endLine": 633,
           "category": "correctness",
-          "severity": "medium",
-          "description": "Config.Save drops unknown nested keys",
-          "tag": "pre-existing",
-          "issue": 936
+          "severity": "low",
+          "description": "AddFieldMetadata replaces an existing entry wholesale, so unknown keys preserved by #936 are dropped when status --update or field create rewrites that entry",
+          "tag": "pre-existing"
         }
       ],
       "issueRefs": [
@@ -997,43 +793,21 @@
       ]
     },
     "cmd/status.go": {
-      "contentHash": "sha256:09401f3917f21a1a7c34782986f0e043f61911efb15a3ccd9d5043d8703dc780",
-      "status": "flagged",
+      "contentHash": "sha256:970feb89f226e316c37b04690843c272d667386fd89fe8a552add6eb8a9b5da3",
+      "status": "approved",
       "reviewedAt": "2026-10-22",
-      "findingCount": 1,
-      "findings": [
-        {
-          "file": "cmd/status.go",
-          "startLine": 191,
-          "endLine": 197,
-          "category": "correctness",
-          "severity": "medium",
-          "description": "status --update caches kind without issue field ID",
-          "tag": "introduced",
-          "issue": 933
-        }
-      ],
+      "findingCount": 0,
+      "findings": [],
       "issueRefs": [
         933
       ]
     },
     "internal/api/fieldvalues.go": {
-      "contentHash": "sha256:5d471ffdfeab1d6ece93d48b79f9e839871f70c25a18ae7385165f6ab335a695",
-      "status": "flagged",
+      "contentHash": "sha256:5aac57c247f2d088e42a7ac9358d444ce1be45a25d8518c0bf3c0854eec91a80",
+      "status": "approved",
       "reviewedAt": "2026-10-22",
-      "findingCount": 1,
-      "findings": [
-        {
-          "file": "internal/api/fieldvalues.go",
-          "startLine": 29,
-          "endLine": 85,
-          "category": "correctness",
-          "severity": "medium",
-          "description": "TEXT/NUMBER/MULTI_SELECT issue field values silently dropped on read",
-          "tag": "introduced",
-          "issue": 934
-        }
-      ],
+      "findingCount": 0,
+      "findings": [],
       "issueRefs": [
         934
       ]
@@ -1065,6 +839,14 @@
           "issue": null
         }
       ],
+      "issueRefs": []
+    },
+    "cmd/partial_failures.go": {
+      "contentHash": "sha256:1b7824aef9c3a00eca53deed24306f77788e555bdf48218d215164eebd08dccf",
+      "status": "approved",
+      "reviewedAt": "2026-10-22",
+      "findingCount": 0,
+      "findings": [],
       "issueRefs": []
     }
   },
@@ -1285,32 +1067,24 @@
   "lastDiffReview": {
     "baseRef": "origin/main",
     "baseSha": "ebf2a48127a9aff3cd548fb402443e348df230b0",
-    "headSha": "b0a4ac11195cb45e20acc62a726a6da407cb7655",
-    "reviewedAt": "2026-10-22T18:44:57.857Z",
+    "headSha": "fd10b052eba5e53d9e7e4de267d11b6f7d23a385",
+    "reviewedAt": "2026-10-22T21:29:50.287Z",
     "workingTreeIncluded": false,
-    "filesReviewed": 21,
+    "filesReviewed": 18,
     "findings": {
       "introduced": {
         "high": 0,
-        "medium": 10,
+        "medium": 1,
         "low": 4,
         "info": 2
       },
       "preExisting": {
-        "high": 3,
-        "medium": 15,
-        "low": 3,
+        "high": 0,
+        "medium": 5,
+        "low": 4,
         "info": 0
       }
     },
-    "issues": [
-      933,
-      934,
-      935,
-      936,
-      937,
-      938,
-      939
-    ]
+    "issues": []
   }
 }
