@@ -180,20 +180,7 @@ func runFieldCreateWithDeps(cmd *cobra.Command, fieldName string, opts *fieldCre
 		return nil
 	}
 
-	fieldMeta := config.FieldMetadata{
-		Name:     createdField.Name,
-		ID:       createdField.ID,
-		DataType: createdField.DataType,
-		Kind:     api.FieldKindProject,
-	}
-	for _, opt := range createdField.Options {
-		fieldMeta.Options = append(fieldMeta.Options, config.OptionMetadata{
-			Name: opt.Name,
-			ID:   opt.ID,
-		})
-	}
-
-	cfg.AddFieldMetadata(fieldMeta)
+	cfg.AddFieldMetadata(configFieldMetadata(*createdField, createdField.Options))
 	if err := cfg.Save(filepath.Dir(configPath)); err != nil {
 		fmt.Fprintf(cmd.OutOrStdout(), "⚠ Created field but failed to update config: %v\n", err)
 		return nil

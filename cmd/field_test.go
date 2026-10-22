@@ -184,6 +184,54 @@ func TestRunFieldCreate_TextFieldSuccess(t *testing.T) {
 	}
 }
 
+// field create caches the created field's own classification rather than a
+// hard-coded PROJECT_FIELD, so the entry matches what the field is (#933).
+func TestRunFieldCreate_RecordsCreatedFieldClassification(t *testing.T) {
+	cases := []struct {
+		name    string
+		created api.ProjectField
+		want    config.FieldMetadata
+	}{
+		{
+			name:    "project field",
+			created: api.ProjectField{ID: "PVTF_new", Name: "PRD", DataType: "TEXT"},
+			want:    config.FieldMetadata{Name: "PRD", ID: "PVTF_new", DataType: "TEXT", Kind: api.FieldKindProject},
+		},
+		{
+			name: "issue-backed field",
+			created: api.ProjectField{ID: "PVTF_new", Name: "PRD", DataType: "TEXT",
+				IssueField: &api.IssueFieldInfo{ID: "IFT_prd", DataType: "TEXT"}},
+			want: config.FieldMetadata{Name: "PRD", ID: "PVTF_new", DataType: "TEXT", Kind: api.FieldKindIssueField,
+				IssueFieldID: "IFT_prd", IssueFieldDataType: "TEXT"},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			cmd, _ := newTestFieldCmd()
+			created := tc.created
+			mock := &mockFieldClient{project: &api.Project{ID: "PVT_test", Title: "Test Project"}, createdField: &created}
+			cfg := &config.Config{Project: config.Project{Owner: "test-owner", Number: 1}, Repositories: []string{"test-owner/test-repo"}}
+			cleanup := setupFieldTestDir(t, cfg)
+			defer cleanup()
+
+			if err := runFieldCreateWithDeps(cmd, "PRD", &fieldCreateOptions{fieldType: "text", yes: true}, cfg, mock); err != nil {
+				t.Fatalf("expected no error, got %v", err)
+			}
+			saved, err := config.Load(".gh-pmu.json")
+			if err != nil {
+				t.Fatalf("reload config: %v", err)
+			}
+			if saved.Metadata == nil || len(saved.Metadata.Fields) != 1 {
+				t.Fatalf("expected one metadata entry, got %+v", saved.Metadata)
+			}
+			got := saved.Metadata.Fields[0]
+			if got.Kind != tc.want.Kind || got.IssueFieldID != tc.want.IssueFieldID || got.IssueFieldDataType != tc.want.IssueFieldDataType || got.ID != tc.want.ID {
+				t.Errorf("metadata = %+v, want %+v", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestRunFieldCreate_FieldAlreadyExists(t *testing.T) {
 	cmd, _ := newTestFieldCmd()
 
