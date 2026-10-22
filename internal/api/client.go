@@ -92,6 +92,14 @@ type Client struct {
 	// assigneeCache memoizes ResolveAssignee results for the life of the client,
 	// which is one CLI invocation. Lazily created.
 	assigneeCache map[string]resolvedAssignee
+
+	// issueFieldsUnsupported records, for the life of the client, that the
+	// server's schema rejected the organization issue field fragment, so reads
+	// omit it up front (#935).
+	issueFieldsUnsupported bool
+
+	// warnOut receives client warnings; nil means os.Stderr.
+	warnOut io.Writer
 }
 
 // ClientOptions configures the API client

@@ -1,6 +1,9 @@
 package api
 
 import (
+	"fmt"
+	"os"
+	"regexp"
 	"strconv"
 	"strings"
 )
@@ -77,27 +80,20 @@ func fieldOptionNames(options []struct{ Name string }) []string {
 	return names
 }
 
+// typedFieldValue is a typed field-value node: typedFieldValueNode, or
+// projectFieldValueNode when the server's schema has no issue fields (#935).
+// The typed queries are instantiated with one or the other because shurcooL
+// builds the document from the struct, so dropping the issue field member
+// means a different node type.
+type typedFieldValue interface {
+	fieldValue() (typeName, fieldName, value string)
+}
+
 // typedFieldValueNode mirrors the ProjectV2ItemFieldValue union selection used
-// by the typed project-item queries. It is a named type so the three typed call
-// sites share one definition rather than three identical anonymous structs.
+// by the typed project-item queries. It is a named type so the typed call sites
+// share one definition rather than identical anonymous structs.
 type typedFieldValueNode struct {
-	TypeName                            string `graphql:"__typename"`
-	ProjectV2ItemFieldSingleSelectValue struct {
-		Name  string
-		Field struct {
-			ProjectV2SingleSelectField struct {
-				Name string
-			} `graphql:"... on ProjectV2SingleSelectField"`
-		}
-	} `graphql:"... on ProjectV2ItemFieldSingleSelectValue"`
-	ProjectV2ItemFieldTextValue struct {
-		Text  string
-		Field struct {
-			ProjectV2Field struct {
-				Name string
-			} `graphql:"... on ProjectV2Field"`
-		}
-	} `graphql:"... on ProjectV2ItemFieldTextValue"`
+	projectFieldValueNode
 	ProjectV2ItemIssueFieldValue struct {
 		Field struct {
 			Common struct {
@@ -129,11 +125,96 @@ type typedFieldValueNode struct {
 	} `graphql:"... on ProjectV2ItemIssueFieldValue"`
 }
 
-// rawIssueFieldValueSelection is the ProjectV2ItemIssueFieldValue member of the
+func (n typedFieldValueNode) fieldValue() (typeName, fieldName, value string) {
+	if n.TypeName != typeIssueFieldValue {
+		return n.projectFieldValueNode.fieldValue()
+	}
+	v := n.ProjectV2ItemIssueFieldValue
+	ifv := v.IssueFieldValue
+	// Date and text both select `value`, so the decoder fills both
+	// fragments from the one JSON key; either holds the value.
+	dateOrText := ifv.IssueFieldDateValue.Value
+	if dateOrText == "" {
+		dateOrText = ifv.IssueFieldTextValue.Value
+	}
+	return n.TypeName, v.Field.Common.Name, issueFieldValueParts{
+		TypeName: ifv.TypeName,
+		Name:     ifv.IssueFieldSingleSelectValue.Name,
+		Value:    dateOrText,
+		Number:   &ifv.IssueFieldNumberValue.NumberValue,
+		Options:  fieldOptionNames(ifv.IssueFieldMultiSelectValue.Options),
+	}.text()
+}
+
+// projectFieldValueNode is the project-field members of the union: the whole
+// selection on a server without issue fields, embedded by typedFieldValueNode.
+type projectFieldValueNode struct {
+	TypeName                            string `graphql:"__typename"`
+	ProjectV2ItemFieldSingleSelectValue struct {
+		Name  string
+		Field struct {
+			ProjectV2SingleSelectField struct {
+				Name string
+			} `graphql:"... on ProjectV2SingleSelectField"`
+		}
+	} `graphql:"... on ProjectV2ItemFieldSingleSelectValue"`
+	ProjectV2ItemFieldTextValue struct {
+		Text  string
+		Field struct {
+			ProjectV2Field struct {
+				Name string
+			} `graphql:"... on ProjectV2Field"`
+		}
+	} `graphql:"... on ProjectV2ItemFieldTextValue"`
+}
+
+func (n projectFieldValueNode) fieldValue() (typeName, fieldName, value string) {
+	switch n.TypeName {
+	case typeSingleSelectValue:
+		return n.TypeName, n.ProjectV2ItemFieldSingleSelectValue.Field.ProjectV2SingleSelectField.Name, n.ProjectV2ItemFieldSingleSelectValue.Name
+	case typeTextValue:
+		return n.TypeName, n.ProjectV2ItemFieldTextValue.Field.ProjectV2Field.Name, n.ProjectV2ItemFieldTextValue.Text
+	}
+	return n.TypeName, "", ""
+}
+
+// issueFieldRejection matches a GraphQL validation error naming the issue field
+// value types — what a server whose schema predates organization issue fields
+// returns for the whole document (#935).
+var issueFieldRejection = regexp.MustCompile(`\b(ProjectV2ItemIssueFieldValue|IssueField[A-Za-z]*Value)\b`)
+
+// issueFieldsRejected reports whether err is the server rejecting the issue
+// field fragment. The first such rejection marks the client so every later read
+// omits the fragment up front, and warns once; a caller seeing true retries
+// once without the fragment. Any other error, or a rejection after the client
+// is already marked, returns false.
+func (c *Client) issueFieldsRejected(err error) bool {
+	if err == nil || c.issueFieldsUnsupported || !issueFieldRejection.MatchString(err.Error()) {
+		return false
+	}
+	c.issueFieldsUnsupported = true
+	w := c.warnOut
+	if w == nil {
+		w = os.Stderr
+	}
+	fmt.Fprintln(w, "Warning: this GitHub server does not support organization issue fields; issue field values are not shown.")
+	return true
+}
+
+// issueFieldValueSelection is the raw-query selection for issue field values,
+// empty once the server has rejected it.
+func (c *Client) issueFieldValueSelection() string {
+	if c.issueFieldsUnsupported {
+		return ""
+	}
+	return rawIssueFieldValueFragment
+}
+
+// rawIssueFieldValueFragment is the ProjectV2ItemIssueFieldValue member of the
 // field-value union for the raw-JSON queries, decoded by rawFieldValueNode.
 // numberValue is aliased for the same FieldsInSetCanMerge reason as the typed
 // selection.
-const rawIssueFieldValueSelection = `... on ProjectV2ItemIssueFieldValue {
+const rawIssueFieldValueFragment = `... on ProjectV2ItemIssueFieldValue {
 									field { ... on ProjectV2FieldCommon { name } }
 									issueFieldValue {
 										__typename
@@ -179,35 +260,9 @@ func newFieldValue(typeName, fieldName, value string) (FieldValue, bool) {
 }
 
 // appendTypedFieldValues appends every extractable field value in nodes to dst.
-func appendTypedFieldValues(dst []FieldValue, nodes []typedFieldValueNode) []FieldValue {
+func appendTypedFieldValues[N typedFieldValue](dst []FieldValue, nodes []N) []FieldValue {
 	for _, n := range nodes {
-		var fieldName, value string
-		switch n.TypeName {
-		case typeSingleSelectValue:
-			fieldName = n.ProjectV2ItemFieldSingleSelectValue.Field.ProjectV2SingleSelectField.Name
-			value = n.ProjectV2ItemFieldSingleSelectValue.Name
-		case typeTextValue:
-			fieldName = n.ProjectV2ItemFieldTextValue.Field.ProjectV2Field.Name
-			value = n.ProjectV2ItemFieldTextValue.Text
-		case typeIssueFieldValue:
-			v := n.ProjectV2ItemIssueFieldValue
-			fieldName = v.Field.Common.Name
-			ifv := v.IssueFieldValue
-			// Date and text both select `value`, so the decoder fills both
-			// fragments from the one JSON key; either holds the value.
-			dateOrText := ifv.IssueFieldDateValue.Value
-			if dateOrText == "" {
-				dateOrText = ifv.IssueFieldTextValue.Value
-			}
-			value = issueFieldValueParts{
-				TypeName: ifv.TypeName,
-				Name:     ifv.IssueFieldSingleSelectValue.Name,
-				Value:    dateOrText,
-				Number:   &ifv.IssueFieldNumberValue.NumberValue,
-				Options:  fieldOptionNames(ifv.IssueFieldMultiSelectValue.Options),
-			}.text()
-		}
-		if fv, ok := newFieldValue(n.TypeName, fieldName, value); ok {
+		if fv, ok := newFieldValue(n.fieldValue()); ok {
 			dst = append(dst, fv)
 		}
 	}
