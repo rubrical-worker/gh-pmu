@@ -24,6 +24,11 @@ type cachedFieldShape struct {
 	ID       string
 	DataType string
 	Options  []cachedOptionShape
+	// Kind, IssueFieldID and IssueFieldDataType carry the org issue field
+	// classification (#932); Kind is empty in caches that predate it.
+	Kind               string
+	IssueFieldID       string
+	IssueFieldDataType string
 }
 
 type cachedOptionShape struct {
@@ -89,13 +94,33 @@ func defaultFieldsCacheLoader() ([]ProjectField, error) {
 
 	shapes := make([]cachedFieldShape, 0, len(cfg.Metadata.Fields))
 	for _, fm := range cfg.Metadata.Fields {
-		s := cachedFieldShape{Name: fm.Name, ID: fm.ID, DataType: fm.DataType}
+		s := cachedFieldShape{
+			Name: fm.Name, ID: fm.ID, DataType: fm.DataType,
+			Kind: fm.Kind, IssueFieldID: fm.IssueFieldID, IssueFieldDataType: fm.IssueFieldDataType,
+		}
 		for _, opt := range fm.Options {
 			s.Options = append(s.Options, cachedOptionShape{Name: opt.Name, ID: opt.ID})
 		}
 		shapes = append(shapes, s)
 	}
+	if err := checkCachedIssueFieldClassification(shapes); err != nil {
+		return nil, err
+	}
 	return projectFieldsFromMetadataShape(shapes), nil
+}
+
+// checkCachedIssueFieldClassification refuses a cache written before org issue
+// fields were detected (#932). Such a cache stores an issue-backed field as the
+// option-less single-select the project API reports, with no kind, and
+// proceeding on it would silently leave that field unset. A single-select with
+// no options and no kind is exactly that shape.
+func checkCachedIssueFieldClassification(shapes []cachedFieldShape) error {
+	for _, s := range shapes {
+		if s.Kind == "" && s.DataType == "SINGLE_SELECT" && len(s.Options) == 0 {
+			return fmt.Errorf("cached metadata for field %q predates organization issue field detection (a single-select with no options and no recorded kind) — run 'gh pmu init' to refresh .gh-pmu.json", s.Name)
+		}
+	}
+	return nil
 }
 
 // projectFieldsFromMetadataShape is a pure converter from cached metadata
@@ -111,6 +136,9 @@ func projectFieldsFromMetadataShape(shapes []cachedFieldShape) []ProjectField {
 		pf := ProjectField{ID: s.ID, Name: s.Name, DataType: s.DataType}
 		for _, opt := range s.Options {
 			pf.Options = append(pf.Options, FieldOption{ID: opt.ID, Name: opt.Name})
+		}
+		if s.Kind == FieldKindIssueField {
+			pf.IssueField = &IssueFieldInfo{ID: s.IssueFieldID, DataType: s.IssueFieldDataType}
 		}
 		out = append(out, pf)
 	}
@@ -203,6 +231,13 @@ func refreshCachedFields(fetcher ProjectFieldByNameFetcher, projectID string, ca
 	refreshed := make([]ProjectField, 0, len(cached))
 	var successes, failures int
 	for _, f := range cached {
+		// The per-name lookup reads the project side only, which for an org
+		// issue field is an option-less projection; refreshing would discard
+		// the issue field classification, so keep the cached entry (#932).
+		if f.IssueField != nil {
+			refreshed = append(refreshed, f)
+			continue
+		}
 		fresh, err := fetcher(projectID, f.Name)
 		if err != nil || fresh == nil {
 			refreshed = append(refreshed, f)

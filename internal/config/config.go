@@ -219,6 +219,13 @@ type FieldMetadata struct {
 	ID       string           `yaml:"id" json:"id"`
 	DataType string           `yaml:"data_type" json:"data_type"`
 	Options  []OptionMetadata `yaml:"options,omitempty" json:"options,omitempty"`
+	// Kind is PROJECT_FIELD or ISSUE_FIELD (#932). Absent in caches written
+	// before org issue fields were detected.
+	Kind string `yaml:"kind,omitempty" json:"kind,omitempty"`
+	// IssueFieldID and IssueFieldDataType identify the org issue field behind
+	// an ISSUE_FIELD entry; Options then holds that issue field's options.
+	IssueFieldID       string `yaml:"issue_field_id,omitempty" json:"issue_field_id,omitempty"`
+	IssueFieldDataType string `yaml:"issue_field_data_type,omitempty" json:"issue_field_data_type,omitempty"`
 }
 
 // OptionMetadata contains cached field option info

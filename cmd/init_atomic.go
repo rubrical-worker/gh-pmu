@@ -91,11 +91,7 @@ func runInitPostCreate(client initPostCreateClient, in *initPostCreateInputs) er
 
 	metadata := &ProjectMetadata{ProjectID: in.NewProject.ID}
 	for _, f := range fields {
-		fm := FieldMetadata{ID: f.ID, Name: f.Name, DataType: f.DataType}
-		for _, opt := range f.Options {
-			fm.Options = append(fm.Options, OptionMetadata{ID: opt.ID, Name: opt.Name})
-		}
-		metadata.Fields = append(metadata.Fields, fm)
+		metadata.Fields = append(metadata.Fields, fieldMetadataFromProjectField(f))
 	}
 
 	if err := writeConfigWithMetadata(in.Cwd, in.Cfg, metadata); err != nil {

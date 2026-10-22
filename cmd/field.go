@@ -184,6 +184,7 @@ func runFieldCreateWithDeps(cmd *cobra.Command, fieldName string, opts *fieldCre
 		Name:     createdField.Name,
 		ID:       createdField.ID,
 		DataType: createdField.DataType,
+		Kind:     api.FieldKindProject,
 	}
 	for _, opt := range createdField.Options {
 		fieldMeta.Options = append(fieldMeta.Options, config.OptionMetadata{

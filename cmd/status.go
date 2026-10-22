@@ -189,7 +189,7 @@ func refreshStatusConfig(cfg *config.Config, field *api.ProjectField, current []
 	cfg.Fields["status"] = mapping
 
 	if len(current) > 0 {
-		meta := config.FieldMetadata{Name: field.Name, ID: field.ID, DataType: field.DataType}
+		meta := config.FieldMetadata{Name: field.Name, ID: field.ID, DataType: field.DataType, Kind: field.Kind()}
 		for _, opt := range current {
 			meta.Options = append(meta.Options, config.OptionMetadata{Name: opt.Name, ID: opt.ID})
 		}

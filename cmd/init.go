@@ -376,18 +376,7 @@ func runInitExistingProject(cmd *cobra.Command, opts *initOptions) error {
 		ProjectID: project.ID,
 	}
 	for _, f := range projectFields {
-		fm := FieldMetadata{
-			ID:       f.ID,
-			Name:     f.Name,
-			DataType: f.DataType,
-		}
-		for _, opt := range f.Options {
-			fm.Options = append(fm.Options, OptionMetadata{
-				ID:   opt.ID,
-				Name: opt.Name,
-			})
-		}
-		metadata.Fields = append(metadata.Fields, fm)
+		metadata.Fields = append(metadata.Fields, fieldMetadataFromProjectField(f))
 	}
 
 	// Create config
@@ -513,8 +502,9 @@ type DefaultsConfig struct {
 
 // FieldMapping represents a field alias mapping.
 type FieldMapping struct {
-	Field  string            `yaml:"field" json:"field"`
-	Values map[string]string `yaml:"values" json:"values"`
+	Field      string            `yaml:"field" json:"field"`
+	Values     map[string]string `yaml:"values" json:"values"`
+	IssueField string            `yaml:"issue_field,omitempty" json:"issue_field,omitempty"`
 }
 
 // ProjectMetadata holds cached project information from GitHub API.
@@ -529,6 +519,25 @@ type FieldMetadata struct {
 	Name     string
 	DataType string
 	Options  []OptionMetadata
+	// Kind, IssueFieldID and IssueFieldDataType record whether the field is an
+	// org issue field and which one (#932).
+	Kind               string
+	IssueFieldID       string
+	IssueFieldDataType string
+}
+
+// fieldMetadataFromProjectField converts a discovered field into the metadata
+// cached in .gh-pmu.json, including its org issue field classification.
+func fieldMetadataFromProjectField(f api.ProjectField) FieldMetadata {
+	fm := FieldMetadata{ID: f.ID, Name: f.Name, DataType: f.DataType, Kind: f.Kind()}
+	if f.IssueField != nil {
+		fm.IssueFieldID = f.IssueField.ID
+		fm.IssueFieldDataType = f.IssueField.DataType
+	}
+	for _, opt := range f.Options {
+		fm.Options = append(fm.Options, OptionMetadata{ID: opt.ID, Name: opt.Name})
+	}
+	return fm
 }
 
 // OptionMetadata holds option information for single-select fields.
@@ -550,10 +559,13 @@ type MetadataProject struct {
 
 // MetadataField represents a field in the metadata section.
 type MetadataField struct {
-	Name     string                `yaml:"name" json:"name"`
-	ID       string                `yaml:"id" json:"id"`
-	DataType string                `yaml:"data_type" json:"data_type"`
-	Options  []MetadataFieldOption `yaml:"options,omitempty" json:"options,omitempty"`
+	Name               string                `yaml:"name" json:"name"`
+	ID                 string                `yaml:"id" json:"id"`
+	DataType           string                `yaml:"data_type" json:"data_type"`
+	Options            []MetadataFieldOption `yaml:"options,omitempty" json:"options,omitempty"`
+	Kind               string                `yaml:"kind,omitempty" json:"kind,omitempty"`
+	IssueFieldID       string                `yaml:"issue_field_id,omitempty" json:"issue_field_id,omitempty"`
+	IssueFieldDataType string                `yaml:"issue_field_data_type,omitempty" json:"issue_field_data_type,omitempty"`
 }
 
 // MetadataFieldOption represents a field option.
@@ -673,9 +685,12 @@ func writeConfigWithMetadata(dir string, cfg *InitConfig, metadata *ProjectMetad
 	var metadataFields []MetadataField
 	for _, f := range metadata.Fields {
 		mf := MetadataField{
-			Name:     f.Name,
-			ID:       f.ID,
-			DataType: f.DataType,
+			Name:               f.Name,
+			ID:                 f.ID,
+			DataType:           f.DataType,
+			Kind:               f.Kind,
+			IssueFieldID:       f.IssueFieldID,
+			IssueFieldDataType: f.IssueFieldDataType,
 		}
 		for _, opt := range f.Options {
 			mf.Options = append(mf.Options, MetadataFieldOption{
@@ -698,6 +713,13 @@ func writeConfigWithMetadata(dir string, cfg *InitConfig, metadata *ProjectMetad
 		}
 		if prev, ok := existingCfg.Fields["branch"]; ok && prev.Field != "" {
 			fieldMappings["branch"] = FieldMapping{Field: prev.Field}
+		}
+		// Keep user-set issue field overrides (#932) across re-init.
+		for alias, prev := range existingCfg.Fields {
+			if m, ok := fieldMappings[alias]; ok && prev.IssueField != "" {
+				m.IssueField = prev.IssueField
+				fieldMappings[alias] = m
+			}
 		}
 	}
 
