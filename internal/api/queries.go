@@ -1995,10 +1995,16 @@ func (c *Client) getProjectFieldsForIssuesBatch(projectID string, issueIDs []str
 				} `json:"nodes"`
 			} `json:"projectItems"`
 		} `json:"data"`
+		Errors []rawGraphQLError `json:"errors"`
 	}
 
 	if err := json.Unmarshal(output, &response); err != nil {
 		return nil, fmt.Errorf("failed to parse batch project fields response: %w", err)
+	}
+	// Node aliases sit at the root ("n0"), so an alias-scoped error has the
+	// alias at path[0]; that issue is simply absent from the result.
+	if err := documentLevelError(response.Errors, 0); err != nil {
+		return nil, err
 	}
 
 	// Build result map
@@ -2901,6 +2907,34 @@ func (c *Client) GetIssuesWithProjectFieldsBatch(projectID, owner, repo string, 
 	return parseIssuesBatchResponse(output, numbers, projectID, owner, repo)
 }
 
+// rawGraphQLError is one entry of a raw GraphQL response's errors array.
+type rawGraphQLError struct {
+	Message string `json:"message"`
+	// Path segments may be strings (field/alias names) or integers (list
+	// indices) per the GraphQL spec, so decode as []interface{}; a numeric
+	// segment must not fail the whole response unmarshal and abort the
+	// batch (#861).
+	Path []interface{} `json:"path"`
+}
+
+// documentLevelError returns the first error not scoped to a batch alias, or
+// nil. aliasIndex is the path position of the alias: 1 for repository-scoped
+// batches ("repository", "i0"), 0 for root-level node batches ("n0"). The raw
+// transport fails only on non-200, so a rate limit or an under-scoped token
+// arrives here as HTTP 200 with an errors array; without this it reads as an
+// empty or not-found result (#937).
+func documentLevelError(errs []rawGraphQLError, aliasIndex int) error {
+	for _, e := range errs {
+		if len(e.Path) > aliasIndex {
+			if _, ok := e.Path[aliasIndex].(string); ok {
+				continue
+			}
+		}
+		return fmt.Errorf("GraphQL errors: %s", e.Message)
+	}
+	return nil
+}
+
 // parseIssuesBatchResponse parses the JSON response from a batch issues query.
 // projectID scopes field values to a single project board (#856); an empty
 // projectID disables that filter.
@@ -2909,18 +2943,14 @@ func parseIssuesBatchResponse(data []byte, numbers []int, projectID, owner, repo
 		Data struct {
 			Repository map[string]json.RawMessage `json:"repository"`
 		} `json:"data"`
-		Errors []struct {
-			Message string `json:"message"`
-			// Path segments may be strings (field/alias names) or integers (list
-			// indices) per the GraphQL spec, so decode as []interface{}; a numeric
-			// segment must not fail the whole response unmarshal and abort the
-			// batch (#861).
-			Path []interface{} `json:"path"`
-		} `json:"errors"`
+		Errors []rawGraphQLError `json:"errors"`
 	}
 
 	if err := json.Unmarshal(data, &response); err != nil {
 		return nil, nil, nil, fmt.Errorf("failed to parse batch issues response: %w", err)
+	}
+	if err := documentLevelError(response.Errors, 1); err != nil {
+		return nil, nil, nil, err
 	}
 
 	issues := make(map[int]*Issue)
@@ -2928,7 +2958,7 @@ func parseIssuesBatchResponse(data []byte, numbers []int, projectID, owner, repo
 	issueErrors := make(map[int]error)
 
 	// Map GraphQL errors to specific aliases. The alias segment (path[1], e.g.
-	// "i0") is a string; ignore errors whose second segment is not a string.
+	// "i0") is a string; anything else was returned above as document-level.
 	aliasErrors := make(map[string]string)
 	for _, gqlErr := range response.Errors {
 		if len(gqlErr.Path) >= 2 {
@@ -3075,13 +3105,15 @@ func parseParentIssueBatchResponse(data []byte, numbers []int) (map[int]*Issue, 
 		Data struct {
 			Repository map[string]json.RawMessage `json:"repository"`
 		} `json:"data"`
-		Errors []struct {
-			Message string `json:"message"`
-		} `json:"errors"`
+		Errors []rawGraphQLError `json:"errors"`
 	}
 
 	if err := json.Unmarshal(data, &response); err != nil {
 		return nil, fmt.Errorf("failed to parse batch parent issue response: %w", err)
+	}
+	// Alias-scoped errors (a deleted issue) keep their per-issue nil parent.
+	if err := documentLevelError(response.Errors, 1); err != nil {
+		return nil, err
 	}
 
 	result := make(map[int]*Issue)
