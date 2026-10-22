@@ -232,6 +232,39 @@ func TestRunFieldCreate_RecordsCreatedFieldClassification(t *testing.T) {
 	}
 }
 
+// The field exists on the board once created; failing to record it in
+// .gh-pmu.json is a partial success, and re-running would create a duplicate
+// (#938).
+func TestRunFieldCreate_ConfigUpdateFailureIsPartialSuccess(t *testing.T) {
+	cmd, _ := newTestFieldCmd()
+	mock := &mockFieldClient{
+		project:      &api.Project{ID: "PVT_test", Title: "Test Project"},
+		createdField: &api.ProjectField{ID: "PVTF_new", Name: "PRD", DataType: "TEXT"},
+	}
+	cfg := &config.Config{Project: config.Project{Owner: "test-owner", Number: 1}, Repositories: []string{"test-owner/test-repo"}}
+
+	// A directory with no .gh-pmu.json anywhere above it.
+	originalDir, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	if err := os.Chdir(t.TempDir()); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+	defer func() { _ = os.Chdir(originalDir) }()
+	if _, findErr := config.FindConfigFile(mustGetwd()); findErr == nil {
+		t.Skip("a .gh-pmu.json exists above the temp dir; cannot simulate a missing config")
+	}
+
+	err = runFieldCreateWithDeps(cmd, "PRD", &fieldCreateOptions{fieldType: "text", yes: true}, cfg, mock)
+	if !api.IsPartialSuccess(err) {
+		t.Fatalf("expected a partial-success error when the config cannot be updated, got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "PRD") {
+		t.Errorf("error should name the created field, got: %v", err)
+	}
+}
+
 func TestRunFieldCreate_FieldAlreadyExists(t *testing.T) {
 	cmd, _ := newTestFieldCmd()
 

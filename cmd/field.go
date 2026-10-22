@@ -173,17 +173,25 @@ func runFieldCreateWithDeps(cmd *cobra.Command, fieldName string, opts *fieldCre
 
 	fmt.Fprintf(cmd.OutOrStdout(), "✓ Created field %q (type: %s)\n", createdField.Name, createdField.DataType)
 
-	// Update config metadata
+	// Update config metadata. The field already exists, so a failure here is a
+	// partial success: re-running would create a duplicate (#938).
+	created := func(err error) error {
+		return &api.PartialSuccessError{
+			Resource: fmt.Sprintf("field %q", createdField.Name),
+			Steps:    []string{"update .gh-pmu.json metadata"},
+			Err:      err,
+		}
+	}
 	configPath, err := config.FindConfigFile(mustGetwd())
 	if err != nil {
 		fmt.Fprintf(cmd.OutOrStdout(), "⚠ Could not find config file to update metadata\n")
-		return nil
+		return created(err)
 	}
 
 	cfg.AddFieldMetadata(configFieldMetadata(*createdField, createdField.Options))
 	if err := cfg.Save(filepath.Dir(configPath)); err != nil {
 		fmt.Fprintf(cmd.OutOrStdout(), "⚠ Created field but failed to update config: %v\n", err)
-		return nil
+		return created(err)
 	}
 
 	// Update checksum after saving config
