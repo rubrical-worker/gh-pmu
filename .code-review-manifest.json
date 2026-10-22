@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "lastRun": "2026-10-22T21:29:50.286Z",
+  "lastRun": "2026-10-22T22:41:58.319Z",
   "charter": {
     "contentHash": "sha256:9549d1555ebb13b1e9092f835815b04fa9e1c873efe761d137fbafac882364f3"
   },
@@ -485,21 +485,11 @@
       ]
     },
     "cmd/view.go": {
-      "contentHash": "sha256:efb9295cedbf6d8f0b1877dae8fc77f00ce3002d9d5925e113bef3e73f9307c2",
-      "status": "flagged",
+      "contentHash": "sha256:ab17bee1eec1aa5f74a56d8a8be187cc463ba3004611c43edf679491a28caa6d",
+      "status": "approved",
       "reviewedAt": "2026-10-22",
-      "findingCount": 1,
-      "findings": [
-        {
-          "file": "cmd/view.go",
-          "startLine": 135,
-          "endLine": 137,
-          "category": "error-handling",
-          "severity": "medium",
-          "description": "view --json silently ignores unknown field names",
-          "tag": "introduced"
-        }
-      ],
+      "findingCount": 0,
+      "findings": [],
       "issueRefs": [
         868,
         873,
@@ -1067,14 +1057,14 @@
   "lastDiffReview": {
     "baseRef": "origin/main",
     "baseSha": "ebf2a48127a9aff3cd548fb402443e348df230b0",
-    "headSha": "fd10b052eba5e53d9e7e4de267d11b6f7d23a385",
-    "reviewedAt": "2026-10-22T21:29:50.287Z",
+    "headSha": "57ff494eb3da41d5d90c040ce4d462d9efbfd00b",
+    "reviewedAt": "2026-10-22T22:41:58.320Z",
     "workingTreeIncluded": false,
-    "filesReviewed": 18,
+    "filesReviewed": 1,
     "findings": {
       "introduced": {
         "high": 0,
-        "medium": 1,
+        "medium": 0,
         "low": 4,
         "info": 2
       },
