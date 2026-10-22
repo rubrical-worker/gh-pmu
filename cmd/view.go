@@ -133,7 +133,10 @@ Note: --body-file and --body-stdout are only supported for single issues.`,
 			return nil
 		},
 		PreRunE: func(cmd *cobra.Command, args []string) error {
-			return requireJSONValue(cmd)
+			if err := requireJSONValue(cmd); err != nil {
+				return err
+			}
+			return canonicalizeViewJSONFlag(cmd)
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runView(cmd, args, opts)
@@ -1057,6 +1060,39 @@ func requireJSONValue(cmd *cobra.Command) error {
 		return nil
 	}
 	return fmt.Errorf("--json requires a comma-separated field list; run '%s --json-fields' to list available fields", cmd.CommandPath())
+}
+
+// canonicalizeViewJSONFlag rejects an unknown --json field before any API call,
+// rather than letting the output silently drop it (#941), and rewrites the flag
+// to the canonical field names so mixed-case input selects the same fields.
+func canonicalizeViewJSONFlag(cmd *cobra.Command) error {
+	flag := cmd.Flags().Lookup("json")
+	if flag == nil || !flag.Changed {
+		return nil
+	}
+	input := flag.Value.String()
+	var fields []string
+	for _, p := range strings.Split(input, ",") {
+		field := strings.TrimSpace(p)
+		if field == "" {
+			continue
+		}
+		canonical := ""
+		for _, available := range viewAvailableFields {
+			if strings.EqualFold(field, available) {
+				canonical = available
+				break
+			}
+		}
+		if canonical == "" {
+			return fmt.Errorf("unknown field %q in --json=%s. Run 'gh pmu view --json-fields' to see available fields", field, input)
+		}
+		fields = append(fields, canonical)
+	}
+	if len(fields) == 0 {
+		return fmt.Errorf("no valid fields in --json=%s. Run 'gh pmu view --json-fields' to see available fields", input)
+	}
+	return cmd.Flags().Set("json", strings.Join(fields, ","))
 }
 
 // parseJSONFields parses comma-separated field names and returns a slice

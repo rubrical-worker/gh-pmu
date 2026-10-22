@@ -459,6 +459,44 @@ func TestViewCommand_JSONValueIsRequired(t *testing.T) {
 	}
 }
 
+// An unknown --json field must fail before any API call rather than be
+// silently dropped from the output (#941).
+func TestViewCommand_JSONRejectsUnknownField(t *testing.T) {
+	for _, args := range [][]string{
+		{"42", "--json=number,titel"},
+		{"42", "43", "--json=number,titel"},
+	} {
+		// AC: both the single- and multi-issue forms are rejected.
+		err := parseJSONFlagCommand(t, newViewCommand(), args)
+		if err == nil {
+			t.Errorf("%v: expected unknown field to be rejected", args)
+			continue
+		}
+		for _, want := range []string{`"titel"`, "gh pmu view --json-fields"} {
+			if !strings.Contains(err.Error(), want) {
+				t.Errorf("%v: expected error to contain %q, got: %v", args, want, err)
+			}
+		}
+	}
+}
+
+func TestViewCommand_JSONRejectsListWithNoFields(t *testing.T) {
+	err := parseJSONFlagCommand(t, newViewCommand(), []string{"42", "--json=,"})
+	if err == nil || !strings.Contains(err.Error(), "no valid fields") {
+		t.Errorf("expected --json=, to be rejected with \"no valid fields\", got: %v", err)
+	}
+}
+
+func TestViewCommand_JSONFieldsMatchCaseInsensitively(t *testing.T) {
+	cmd := newViewCommand()
+	if err := parseJSONFlagCommand(t, cmd, []string{"42", "--json=Number,TITLE,fieldvalues"}); err != nil {
+		t.Fatalf("expected mixed-case field names to be accepted, got: %v", err)
+	}
+	if got, _ := cmd.Flags().GetString("json"); got != "number,title,fieldValues" {
+		t.Errorf("--json = %q, want canonical \"number,title,fieldValues\"", got)
+	}
+}
+
 func TestViewCommand_HasCommentsFlag(t *testing.T) {
 	cmd := NewRootCommand()
 	viewCmd, _, err := cmd.Find([]string{"view"})
