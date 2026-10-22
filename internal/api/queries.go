@@ -1153,7 +1153,7 @@ func (c *Client) GetProjectItemsByIssues(projectID string, refs []IssueRef) ([]P
 									text
 									field { ... on ProjectV2Field { name } }
 								}
-								` + rawIssueFieldValueSelection + `
+								`+rawIssueFieldValueSelection+`
 							}
 						}
 					}
@@ -1963,7 +1963,7 @@ func (c *Client) getProjectFieldsForIssuesBatch(projectID string, issueIDs []str
 									text
 									field { ... on ProjectV2Field { name } }
 								}
-								` + rawIssueFieldValueSelection + `
+								`+rawIssueFieldValueSelection+`
 							}
 						}
 					}
@@ -2881,7 +2881,7 @@ func (c *Client) GetIssuesWithProjectFieldsBatch(projectID, owner, repo string, 
 								text
 								field { ... on ProjectV2Field { name } }
 							}
-							` + rawIssueFieldValueSelection + `
+							`+rawIssueFieldValueSelection+`
 						}
 					}
 				}
