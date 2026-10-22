@@ -3,8 +3,7 @@
   "project": {
     "name": "gh-pmu",
     "number": 11,
-    "owner": "rubrical-worker",
-    "view": 1
+    "owner": "rubrical-worker"
   },
   "repositories": [
     "rubrical-worker/gh-pmu"
@@ -16,7 +15,8 @@
   },
   "fields": {
     "branch": {
-      "field": "Branch"
+      "field": "Branch",
+      "values": null
     },
     "priority": {
       "field": "Priority",
@@ -219,6 +219,21 @@
         "name": "TestField",
         "id": "PVTF_lAHOAATLPs4BJeuXzg_f7-s",
         "data_type": "TEXT"
+      },
+      {
+        "name": "Created",
+        "id": "PVTF_lAHOAATLPs4BJeuXzhOn6nc",
+        "data_type": "CREATED"
+      },
+      {
+        "name": "Updated",
+        "id": "PVTF_lAHOAATLPs4BJeuXzhOn6nw",
+        "data_type": "UPDATED"
+      },
+      {
+        "name": "Closed",
+        "id": "PVTF_lAHOAATLPs4BJeuXzhOn6oM",
+        "data_type": "CLOSED"
       }
     ]
   }
