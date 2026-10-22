@@ -378,6 +378,8 @@ func (c *Client) FetchFieldsByNames(projectID string, names []string) (fields []
 			missing = append(missing, name)
 			continue
 		}
+		// No org issue field classification runs on this path (#933).
+		f.Unclassified = true
 		fields = append(fields, *f)
 	}
 	return fields, missing

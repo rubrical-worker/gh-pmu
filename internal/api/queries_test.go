@@ -1448,6 +1448,14 @@ func TestFetchFieldsByNames_AllResolve(t *testing.T) {
 	if got[0].Name != "Title" || got[1].Name != "Branch" {
 		t.Errorf("Expected order preserved; got %+v", got)
 	}
+	// The per-name lookup runs no org issue field classification, so a field
+	// it returns may be issue-backed; it must not read as a known project
+	// field (#933).
+	for _, f := range got {
+		if !f.Unclassified {
+			t.Errorf("field %q from the per-name lookup should be marked Unclassified", f.Name)
+		}
+	}
 }
 
 func TestFetchFieldsByNames_PartialMissing(t *testing.T) {

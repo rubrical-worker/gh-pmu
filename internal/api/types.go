@@ -61,6 +61,10 @@ type ProjectField struct {
 	// issue field instead; Options then holds the issue field's options. nil
 	// for an ordinary project field.
 	IssueField *IssueFieldInfo
+	// Unclassified is true when the field was fetched without org issue field
+	// classification (the per-name fallback), so IssueField == nil does not
+	// mean it is an ordinary project field (#933).
+	Unclassified bool
 }
 
 // IssueFieldInfo identifies the organization issue field behind a project field.

@@ -527,9 +527,14 @@ type FieldMetadata struct {
 }
 
 // fieldMetadataFromProjectField converts a discovered field into the metadata
-// cached in .gh-pmu.json, including its org issue field classification.
+// cached in .gh-pmu.json, including its org issue field classification. A field
+// fetched without classification keeps no kind, so the cache guard refuses it
+// rather than reading it as a project field (#933).
 func fieldMetadataFromProjectField(f api.ProjectField) FieldMetadata {
 	fm := FieldMetadata{ID: f.ID, Name: f.Name, DataType: f.DataType, Kind: f.Kind()}
+	if f.Unclassified {
+		fm.Kind = ""
+	}
 	if f.IssueField != nil {
 		fm.IssueFieldID = f.IssueField.ID
 		fm.IssueFieldDataType = f.IssueField.DataType

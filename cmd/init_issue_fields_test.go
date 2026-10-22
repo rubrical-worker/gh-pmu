@@ -33,6 +33,21 @@ func TestFieldMetadataFromProjectField_RecordsKind(t *testing.T) {
 	}
 }
 
+// init's per-name fallback cannot classify, so recording PROJECT_FIELD would
+// stamp an issue-backed Priority as a project field and defeat the cache guard
+// (#933). Its fields are cached with no kind, which the guard refuses.
+func TestFieldMetadataFromProjectField_UnclassifiedLeavesKindUnset(t *testing.T) {
+	fm := fieldMetadataFromProjectField(api.ProjectField{
+		ID: "PVTSSF_pri", Name: "Priority", DataType: "SINGLE_SELECT", Unclassified: true,
+	})
+	if fm.Kind != "" {
+		t.Errorf("Kind = %q, want unset for a field the per-name fallback could not classify", fm.Kind)
+	}
+	if fm.ID != "PVTSSF_pri" || fm.Name != "Priority" {
+		t.Errorf("identity not kept: %+v", fm)
+	}
+}
+
 func TestWriteConfigWithMetadata_CachesIssueFieldKind(t *testing.T) {
 	tmpDir := t.TempDir()
 	cfg := &InitConfig{ProjectOwner: "acme", ProjectNumber: 2, Repositories: []string{"acme/app"}}
