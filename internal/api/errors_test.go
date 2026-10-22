@@ -50,6 +50,26 @@ func TestPartialSuccessError_NamesResourceURLAndSteps(t *testing.T) {
 	}
 }
 
+// Commands that did not create anything — a branch close, a multi-issue view —
+// report their own completed work instead of "created … do not retry the
+// create" (#938).
+func TestPartialSuccessError_DoneReplacesCreateWording(t *testing.T) {
+	err := &PartialSuccessError{
+		Done:  "closed branch release/v1",
+		Steps: []string{"move #7 to backlog"},
+		Err:   errors.New("field update failed"),
+	}
+	msg := err.Error()
+	for _, want := range []string{"partial success", "closed branch release/v1", "move #7 to backlog", "field update failed"} {
+		if !strings.Contains(msg, want) {
+			t.Errorf("Expected %q in error message, got: %s", want, msg)
+		}
+	}
+	if strings.Contains(msg, "created") || strings.Contains(msg, "retry the create") {
+		t.Errorf("non-create partial success must not use the create wording, got: %s", msg)
+	}
+}
+
 func TestPartialSuccessError_DetectableThroughWrapping(t *testing.T) {
 	inner := errors.New("add failed")
 	err := fmt.Errorf("create: %w", &PartialSuccessError{Resource: "issue #1", Steps: []string{"add to project"}, Err: inner})

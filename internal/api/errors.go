@@ -63,14 +63,22 @@ const ExitCodePartialSuccess = 6
 // PartialSuccessError reports that a resource was created but one or more later
 // steps failed. It is distinct from total failure because a caller retrying the
 // command would create a duplicate: the resource already exists (#929).
+//
+// A command that completed some of its work without creating anything (a branch
+// close that moved only some issues, a view that loaded only some) sets Done
+// instead of Resource, and the message reports that work (#938).
 type PartialSuccessError struct {
 	Resource string   // what was created, e.g. "issue #42"
 	URL      string   // where it lives, so the caller can find it without a lookup
+	Done     string   // what completed when nothing was created, e.g. "closed branch release/v1"
 	Steps    []string // the steps that failed after creation, in order
 	Err      error    // the first underlying failure
 }
 
 func (e *PartialSuccessError) Error() string {
+	if e.Done != "" {
+		return fmt.Sprintf("partial success: %s, but %s failed: %v", e.Done, strings.Join(e.Steps, ", "), e.Err)
+	}
 	where := e.Resource
 	if e.URL != "" {
 		where = fmt.Sprintf("%s (%s)", e.Resource, e.URL)
