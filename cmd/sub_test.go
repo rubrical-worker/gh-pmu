@@ -234,6 +234,53 @@ func TestSubCreate_ProjectAddFailureIsPartialSuccess(t *testing.T) {
 	}
 }
 
+// sub list discarded parent and sibling fetch errors, so a failed call printed
+// "no parent" / "no siblings" and exited 0 (#939). Like the children fetch,
+// they now fail the command.
+func TestSubList_RelationFetchFailureReturnsError(t *testing.T) {
+	gqlError := func(msg string) map[string]interface{} {
+		return map[string]interface{}{"errors": []interface{}{map[string]interface{}{"message": msg}}}
+	}
+	parent := gqlData(map[string]interface{}{
+		"repository": map[string]interface{}{"issue": map[string]interface{}{
+			"parent": map[string]interface{}{"id": "issue-10", "number": 10, "title": "Parent epic", "state": "OPEN", "url": "https://github.com/test-org/test-repo/issues/10"},
+		}},
+	})
+	cases := []struct {
+		name     string
+		relation string
+		setup    func(*mockGraphQLHandler)
+		want     string
+	}{
+		{"parent", "parent", func(h *mockGraphQLHandler) {
+			h.respondTo("GetParentIssue", gqlError("parent lookup timed out"))
+		}, "parent lookup timed out"},
+		{"siblings", "siblings", func(h *mockGraphQLHandler) {
+			h.respondTo("GetParentIssue", parent)
+			h.respondTo("GetSubIssues", gqlError("sibling lookup timed out"))
+		}, "sibling lookup timed out"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			handler := newMockGraphQLHandler()
+			handler.respondToFunc("GetIssue", issueByNumberFixture(map[int]string{15: "Child"}))
+			tc.setup(handler)
+			_, cleanup := setupTestEnvironment(t, handler)
+			defer cleanup()
+
+			cmd := newSubListCommand()
+			var buf bytes.Buffer
+			cmd.SetOut(&buf)
+			cmd.SetErr(&buf)
+
+			err := runSubList(cmd, []string{"15"}, &subListOptions{state: "all", relation: tc.relation})
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("expected an error carrying %q, got: %v (output %q)", tc.want, err, buf.String())
+			}
+		})
+	}
+}
+
 func TestSubListCommand_Exists(t *testing.T) {
 	cmd := NewRootCommand()
 	cmd.SetArgs([]string{"sub", "list", "--help"})

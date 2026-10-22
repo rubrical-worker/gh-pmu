@@ -677,12 +677,14 @@ func runSubList(cmd *cobra.Command, args []string, opts *subListOptions) error {
 		result.Children = filterSubIssuesByState(subIssues, opts.state)
 	}
 
-	// Get parent
+	// Get parent. A failed fetch is an error, as for children, not "no parent"
+	// (#939).
 	if opts.relation == "parent" || opts.relation == "siblings" || opts.relation == "all" {
 		parentIssue, err := client.GetParentIssue(issueOwner, issueRepo, issueNumber)
-		if err == nil && parentIssue != nil {
-			result.Parent = parentIssue
+		if err != nil {
+			return fmt.Errorf("failed to get parent issue: %w", err)
 		}
+		result.Parent = parentIssue
 	}
 
 	// Get siblings (other children of parent)
@@ -699,16 +701,17 @@ func runSubList(cmd *cobra.Command, args []string, opts *subListOptions) error {
 			}
 
 			siblings, err := client.GetSubIssues(parentOwner, parentRepo, result.Parent.Number)
-			if err == nil {
-				// Filter out the current issue from siblings
-				var filteredSiblings []api.SubIssue
-				for _, sib := range siblings {
-					if sib.Number != issueNumber {
-						filteredSiblings = append(filteredSiblings, sib)
-					}
-				}
-				result.Siblings = filterSubIssuesByState(filteredSiblings, opts.state)
+			if err != nil {
+				return fmt.Errorf("failed to get siblings: %w", err)
 			}
+			// Filter out the current issue from siblings
+			var filteredSiblings []api.SubIssue
+			for _, sib := range siblings {
+				if sib.Number != issueNumber {
+					filteredSiblings = append(filteredSiblings, sib)
+				}
+			}
+			result.Siblings = filterSubIssuesByState(filteredSiblings, opts.state)
 		}
 	}
 
