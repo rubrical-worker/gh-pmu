@@ -448,15 +448,19 @@ func runSubCreate(cmd *cobra.Command, opts *subCreateOptions) error {
 		return fmt.Errorf("issue #%d created but failed to link as sub-issue of #%d: %w", newIssue.Number, parentNumber, err)
 	}
 
-	// Add to project if specified
+	// Add to project if specified. The issue already exists, so a failure here is
+	// a partial success reported after the confirmation (#938).
+	var projectErr error
 	if opts.project > 0 {
 		project, err := client.GetProject(cfg.Project.Owner, opts.project)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Warning: failed to find project %d: %v\n", opts.project, err)
+			projectErr = err
 		} else {
 			_, err := client.AddIssueToProject(project.ID, newIssue.ID)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "Warning: failed to add issue to project: %v\n", err)
+				projectErr = err
 			}
 		}
 	}
@@ -483,11 +487,19 @@ func runSubCreate(cmd *cobra.Command, opts *subCreateOptions) error {
 	if milestone != "" {
 		fmt.Fprintf(w, "  Milestone: %s\n", milestone)
 	}
-	if opts.project > 0 {
+	if opts.project > 0 && projectErr == nil {
 		fmt.Fprintf(w, "  Project: #%d\n", opts.project)
 	}
 	fmt.Fprintf(w, "🔗 %s\n", newIssue.URL)
 
+	if projectErr != nil {
+		return &api.PartialSuccessError{
+			Resource: fmt.Sprintf("sub-issue #%d", newIssue.Number),
+			URL:      newIssue.URL,
+			Steps:    []string{fmt.Sprintf("add to project %d", opts.project)},
+			Err:      projectErr,
+		}
+	}
 	return nil
 }
 

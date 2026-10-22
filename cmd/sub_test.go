@@ -190,6 +190,50 @@ func TestSubCreate_DryRunWritesNothing(t *testing.T) {
 	}
 }
 
+// The sub-issue exists and is linked once created; failing to add it to
+// --project printed a warning and exited 0. It is a partial success, and
+// re-running would create a duplicate (#938).
+func TestSubCreate_ProjectAddFailureIsPartialSuccess(t *testing.T) {
+	handler := newMockGraphQLHandler()
+	handler.respondToFunc("GetIssue", issueByNumberFixture(map[int]string{10: "Parent epic"}))
+	handler.respondTo("GetRepositoryID", gqlData(map[string]interface{}{
+		"repository": map[string]interface{}{"id": "repo-node-1"},
+	}))
+	handler.respondTo("CreateIssue", gqlData(map[string]interface{}{
+		"createIssue": map[string]interface{}{
+			"issue": map[string]interface{}{
+				"id": "issue-node-new", "number": 21, "title": "Child", "body": "", "state": "OPEN",
+				"url": "https://github.com/test-org/test-repo/issues/21",
+			},
+		},
+	}))
+	handler.respondTo("AddSubIssue", gqlData(map[string]interface{}{
+		"addSubIssue": map[string]interface{}{
+			"issue":    map[string]interface{}{"id": "issue-10"},
+			"subIssue": map[string]interface{}{"id": "issue-node-new"},
+		},
+	}))
+	projectMissing := map[string]interface{}{"errors": []interface{}{map[string]interface{}{"message": "Could not resolve to a ProjectV2 with the number 5."}}}
+	handler.respondTo("GetUserProject", projectMissing)
+	handler.respondTo("GetOrgProject", projectMissing)
+
+	_, cleanup := setupTestEnvironment(t, handler)
+	defer cleanup()
+
+	cmd := newSubCreateCommand()
+	var buf bytes.Buffer
+	cmd.SetOut(&buf)
+	cmd.SetErr(&buf)
+
+	err := runSubCreate(cmd, &subCreateOptions{parent: "10", title: "Child", project: 5})
+	if !api.IsPartialSuccess(err) {
+		t.Fatalf("expected a partial-success error when adding to the project fails, got: %v (output %q)", err, buf.String())
+	}
+	if !strings.Contains(err.Error(), "#21") || !strings.Contains(err.Error(), "project 5") {
+		t.Errorf("error should name the created issue and the project step, got: %v", err)
+	}
+}
+
 func TestSubListCommand_Exists(t *testing.T) {
 	cmd := NewRootCommand()
 	cmd.SetArgs([]string{"sub", "list", "--help"})
