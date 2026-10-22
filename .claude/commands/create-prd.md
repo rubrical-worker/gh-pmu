@@ -1,5 +1,5 @@
 ---
-version: "v0.109.1"
+version: "v0.110.0"
 description: Transform a proposal into an Agile PRD using the IDPF framework.
 argument-hint: "<issue-number> | --extract [<directory>] [--help]"
 copyright: "Rubrical Works (c) 2026"

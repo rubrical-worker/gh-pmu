@@ -1,5 +1,5 @@
 ---
-version: "v0.109.1"
+version: "v0.110.0"
 description: Review a proposal with tracked history, using the IDPF framework.
 argument-hint: "#issue [--with ...] [--mode ...] [--force] [--prior-art] [--help]"
 copyright: "Rubrical Works (c) 2026"

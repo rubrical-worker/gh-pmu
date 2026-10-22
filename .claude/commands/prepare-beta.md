@@ -1,7 +1,7 @@
 ---
-version: "v0.109.1"
+version: "v0.110.0"
 description: Tag a beta from a feature branch without merging to main, using the IDPF framework.
-argument-hint: "[--skip-coverage] [--dry-run] [--help]"
+argument-hint: "[--skip-coverage] [--skip-review] [--dry-run] [--help]"
 copyright: "Rubrical Works (c) 2026"
 ---
 
@@ -14,7 +14,8 @@ Tag a beta from a feature branch without merging to main.
 | Argument | Description |
 |----------|-------------|
 | `--skip-coverage` | Skip coverage gate |
-| `--dry-run` | Preview without changes |
+| `--skip-review` | Skip the branch diff review gate (Step 2.1); skip recorded in the Summary Checklist |
+| `--dry-run` | Preview without changes; the Step 2.1 review gate reports what it would review and runs no review |
 | `--help` | Open this command's docs page. Takes precedence over every other argument and performs no action. |
 
 **`--help` takes precedence over every other argument and performs no action:** run `node .claude/scripts/shared/command-help.js prepare-beta`, report its output, and STOP.
@@ -132,6 +133,12 @@ The script outputs JSON: `{"success": true/false, "testsRun": N, "testsPassed": 
 E2E tests validate complete workflows against the test project.
 <!-- USER-EXTENSION-END: post-validation -->
 
+### Step 2.1: Branch Diff Review Gate
+Refuses a beta (a published tag users install) with an unreviewed change or an introduced high-severity finding. Runs before Phase 3 edits CHANGELOG and Phase 4 tags; the not-on-main Pre-Check already passed, so never on `main`.
+- `--skip-review` → report `Review gate skipped (--skip-review).` and continue, even with `--dry-run`; the reference below is not read.
+- Otherwise read `{frameworkPath}/Reference/code-review-execution.md` and execute its § Release Review Gate with `<command>` = `prepare-beta` — the whole gate (base, empty diff, `lastDiffReview` freshness, inline `/code-review --diff` on a missing/stale record, `--dry-run`, severity policy), shared with `/prepare-release`.
+- The file cannot be read → **STOP** with `Review gate could not read {frameworkPath}/Reference/code-review-execution.md; /prepare-beta stopped.` The gate never passes unread.
+
 **ASK USER:** Confirm validation passed before proceeding.
 ---
 ## Phase 3: Prepare
@@ -244,6 +251,7 @@ For the full release: merge the feature branch to main, run `/prepare-release`.
 - [ ] Commits analyzed
 - [ ] Beta version confirmed
 - [ ] Tests passing
+- [ ] Branch diff review passed (or `--skip-review`)
 - [ ] CHANGELOG updated with beta section
 
 <!-- USER-EXTENSION-START: checklist-before-tag -->

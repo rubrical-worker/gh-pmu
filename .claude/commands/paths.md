@@ -1,5 +1,5 @@
 ---
-version: "v0.109.1"
+version: "v0.110.0"
 description: Analyze paths collaboratively for proposals and enhancements, using the IDPF framework.
 argument-hint: "#issue [--help]"
 copyright: "Rubrical Works (c) 2026"
@@ -71,20 +71,21 @@ Search `## Path Analysis`. Use `context.partial`.
             {category.description}
             Remaining: {remaining category names}
 ```
-**4b:** AI generates 2–5 candidates specific to proposal. With screen spec data (Step 2a), use element details for precision — boundary values from `inputRange`, required field violations, dependency chains, conditional rendering edge cases.
+**4b:** AI generates 2–3 candidates specific to proposal. With screen spec data (Step 2a), use element details for precision — boundary values from `inputRange`, required field violations, dependency chains, conditional rendering edge cases.
 **4c: User validates via AskUserQuestion**
 ```javascript
 AskUserQuestion({
   questions: [{
     question: `${category.name}: Select the paths that apply:`,
-    header: category.name,
+    header: category.shortName,
     options: [...candidates, { label: "Skip this category", description: "Move on without confirming paths" }],
     multiSelect: true
   }]
 });
 ```
 "Skip this category" → record 0, proceed.
-Re-run with existing paths: include as pre-populated options.
+Re-run: existing paths count toward the 3 candidate slots — ≤3 options + "Skip this category" per prompt, further rounds of 3 when more remain.
+**Why:** `AskUserQuestion` rejects >4 options or a `header` >12 chars ("Invalid tool parameters") — so 3 candidates + skip is the ceiling and `header` is config `shortName` (≤12, schema-enforced), never `name`. Other prompts (2b, 4d, 5) have 2–3 options; "Generate more" yields 2–3, presented the same way.
 **4d: User contributes / generates more.** `AskUserQuestion`: "No, continue" / "Yes, add paths" / "Generate more candidates". "Generate more": AI produces 2-3 additional avoiding duplicates. All duplicates → "No new unique candidates."
 **4e: Buffer confirmed** for incremental save.
 
