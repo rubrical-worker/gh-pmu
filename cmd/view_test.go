@@ -2293,8 +2293,10 @@ func TestRunViewMulti_InvalidIssuePartialSuccess(t *testing.T) {
 	var errBuf bytes.Buffer
 	_, _ = io.Copy(&errBuf, rErr)
 
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+	// #938: the loaded issues are still printed, but a view that could not load
+	// every requested issue is a partial success, not a clean exit.
+	if !api.IsPartialSuccess(err) || !strings.Contains(err.Error(), "#99") {
+		t.Fatalf("expected a partial-success error naming #99, got: %v", err)
 	}
 
 	// Should output valid JSON with just issue 42

@@ -342,16 +342,20 @@ func runViewMulti(cmd *cobra.Command, opts *viewOptions, client viewClient, refs
 		}
 	}
 
-	// Build results in argument order
+	// Build results in argument order. Issues that fail to load are skipped and
+	// reported once the rest are printed (#938).
 	var results []viewResult
+	var loadFailures partialFailures
 	for _, k := range refOrder {
 		if e, ok := allErrors[k]; ok && e != nil {
 			fmt.Fprintf(os.Stderr, "Warning: failed to get issue #%d: %v\n", k.number, e)
+			loadFailures.add(fmt.Sprintf("load #%d", k.number), e)
 			continue
 		}
 		issue, ok := allIssues[k]
 		if !ok {
 			fmt.Fprintf(os.Stderr, "Warning: issue #%d not found\n", k.number)
+			loadFailures.add(fmt.Sprintf("load #%d", k.number), fmt.Errorf("issue #%d not found", k.number))
 			continue
 		}
 		results = append(results, viewResult{
@@ -369,10 +373,16 @@ func runViewMulti(cmd *cobra.Command, opts *viewOptions, client viewClient, refs
 	}
 
 	// Output
+	var outErr error
 	if opts.jsonFields != "" {
-		return outputViewMultiJSON(cmd, opts, results)
+		outErr = outputViewMultiJSON(cmd, opts, results)
+	} else {
+		outErr = outputViewMultiTable(cmd, results)
 	}
-	return outputViewMultiTable(cmd, results)
+	if outErr != nil {
+		return outErr
+	}
+	return loadFailures.err(fmt.Sprintf("showed %d of %d issues", len(results), len(refOrder)))
 }
 
 // outputViewMultiJSON outputs multiple issues as a JSON array
