@@ -28,6 +28,8 @@ type mockViewClient struct {
 	getSubIssuesErr              error
 	getParentIssueErr            error
 	getIssueCommentsErr          error
+	getSubIssuesBatchErr         error
+	getParentIssueBatchErr       error
 
 	// Multi-issue support
 	issues          map[int]*api.Issue
@@ -119,6 +121,9 @@ func (m *mockViewClient) GetIssuesWithProjectFieldsBatch(projectID, owner, repo 
 }
 
 func (m *mockViewClient) GetSubIssuesBatch(owner, repo string, numbers []int) (map[int][]api.SubIssue, error) {
+	if m.getSubIssuesBatchErr != nil {
+		return nil, m.getSubIssuesBatchErr
+	}
 	result := make(map[int][]api.SubIssue)
 	for _, n := range numbers {
 		if m.subIssuesMap != nil {
@@ -131,6 +136,9 @@ func (m *mockViewClient) GetSubIssuesBatch(owner, repo string, numbers []int) (m
 }
 
 func (m *mockViewClient) GetParentIssueBatch(owner, repo string, numbers []int) (map[int]*api.Issue, error) {
+	if m.getParentIssueBatchErr != nil {
+		return nil, m.getParentIssueBatchErr
+	}
 	result := make(map[int]*api.Issue)
 	for _, n := range numbers {
 		if m.parentIssuesMap != nil {
@@ -145,6 +153,64 @@ func (m *mockViewClient) GetParentIssueBatch(owner, repo string, numbers []int) 
 // ============================================================================
 // runViewWithDeps Tests
 // ============================================================================
+
+// A discarded sub-issue, parent or comment fetch error made a failed call look
+// like "none": view printed no sub-issues and exited 0 (#939). The issue is
+// still shown, and the failure is reported as a partial success.
+func TestRunViewWithDeps_RelatedFetchFailureIsReported(t *testing.T) {
+	cases := []struct {
+		name   string
+		inject func(*mockViewClient)
+		opts   viewOptions
+		step   string
+	}{
+		{"sub-issues", func(m *mockViewClient) { m.getSubIssuesErr = errors.New("sub-issues 502") }, viewOptions{}, "sub-issues 502"},
+		{"parent", func(m *mockViewClient) { m.getParentIssueErr = errors.New("parent 502") }, viewOptions{}, "parent 502"},
+		{"comments", func(m *mockViewClient) { m.getIssueCommentsErr = errors.New("comments 502") }, viewOptions{comments: true}, "comments 502"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			mock := newMockViewClient()
+			tc.inject(mock)
+			cmd := &cobra.Command{}
+			buf := new(bytes.Buffer)
+			cmd.SetOut(buf)
+			opts := tc.opts
+
+			err := runViewWithDeps(cmd, &opts, mock, "owner", "repo", 42)
+
+			if !api.IsPartialSuccess(err) || !strings.Contains(err.Error(), tc.step) {
+				t.Fatalf("expected a partial-success error carrying %q, got: %v", tc.step, err)
+			}
+			if !strings.Contains(buf.String(), "Test Issue") {
+				t.Errorf("the issue should still be shown, got: %s", buf.String())
+			}
+		})
+	}
+}
+
+func TestRunViewMulti_RelatedBatchFetchFailureIsReported(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		inject func(*mockViewClient)
+	}{
+		{"sub-issues", func(m *mockViewClient) { m.getSubIssuesBatchErr = errors.New("batch 502") }},
+		{"parents", func(m *mockViewClient) { m.getParentIssueBatchErr = errors.New("batch 502") }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			mock := newMultiMockViewClient()
+			tc.inject(mock)
+			cmd := &cobra.Command{}
+			cmd.SetOut(new(bytes.Buffer))
+			refs := []viewIssueRef{{owner: "o", repo: "r", number: 42}, {owner: "o", repo: "r", number: 43}}
+
+			err := runViewMulti(cmd, &viewOptions{jsonFields: "number"}, mock, refs, nil)
+			if !api.IsPartialSuccess(err) || !strings.Contains(err.Error(), "batch 502") {
+				t.Fatalf("expected a partial-success error carrying the batch failure, got: %v", err)
+			}
+		})
+	}
+}
 
 func TestRunViewWithDeps_Success(t *testing.T) {
 	mock := newMockViewClient()

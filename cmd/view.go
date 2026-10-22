@@ -275,6 +275,10 @@ func runViewMulti(cmd *cobra.Command, opts *viewOptions, client viewClient, refs
 		refOrder = append(refOrder, issueKey(ref))
 	}
 
+	// Issues, sub-issues, parents or comments that fail to load are reported
+	// once the rest are printed (#938, #939).
+	var loadFailures partialFailures
+
 	// Fetch all data with batch calls
 	allIssues := make(map[issueKey]*api.Issue)
 	allFieldValues := make(map[issueKey][]api.FieldValue)
@@ -306,21 +310,29 @@ func runViewMulti(cmd *cobra.Command, opts *viewOptions, client viewClient, refs
 			}
 		}
 
-		// Calls 2-3: Sub-issues + parent issues (parallel)
+		// Calls 2-3: Sub-issues + parent issues (parallel). A failed batch is
+		// reported after the output rather than shown as "none" (#939).
 		var subIssuesMap map[int][]api.SubIssue
 		var parentIssuesMap map[int]*api.Issue
+		var subErr, parentErr error
 		var wg sync.WaitGroup
 
 		wg.Add(2)
 		go func() {
 			defer wg.Done()
-			subIssuesMap, _ = client.GetSubIssuesBatch(key.owner, key.repo, validNumbers)
+			subIssuesMap, subErr = client.GetSubIssuesBatch(key.owner, key.repo, validNumbers)
 		}()
 		go func() {
 			defer wg.Done()
-			parentIssuesMap, _ = client.GetParentIssueBatch(key.owner, key.repo, validNumbers)
+			parentIssuesMap, parentErr = client.GetParentIssueBatch(key.owner, key.repo, validNumbers)
 		}()
 		wg.Wait()
+		if subErr != nil {
+			loadFailures.add(fmt.Sprintf("fetch sub-issues for %s/%s", key.owner, key.repo), subErr)
+		}
+		if parentErr != nil {
+			loadFailures.add(fmt.Sprintf("fetch parent issues for %s/%s", key.owner, key.repo), parentErr)
+		}
 
 		for num, subs := range subIssuesMap {
 			allSubIssues[issueKey{key.owner, key.repo, num}] = subs
@@ -336,7 +348,10 @@ func runViewMulti(cmd *cobra.Command, opts *viewOptions, client viewClient, refs
 		for _, ref := range refs {
 			k := issueKey(ref)
 			if _, ok := allIssues[k]; ok {
-				comments, _ := client.GetIssueComments(ref.owner, ref.repo, ref.number)
+				comments, err := client.GetIssueComments(ref.owner, ref.repo, ref.number)
+				if err != nil {
+					loadFailures.add(fmt.Sprintf("fetch comments for #%d", ref.number), err)
+				}
 				allComments[k] = comments
 			}
 		}
@@ -345,7 +360,6 @@ func runViewMulti(cmd *cobra.Command, opts *viewOptions, client viewClient, refs
 	// Build results in argument order. Issues that fail to load are skipped and
 	// reported once the rest are printed (#938).
 	var results []viewResult
-	var loadFailures partialFailures
 	for _, k := range refOrder {
 		if e, ok := allErrors[k]; ok && e != nil {
 			fmt.Fprintf(os.Stderr, "Warning: failed to get issue #%d: %v\n", k.number, e)
@@ -468,34 +482,53 @@ func runViewWithDeps(cmd *cobra.Command, opts *viewOptions, client viewClient, o
 		return nil
 	}
 
-	// Fetch sub-issues and parent issue in parallel
+	// Fetch sub-issues and parent issue in parallel. A failed fetch is reported
+	// after the output rather than shown as "none" (#939).
 	var subIssues []api.SubIssue
 	var parentIssue *api.Issue
+	var subErr, parentErr error
 	var wg sync.WaitGroup
 
 	wg.Add(2)
 	go func() {
 		defer wg.Done()
-		subIssues, _ = client.GetSubIssues(owner, repo, number)
+		subIssues, subErr = client.GetSubIssues(owner, repo, number)
 	}()
 	go func() {
 		defer wg.Done()
-		parentIssue, _ = client.GetParentIssue(owner, repo, number)
+		parentIssue, parentErr = client.GetParentIssue(owner, repo, number)
 	}()
 	wg.Wait()
+
+	var fetchFailures partialFailures
+	if subErr != nil {
+		fetchFailures.add("fetch sub-issues", subErr)
+	}
+	if parentErr != nil {
+		fetchFailures.add("fetch parent issue", parentErr)
+	}
 
 	// Fetch comments if requested (not parallelized - only when needed)
 	var comments []api.Comment
 	if opts.comments {
-		comments, _ = client.GetIssueComments(owner, repo, number)
+		var commentsErr error
+		comments, commentsErr = client.GetIssueComments(owner, repo, number)
+		if commentsErr != nil {
+			fetchFailures.add("fetch comments", commentsErr)
+		}
 	}
 
 	// Output
+	var outErr error
 	if opts.jsonFields != "" {
-		return outputViewJSON(cmd, opts, issue, fieldValues, subIssues, parentIssue, comments)
+		outErr = outputViewJSON(cmd, opts, issue, fieldValues, subIssues, parentIssue, comments)
+	} else {
+		outErr = outputViewTable(cmd, issue, fieldValues, subIssues, parentIssue, comments)
 	}
-
-	return outputViewTable(cmd, issue, fieldValues, subIssues, parentIssue, comments)
+	if outErr != nil {
+		return outErr
+	}
+	return fetchFailures.err(fmt.Sprintf("showed issue #%d", number))
 }
 
 // ViewJSONOutput represents the JSON output for view command
