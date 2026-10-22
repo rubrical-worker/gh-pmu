@@ -40,7 +40,7 @@ func TestRunMoveWithDeps_RecursiveEnrichmentFailureWarns(t *testing.T) {
 	os.Stderr = w
 
 	opts := &moveOptions{status: "in_progress", recursive: true, yes: true, depth: 10}
-	_ = runMoveWithDeps(cmd, []string{"1"}, opts, cfg, mock)
+	err := runMoveWithDeps(cmd, []string{"1"}, opts, cfg, mock)
 
 	_ = w.Close()
 	os.Stderr = oldErr
@@ -49,6 +49,59 @@ func TestRunMoveWithDeps_RecursiveEnrichmentFailureWarns(t *testing.T) {
 
 	if !strings.Contains(strings.ToLower(errBuf.String()), "enrich") {
 		t.Errorf("expected a stderr warning about failed sub-issue enrichment, got: %q", errBuf.String())
+	}
+	// #938: the parent was moved but the sub-issues could not be, so the
+	// command is a partial success rather than a clean exit.
+	if !api.IsPartialSuccess(err) {
+		t.Errorf("expected a partial-success error, got: %v", err)
+	}
+}
+
+// A sub-issue tree that cannot be listed was skipped with only a warning, so a
+// recursive move exited 0 having moved none of the subtree (#938).
+func TestRunMoveWithDeps_RecursiveListingFailureIsPartialSuccess(t *testing.T) {
+	mock := newMockMoveClient()
+	mock.project = &api.Project{ID: "proj-1", Number: 1, Title: "Test Project"}
+	mock.issues["testowner/testrepo#1"] = &api.Issue{ID: "issue-1", Number: 1, Title: "Parent Issue"}
+	mock.projectItems = []api.ProjectItem{
+		{ID: "item-1", Issue: &api.Issue{Number: 1, Repository: api.Repository{Owner: "testowner", Name: "testrepo"}}},
+	}
+	mock.getSubIssuesBatchErr = fmt.Errorf("batch failed")
+	mock.getSubIssuesErr = fmt.Errorf("sub-issue listing failed")
+
+	cmd := &cobra.Command{}
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetErr(buf)
+	oldErr := os.Stderr
+	_, w, _ := os.Pipe()
+	os.Stderr = w
+
+	opts := &moveOptions{status: "in_progress", recursive: true, yes: true, depth: 10}
+	err := runMoveWithDeps(cmd, []string{"1"}, opts, testMoveConfig(), mock)
+
+	_ = w.Close()
+	os.Stderr = oldErr
+
+	if !api.IsPartialSuccess(err) || !strings.Contains(err.Error(), "#1") {
+		t.Errorf("expected a partial-success error naming #1's sub-issues, got: %v", err)
+	}
+}
+
+func TestCollectSubIssuesRecursive_ListingFailureReturnsError(t *testing.T) {
+	mock := newMockMoveClient()
+	mock.getSubIssuesBatchErr = fmt.Errorf("batch failed")
+	mock.getSubIssuesErr = fmt.Errorf("sub-issue listing failed")
+
+	oldErr := os.Stderr
+	_, w, _ := os.Pipe()
+	os.Stderr = w
+	_, err := collectSubIssuesRecursive(mock, "testowner", "testrepo", 1, map[string]string{}, map[string][]api.FieldValue{}, map[string]*api.Issue{}, 1, 10)
+	_ = w.Close()
+	os.Stderr = oldErr
+
+	if err == nil || !strings.Contains(err.Error(), "#1") {
+		t.Fatalf("expected an error naming #1's unlisted sub-issues, got: %v", err)
 	}
 }
 
@@ -1329,10 +1382,14 @@ func TestRunMoveWithDeps_RecursiveGetSubIssuesFails(t *testing.T) {
 	opts := &moveOptions{status: "in_progress", recursive: true, yes: true, depth: 10}
 
 	err := runMoveWithDeps(cmd, []string{"1"}, opts, cfg, mock)
-	// GetSubIssues failure is now a warning, not an error (graceful degradation)
-	// The parent issue should still be updated successfully
-	if err != nil {
-		t.Errorf("Unexpected error: %v", err)
+	// GetSubIssues failure degrades gracefully: the parent issue is still
+	// updated. But the subtree was not moved, so the command is a partial
+	// success rather than a clean exit (#938).
+	if len(mock.fieldUpdates) == 0 {
+		t.Error("the parent issue should still be updated")
+	}
+	if !api.IsPartialSuccess(err) {
+		t.Errorf("expected a partial-success error, got: %v", err)
 	}
 }
 

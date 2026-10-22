@@ -242,6 +242,9 @@ func runMoveWithDeps(cmd *cobra.Command, args []string, opts *moveOptions, cfg *
 	// Collect all issues to update from all args
 	var issuesToUpdate []issueInfo
 	var collectionErrors []string
+	// Sub-issue trees that could not be listed or enriched; the rest of the
+	// move goes ahead and the gap is reported at the end (#938).
+	var collectFailures partialFailures
 	hasErrors := false
 
 	// Add parse errors to collection errors
@@ -292,7 +295,9 @@ func runMoveWithDeps(cmd *cobra.Command, args []string, opts *moveOptions, cfg *
 			subIssues, err := collectSubIssuesRecursive(client, owner, repo, number, itemIDMap, itemFieldsMap, itemDataMap, 1, opts.depth)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "Warning: failed to collect sub-issues for #%d: %v\n", number, err)
-			} else {
+				collectFailures.add(fmt.Sprintf("move sub-issues of #%d", number), err)
+			}
+			{
 				// Enrich sub-issues not yet in the maps with targeted project item query
 				var missingRefs []api.IssueRef
 				for _, sub := range subIssues {
@@ -307,6 +312,7 @@ func runMoveWithDeps(cmd *cobra.Command, args []string, opts *moveOptions, cfg *
 						// Swallowing this made the affected sub-issues look like they
 						// were "(not in project, will skip)". Surface the real cause.
 						fmt.Fprintf(os.Stderr, "Warning: failed to enrich %d sub-issue(s) with project data; they may be misreported as not in project: %v\n", len(missingRefs), serr)
+						collectFailures.add(fmt.Sprintf("move %d sub-issue(s) of #%d", len(missingRefs), number), serr)
 					}
 					if serr == nil {
 						for _, item := range subItems {
@@ -699,7 +705,7 @@ func runMoveWithDeps(cmd *cobra.Command, args []string, opts *moveOptions, cfg *
 		return fmt.Errorf("some issues could not be updated")
 	}
 
-	return nil
+	return collectFailures.err(fmt.Sprintf("updated %d issue(s)", updatedCount))
 }
 
 // subIssueCollector holds shared state for recursive sub-issue collection.
@@ -708,6 +714,10 @@ type subIssueCollector struct {
 	itemIDMap     map[string]string
 	itemFieldsMap map[string][]api.FieldValue
 	itemDataMap   map[string]*api.Issue
+	// unlisted names each parent whose sub-issues could not be fetched, so the
+	// subtree's absence is reported rather than read as "no sub-issues" (#938).
+	unlisted []string
+	firstErr error
 }
 
 // parentInfo tracks a parent issue for level-by-level traversal.
@@ -755,6 +765,10 @@ func collectSubIssuesRecursive(client moveClient, owner, repo string, number int
 		currentLevel = nextLevel
 	}
 
+	// The sub-issues that were listed are still returned with the error.
+	if len(c.unlisted) > 0 {
+		return result, fmt.Errorf("could not list sub-issues of %s: %w", strings.Join(c.unlisted, ", "), c.firstErr)
+	}
 	return result, nil
 }
 
@@ -784,6 +798,10 @@ func (c *subIssueCollector) fetchSubIssues(repoOwner, repoName string, parents [
 			subIssues, ferr := c.client.GetSubIssues(p.owner, p.repo, p.number)
 			if ferr != nil {
 				fmt.Fprintf(os.Stderr, "Warning: failed to get sub-issues for #%d: %v\n", p.number, ferr)
+				c.unlisted = append(c.unlisted, fmt.Sprintf("#%d", p.number))
+				if c.firstErr == nil {
+					c.firstErr = ferr
+				}
 				continue
 			}
 			subIssuesMap[p.number] = subIssues
