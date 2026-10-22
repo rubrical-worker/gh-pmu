@@ -7,6 +7,53 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.7.0] - 2026-10-22
+
+gh-pmu now handles organization-level issue fields such as an org-wide
+Priority: `field list` labels them, and `create`, `move`, `view`, `list` and
+`board` read and write them alongside ordinary project fields. `create`,
+`sub create` and `branch start` gain `--dry-run`, and commands that finish only
+part of their work now exit with code 6 and name what failed, so scripts can
+tell a partial result from a clean one. `--json` behaves the same on `list`,
+`view` and `branch current` and rejects unknown field names.
+
+**Upgrade notes:**
+- Exit code 6 (partial success) is no longer limited to `create`: `view`, `move --recursive`, `branch close`, `field create`, `sub create` and `init` return it when part of their work fails, where they used to exit 0 after a warning. Scripts that treat any non-zero exit as fatal will now stop on these (#938)
+- `--json` now requires a field list on `list`, `view` and `branch current`, and an unknown field name fails with exit 1 instead of being dropped from the output. Use `--json-fields` to list the available fields (#926, #941)
+- `move --branch` now refuses to update anything when it cannot fetch the active branches, instead of skipping the branch check (#939)
+- A `.gh-pmu.json` written before 1.7.0 on an organization board has no recorded field kinds. If GitHub's field resolver fails and gh-pmu falls back to the cached metadata, it now refuses that cache and asks for `gh pmu init`; run `gh pmu init` once after upgrading to refresh it (#932, #933)
+
+### Added
+- Organization-level issue fields: fields backed by an org issue field are detected during project field discovery, cached with their kind in `.gh-pmu.json`, written through the issue (`setIssueFieldValue`) and read in `view`, `list` and `board`. Single-select, date, text, number and multi-select values are supported (#932, #934)
+- `issue_field` on a `.gh-pmu.json` field alias overrides detection: an issue field ID pins the alias to that issue field, `"none"` keeps it a project field (#932)
+- `field list` labels org issue fields as `org issue field` and shows the issue field's own type and options (#932)
+- `--dry-run` for `create`, `sub create` and `branch start`, which resolves everything and prints what would be created without creating it (#929)
+- Exit code 6 for partial success, with an error that names what completed and every failed step (#929, #938)
+- Examples in `--help` for `create`, `view`, `list`, `accept` and `branch current` (#928)
+
+### Changed
+- `create` resolves its project, fields and assignees before creating the issue, and reports any failure after the issue exists as a partial success rather than a plain error that invites a duplicate retry (#929)
+- Runtime errors print without the usage block (#927)
+- `board` reads 20 field values per item (was 10) and warns on stderr when an item has more, since its Status or Priority may then be missing (#934)
+- `branch close` reports the number of issues it actually moved and exits 6 when a move or label removal fails (#938)
+- `init` keeps the fields from its first fetch when the post-setup refetch fails, instead of writing empty metadata (#938)
+- Re-running `init` keeps `issue_field` overrides on aliases it does not regenerate and top-level keys it does not write, such as `configIntegrity`; `Config.Save` keeps unknown keys inside field aliases and cached field metadata (#936)
+- On a GitHub server without organization issue fields, reads warn once and continue with project fields only (#935)
+- CI runs the unit tests on Linux, macOS and Windows, builds and runs the binary on all three, and runs gosec and CodeQL for each target OS (#930)
+
+### Fixed
+- `list --json <field>` silently ignored the field and exited 0; `--json` without a value is now rejected on `list`, `view` and `branch current` (#926)
+- `view --json` silently dropped unknown field names (#941)
+- Batch GraphQL reads reported rate limits and permission errors as empty or not-found results (#937)
+- `view` showed "none" for sub-issues, parents and comments it failed to fetch, and `sub list` did the same for parents and siblings (#939)
+- Cached field metadata could route an org issue field to the project-field write: stale DATE entries, `init`'s per-name fallback, `status --update` and `field create` all cached incomplete classifications (#933)
+
+### Documentation
+- `docs/commands.md`: `--dry-run` flags, org issue fields in `field list`, `--json` field validation and a new Exit Codes section
+- `docs/development.md` describes the cross-platform CI matrices (#930)
+- Design decisions for correlating project fields with org issue fields (#932) and the issue field fragment schema gate (#935)
+- IDPF-Praxis framework upgraded to 0.110.0
+
 ## [1.6.0] - 2026-09-14
 
 `gh pmu intake` is now much faster: it reads each issue's project membership

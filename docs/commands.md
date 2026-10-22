@@ -211,6 +211,9 @@ gh pmu create --title "Security fix" --label bug --label security
 | `--priority` | Set project priority field on create |
 | `--branch` | Assign to branch (use 'current' for active) |
 | `--from-file` | Create issue from YAML/JSON file |
+| `--dry-run` | Resolve the repository, project and fields and print what would be created, without creating anything |
+
+If the issue is created but adding it to the project or setting a field fails, `create` exits with code 6 and names the issue and the failed steps. Do not re-run it: the issue already exists (see [Exit Codes](#exit-codes)).
 
 **Flags matching `gh issue create`:**
 | Flag | Purpose |
@@ -446,13 +449,19 @@ gh pmu field create --name "Sprint" --type single_select --options "Sprint 1,Spr
 
 **Output:**
 ```
-Name        Type           Options
-Status      SINGLE_SELECT  Backlog, Up next, Ready, In progress, In review, QA required, Done, Parking Lot, Notes
-Priority    SINGLE_SELECT  P0, P1, P2
-Size        SINGLE_SELECT  XS, S, M, L, XL
-Estimate    NUMBER         -
-Start date  DATE           -
+Fields in project "My Project":
+
+  Status (SINGLE_SELECT)
+    Options: Backlog, Up next, Ready, In progress, In review, QA required, Done, Parking Lot, Notes
+  Priority (SINGLE_SELECT, org issue field)
+    Options: P0, P1, P2
+  Estimate (NUMBER)
+  Start date (DATE)
+
+Total: 4 fields
 ```
+
+A field backed by an organization-level issue field is labeled `org issue field` and shows that issue field's type and options. gh-pmu reads and writes such fields through the issue rather than the project, so `create --priority`, `move --priority`, `view`, `list` and `board` work the same for both kinds. To override detection for an alias, set `issue_field` on it in `.gh-pmu.json`: an issue field ID pins the alias to that issue field, and `"none"` keeps it a project field. On a GitHub server without organization issue fields, gh-pmu warns once and reads project fields only.
 
 ---
 
@@ -495,6 +504,7 @@ gh pmu sub create --parent 10 --title "Task" --inherit-assignees
 | `--inherit-labels` | Copy labels from parent (default: false) |
 | `--inherit-milestone` | Copy milestone from parent (default: true) |
 | `--inherit-assignees` | Copy assignees from parent (default: false) |
+| `--dry-run` | Resolve the parent, labels, assignees and milestone and print what would be created, without creating anything |
 
 **Flags matching `gh issue create`:**
 | Flag | Purpose |
@@ -761,6 +771,9 @@ gh pmu branch start --name patch/v1.9.1
 # Start a hotfix branch
 gh pmu branch start --name hotfix-auth-bypass
 
+# Preview a branch start without creating the git branch or tracker
+gh pmu branch start --name release/v2.0.0 --dry-run
+
 # Assign issues to current branch
 gh pmu move 42 --branch current
 
@@ -928,6 +941,26 @@ These flags work with most commands:
 | `--help` | Show command help |
 | `--no-cache-fallback` | Disable cached-metadata fallback when GitHub's `ProjectV2.fields` resolver returns 5xx — propagate the error unchanged (fail-loud, for CI/strict automation). See the [Resilience](../README.md#resilience) section. |
 | `--refresh-cached-fields` | When the cache-fallback engages, refresh each cached field via per-name `ProjectV2.field(name:)` queries. Partial failures retain the cached value. |
+
+`--json` takes a required comma-separated field list on `list`, `view` and `branch current`. Field names match case-insensitively; an unknown name fails the command with exit 1 before any API call. Run the command with `--json-fields` to list the available fields.
+
+## Exit Codes
+
+| Code | Meaning |
+|------|---------|
+| `0` | The command completed all of its work. |
+| `1` | The command failed. |
+| `6` | Partial success: the command completed part of its work, then a later step failed. The error message names what completed and each failed step. |
+
+Exit code 6 comes from:
+- `create` and `sub create`, when the issue was created but a later step (adding it to the project, setting a field) failed. **Do not retry**: the issue already exists, and re-running creates a duplicate.
+- `field create`, when the field was created but `.gh-pmu.json` was not updated.
+- `init`, when the project was set up but the final refetch of its fields failed.
+- `view`, when some issues, sub-issues, parents or comments could not be loaded.
+- `move --recursive`, when some sub-issue trees could not be listed or updated.
+- `branch close`, when some issues could not be moved to backlog or have the `assigned` label removed.
+
+Scripts that treat any non-zero exit as fatal will stop on code 6; check for it explicitly when partial results are acceptable.
 
 ## Assignee Resolution
 
