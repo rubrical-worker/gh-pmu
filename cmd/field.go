@@ -248,7 +248,13 @@ func runFieldListWithDeps(cmd *cobra.Command, cfg *config.Config, client fieldCl
 	fmt.Fprintf(cmd.OutOrStdout(), "Fields in project %q:\n\n", project.Title)
 
 	for _, f := range fields {
-		fmt.Fprintf(cmd.OutOrStdout(), "  %s (%s)\n", f.Name, f.DataType)
+		if f.IssueField != nil {
+			// Options of an org issue field are the issue field's own (#932);
+			// the project's view of the field has none.
+			fmt.Fprintf(cmd.OutOrStdout(), "  %s (%s, org issue field)\n", f.Name, f.IssueField.DataType)
+		} else {
+			fmt.Fprintf(cmd.OutOrStdout(), "  %s (%s)\n", f.Name, f.DataType)
+		}
 		if len(f.Options) > 0 {
 			var optNames []string
 			for _, opt := range f.Options {

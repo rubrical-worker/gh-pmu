@@ -333,3 +333,41 @@ func TestRunFieldCreate_ValidTypes(t *testing.T) {
 		})
 	}
 }
+
+func TestRunFieldList_ShowsOrgIssueFieldKindAndOptions(t *testing.T) {
+	cmd, buf := newTestFieldCmd()
+
+	mock := &mockFieldClient{
+		project: &api.Project{ID: "PVT_org", Title: "Org Project"},
+		fields: []api.ProjectField{
+			{ID: "F1", Name: "Status", DataType: "SINGLE_SELECT", Options: []api.FieldOption{{ID: "O1", Name: "Backlog"}}},
+			{ID: "PVTSSF_pri", Name: "Priority", DataType: "SINGLE_SELECT",
+				Options: []api.FieldOption{
+					{ID: "IFSSO_P0", Name: "P0"}, {ID: "IFSSO_P1", Name: "P1"}, {ID: "IFSSO_P2", Name: "P2"},
+				},
+				IssueField: &api.IssueFieldInfo{ID: "IFSS_pri", DataType: "SINGLE_SELECT"}},
+			{ID: "PVTF_start", Name: "Start date", DataType: "DATE",
+				IssueField: &api.IssueFieldInfo{ID: "IFD_start", DataType: "DATE"}},
+		},
+	}
+	cfg := &config.Config{
+		Project:      config.Project{Owner: "acme", Number: 2},
+		Repositories: []string{"acme/app"},
+	}
+
+	if err := runFieldListWithDeps(cmd, cfg, mock); err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+
+	output := buf.String()
+	for _, want := range []string{
+		"Status (SINGLE_SELECT)\n",
+		"Priority (SINGLE_SELECT, org issue field)",
+		"Options: P0, P1, P2",
+		"Start date (DATE, org issue field)",
+	} {
+		if !strings.Contains(output, want) {
+			t.Errorf("expected %q in output, got:\n%s", want, output)
+		}
+	}
+}
