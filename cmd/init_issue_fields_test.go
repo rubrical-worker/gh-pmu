@@ -1,8 +1,11 @@
 package cmd
 
 import (
+	"bytes"
+	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/rubrical-works/gh-pmu/internal/api"
@@ -160,5 +163,45 @@ func TestWriteConfigWithMetadata_ReInitKeepsOverrideOnUngeneratedAlias(t *testin
 	}
 	if severity.Field != "Severity" || severity.IssueField != "none" || severity.Values["high"] != "High" {
 		t.Errorf("severity alias = %+v, want it kept as written", severity)
+	}
+}
+
+// Re-init rebuilt the file from a fixed struct, so top-level keys it does not
+// write vanished — configIntegrity: "strict" among them, silently turning the
+// integrity check off (#936).
+func TestWriteConfigWithMetadata_ReInitKeepsUnwrittenTopLevelKeys(t *testing.T) {
+	tmpDir := t.TempDir()
+	existing := `{
+  "project": {"owner": "acme", "number": 2},
+  "repositories": ["acme/app"],
+  "configIntegrity": "strict",
+  "customKey": {"nested": [1, 2]}
+}`
+	if err := os.WriteFile(filepath.Join(tmpDir, ".gh-pmu.json"), []byte(existing), 0600); err != nil {
+		t.Fatalf("write existing config: %v", err)
+	}
+
+	cfg := &InitConfig{ProjectOwner: "acme", ProjectNumber: 2, Repositories: []string{"acme/app"}}
+	if err := writeConfigWithMetadata(tmpDir, cfg, &ProjectMetadata{ProjectID: "PVT_org"}); err != nil {
+		t.Fatalf("writeConfigWithMetadata: %v", err)
+	}
+
+	raw, err := os.ReadFile(filepath.Join(tmpDir, ".gh-pmu.json"))
+	if err != nil {
+		t.Fatalf("read config: %v", err)
+	}
+	var got map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &got); err != nil {
+		t.Fatalf("written config is not valid JSON: %v\n%s", err, raw)
+	}
+	if string(got["configIntegrity"]) != `"strict"` {
+		t.Errorf("configIntegrity = %s, want \"strict\" kept across re-init", got["configIntegrity"])
+	}
+	var customKey bytes.Buffer
+	if err := json.Compact(&customKey, got["customKey"]); err != nil || customKey.String() != `{"nested":[1,2]}` {
+		t.Errorf("customKey = %s, want it kept across re-init", got["customKey"])
+	}
+	if !strings.Contains(string(raw), "\n  \"configIntegrity\": \"strict\"") {
+		t.Errorf("kept keys should be indented like the rest of the file:\n%s", raw)
 	}
 }

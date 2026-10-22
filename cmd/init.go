@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -787,11 +788,21 @@ func writeConfigWithMetadata(dir string, cfg *InitConfig, metadata *ProjectMetad
 		},
 	}
 
-	jsonData, err := json.MarshalIndent(configFile, "", "  ")
+	compact, err := json.Marshal(configFile)
 	if err != nil {
 		return fmt.Errorf("failed to marshal JSON config: %w", err)
 	}
-	jsonData = append(jsonData, '\n')
+	// Re-init rebuilds the file from configFile; keys it does not own, such as
+	// configIntegrity, are carried over from the existing file (#936).
+	previous, _ := os.ReadFile(existingJSONPath)
+	if compact, err = config.MergeUnownedKeys(compact, previous, configFile); err != nil {
+		return fmt.Errorf("failed to marshal JSON config: %w", err)
+	}
+	var indented bytes.Buffer
+	if err := json.Indent(&indented, compact, "", "  "); err != nil {
+		return fmt.Errorf("failed to marshal JSON config: %w", err)
+	}
+	jsonData := append(indented.Bytes(), '\n')
 	jsonPath := filepath.Join(dir, config.ConfigFileName)
 	if err := os.WriteFile(jsonPath, jsonData, 0600); err != nil {
 		return fmt.Errorf("failed to write config file: %w", err)

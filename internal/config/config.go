@@ -116,7 +116,13 @@ func (c *Config) MarshalJSON() ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	if len(c.unknown) == 0 {
+	return spliceUnknownKeys(encoded, c.unknown)
+}
+
+// spliceUnknownKeys appends unknown's members to encoded, a compact JSON
+// object, leaving encoded's own members in place (#910).
+func spliceUnknownKeys(encoded []byte, unknown map[string]json.RawMessage) ([]byte, error) {
+	if len(unknown) == 0 {
 		return encoded, nil
 	}
 	// Splicing assumes an object; a struct always encodes to one. Checked so a
@@ -129,8 +135,8 @@ func (c *Config) MarshalJSON() ([]byte, error) {
 	// Sorted for determinism. The order these keys had in the file is not
 	// recoverable from encoding/json without a token-level decoder, and nothing
 	// depends on it.
-	keys := make([]string, 0, len(c.unknown))
-	for key := range c.unknown {
+	keys := make([]string, 0, len(unknown))
+	for key := range unknown {
 		keys = append(keys, key)
 	}
 	sort.Strings(keys)
@@ -147,11 +153,37 @@ func (c *Config) MarshalJSON() ([]byte, error) {
 		}
 		buf.Write(encodedKey)
 		buf.WriteByte(':')
-		buf.Write(c.unknown[key])
+		buf.Write(unknown[key])
 	}
 	buf.WriteByte('}')
 
 	return buf.Bytes(), nil
+}
+
+// MergeUnownedKeys returns encoded, a compact JSON object written from writer,
+// with every top-level key of previous that writer does not model appended
+// unchanged. A writer that rebuilds .gh-pmu.json from its own struct — init —
+// uses it so keys it does not own survive the rewrite (#936). Ownership comes
+// from writer's JSON tags, so a key writer omitted on purpose (an omitempty
+// field left empty) is not resurrected from previous. An empty or unparseable
+// previous adds nothing.
+func MergeUnownedKeys(encoded, previous []byte, writer any) ([]byte, error) {
+	var old map[string]json.RawMessage
+	if len(previous) == 0 || json.Unmarshal(previous, &old) != nil {
+		return encoded, nil
+	}
+	t := reflect.TypeOf(writer)
+	for t.Kind() == reflect.Pointer {
+		t = t.Elem()
+	}
+	owned := jsonObjectKeys(t)
+	unowned := map[string]json.RawMessage{}
+	for key, value := range old {
+		if _, ok := owned[key]; !ok {
+			unowned[key] = value
+		}
+	}
+	return spliceUnknownKeys(encoded, unowned)
 }
 
 // Project contains GitHub project configuration

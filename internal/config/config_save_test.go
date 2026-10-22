@@ -182,6 +182,38 @@ func TestSave_PreservesKeysTheStructDoesNotModel(t *testing.T) {
 	}
 }
 
+// MergeUnownedKeys carries over keys the writer does not model, but never a key
+// the writer owns and left out on purpose — init drops a stale acceptance
+// record by omitting it, and resurrecting it would skip re-acceptance (#936).
+func TestMergeUnownedKeys_KeepsUnownedAndNeverResurrectsOwnedKeys(t *testing.T) {
+	type writer struct {
+		Project    string `json:"project"`
+		Acceptance *struct {
+			Version string `json:"version"`
+		} `json:"acceptance,omitempty"`
+	}
+	encoded := []byte(`{"project":"new"}`)
+	previous := []byte(`{"project":"old","acceptance":{"version":"0.9.0"},"configIntegrity":"strict"}`)
+
+	merged, err := MergeUnownedKeys(encoded, previous, &writer{})
+	if err != nil {
+		t.Fatalf("MergeUnownedKeys: %v", err)
+	}
+	var got map[string]json.RawMessage
+	if err := json.Unmarshal(merged, &got); err != nil {
+		t.Fatalf("merged output is not valid JSON: %v\n%s", err, merged)
+	}
+	if string(got["project"]) != `"new"` {
+		t.Errorf("project = %s, want the writer's value kept", got["project"])
+	}
+	if string(got["configIntegrity"]) != `"strict"` {
+		t.Errorf("configIntegrity = %s, want the unowned key carried over", got["configIntegrity"])
+	}
+	if _, ok := got["acceptance"]; ok {
+		t.Errorf("acceptance is owned by the writer and was omitted on purpose; it must not be resurrected: %s", merged)
+	}
+}
+
 func TestSave_ModeledKeysKeepDeclarationOrderAlongsideUnmodeledKeys(t *testing.T) {
 	// ARRANGE
 	dir, path := seedConfigFile(t, unmodeledConfigJSON)
