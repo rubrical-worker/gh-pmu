@@ -1153,6 +1153,7 @@ func (c *Client) GetProjectItemsByIssues(projectID string, refs []IssueRef) ([]P
 									text
 									field { ... on ProjectV2Field { name } }
 								}
+								` + rawIssueFieldValueSelection + `
 							}
 						}
 					}
@@ -1357,17 +1358,7 @@ func (c *Client) getBoardItemsPage(projectID string, cursor *string) ([]BoardIte
 							} `graphql:"... on Issue"`
 						}
 						FieldValues struct {
-							Nodes []struct {
-								TypeName                            string `graphql:"__typename"`
-								ProjectV2ItemFieldSingleSelectValue struct {
-									Name  string
-									Field struct {
-										ProjectV2SingleSelectField struct {
-											Name string
-										} `graphql:"... on ProjectV2SingleSelectField"`
-									}
-								} `graphql:"... on ProjectV2ItemFieldSingleSelectValue"`
-							}
+							Nodes []typedFieldValueNode
 						} `graphql:"fieldValues(first: 10)"`
 					}
 					PageInfo struct {
@@ -1406,17 +1397,14 @@ func (c *Client) getBoardItemsPage(projectID string, cursor *string) ([]BoardIte
 			Repository: node.Content.Issue.Repository.NameWithOwner,
 		}
 
-		// Extract Status and Priority from field values
-		for _, fv := range node.FieldValues.Nodes {
-			if fv.TypeName == "ProjectV2ItemFieldSingleSelectValue" {
-				fieldName := fv.ProjectV2ItemFieldSingleSelectValue.Field.ProjectV2SingleSelectField.Name
-				value := fv.ProjectV2ItemFieldSingleSelectValue.Name
-				switch fieldName {
-				case "Status":
-					item.Status = value
-				case "Priority":
-					item.Priority = value
-				}
+		// Extract Status and Priority from field values. Priority may be an
+		// org issue field (#932), so go through the shared decoder.
+		for _, fv := range appendTypedFieldValues(nil, node.FieldValues.Nodes) {
+			switch fv.Field {
+			case "Status":
+				item.Status = fv.Value
+			case "Priority":
+				item.Priority = fv.Value
 			}
 		}
 
@@ -1975,6 +1963,7 @@ func (c *Client) getProjectFieldsForIssuesBatch(projectID string, issueIDs []str
 									text
 									field { ... on ProjectV2Field { name } }
 								}
+								` + rawIssueFieldValueSelection + `
 							}
 						}
 					}
@@ -2892,6 +2881,7 @@ func (c *Client) GetIssuesWithProjectFieldsBatch(projectID, owner, repo string, 
 								text
 								field { ... on ProjectV2Field { name } }
 							}
+							` + rawIssueFieldValueSelection + `
 						}
 					}
 				}

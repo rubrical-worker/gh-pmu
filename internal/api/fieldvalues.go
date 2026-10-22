@@ -20,7 +20,20 @@ package api
 const (
 	typeSingleSelectValue = "ProjectV2ItemFieldSingleSelectValue"
 	typeTextValue         = "ProjectV2ItemFieldTextValue"
+	// typeIssueFieldValue is the value of an organization issue field the
+	// project displays (#932). It carries the project field's name and the
+	// issue field value, single-select or date.
+	typeIssueFieldValue = "ProjectV2ItemIssueFieldValue"
 )
+
+// issueFieldValueText renders an issue field value: a single-select's option
+// name, otherwise its value (a date's YYYY-MM-DD).
+func issueFieldValueText(name, value string) string {
+	if name != "" {
+		return name
+	}
+	return value
+}
 
 // typedFieldValueNode mirrors the ProjectV2ItemFieldValue union selection used
 // by the typed project-item queries. It is a named type so the three typed call
@@ -43,7 +56,33 @@ type typedFieldValueNode struct {
 			} `graphql:"... on ProjectV2Field"`
 		}
 	} `graphql:"... on ProjectV2ItemFieldTextValue"`
+	ProjectV2ItemIssueFieldValue struct {
+		Field struct {
+			Common struct {
+				Name string
+			} `graphql:"... on ProjectV2FieldCommon"`
+		}
+		IssueFieldValue struct {
+			IssueFieldSingleSelectValue struct {
+				Name string
+			} `graphql:"... on IssueFieldSingleSelectValue"`
+			IssueFieldDateValue struct {
+				Value string
+			} `graphql:"... on IssueFieldDateValue"`
+		}
+	} `graphql:"... on ProjectV2ItemIssueFieldValue"`
 }
+
+// rawIssueFieldValueSelection is the ProjectV2ItemIssueFieldValue member of the
+// field-value union for the raw-JSON queries, decoded by rawFieldValueNode.
+const rawIssueFieldValueSelection = `... on ProjectV2ItemIssueFieldValue {
+									field { ... on ProjectV2FieldCommon { name } }
+									issueFieldValue {
+										__typename
+										... on IssueFieldSingleSelectValue { name }
+										... on IssueFieldDateValue { value }
+									}
+								}`
 
 // rawFieldValueNode mirrors the same union as decoded from raw JSON, where the
 // aliased selection flattens every member's name/text onto one object.
@@ -54,6 +93,10 @@ type rawFieldValueNode struct {
 	Field    struct {
 		Name string `json:"name"`
 	} `json:"field"`
+	IssueFieldValue struct {
+		Name  string `json:"name"`
+		Value string `json:"value"`
+	} `json:"issueFieldValue"`
 }
 
 // newFieldValue normalizes one union member into a FieldValue. ok is false when
@@ -61,7 +104,7 @@ type rawFieldValueNode struct {
 // empty.
 func newFieldValue(typeName, fieldName, value string) (FieldValue, bool) {
 	switch typeName {
-	case typeSingleSelectValue, typeTextValue:
+	case typeSingleSelectValue, typeTextValue, typeIssueFieldValue:
 	default:
 		return FieldValue{}, false
 	}
@@ -82,6 +125,10 @@ func appendTypedFieldValues(dst []FieldValue, nodes []typedFieldValueNode) []Fie
 		case typeTextValue:
 			fieldName = n.ProjectV2ItemFieldTextValue.Field.ProjectV2Field.Name
 			value = n.ProjectV2ItemFieldTextValue.Text
+		case typeIssueFieldValue:
+			v := n.ProjectV2ItemIssueFieldValue
+			fieldName = v.Field.Common.Name
+			value = issueFieldValueText(v.IssueFieldValue.IssueFieldSingleSelectValue.Name, v.IssueFieldValue.IssueFieldDateValue.Value)
 		}
 		if fv, ok := newFieldValue(n.TypeName, fieldName, value); ok {
 			dst = append(dst, fv)
@@ -99,6 +146,8 @@ func appendRawFieldValues(dst []FieldValue, nodes []rawFieldValueNode) []FieldVa
 			value = n.Name
 		case typeTextValue:
 			value = n.Text
+		case typeIssueFieldValue:
+			value = issueFieldValueText(n.IssueFieldValue.Name, n.IssueFieldValue.Value)
 		}
 		if fv, ok := newFieldValue(n.TypeName, n.Field.Name, value); ok {
 			dst = append(dst, fv)
