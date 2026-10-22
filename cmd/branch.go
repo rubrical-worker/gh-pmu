@@ -1017,6 +1017,9 @@ func runBranchCloseWithDeps(cmd *cobra.Command, opts *branchCloseOptions, cfg *c
 	if err != nil {
 		return err
 	}
+	// The close carries on past per-issue failures, then reports them (#938).
+	var closeFailures partialFailures
+	movedCount := 0
 
 	// Get open release issues
 	issues, err := client.GetOpenIssuesByLabel(owner, repo, "branch")
@@ -1173,13 +1176,17 @@ func runBranchCloseWithDeps(cmd *cobra.Command, opts *branchCloseOptions, cfg *c
 				itemID, err := client.GetProjectItemID(proj.ID, issue.ID)
 				if err != nil {
 					fmt.Fprintf(cmd.ErrOrStderr(), "  Warning: could not find project item for #%d: %v\n", issue.Number, err)
+					closeFailures.add(fmt.Sprintf("move #%d to backlog", issue.Number), err)
 					continue
 				}
+				moved := true
 
 				// Clear Branch field
 				if branchField, ok := cfg.Fields["branch"]; ok {
 					if err := client.SetProjectItemField(proj.ID, itemID, branchField.Field, ""); err != nil {
 						fmt.Fprintf(cmd.ErrOrStderr(), "  Warning: failed to clear branch field for #%d: %v\n", issue.Number, err)
+						closeFailures.add(fmt.Sprintf("clear branch field for #%d", issue.Number), err)
+						moved = false
 					}
 				}
 
@@ -1191,10 +1198,15 @@ func runBranchCloseWithDeps(cmd *cobra.Command, opts *branchCloseOptions, cfg *c
 					}
 					if err := client.SetProjectItemField(proj.ID, itemID, statusField.Field, backlogValue); err != nil {
 						fmt.Fprintf(cmd.ErrOrStderr(), "  Warning: failed to move #%d to backlog: %v\n", issue.Number, err)
+						closeFailures.add(fmt.Sprintf("move #%d to backlog", issue.Number), err)
+						moved = false
 					}
 				}
 
-				fmt.Fprintf(cmd.OutOrStdout(), "  #%d - %s\n", issue.Number, issue.Title)
+				if moved {
+					movedCount++
+					fmt.Fprintf(cmd.OutOrStdout(), "  #%d - %s\n", issue.Number, issue.Title)
+				}
 			}
 			fmt.Fprintln(cmd.OutOrStdout())
 		}
@@ -1206,6 +1218,7 @@ func runBranchCloseWithDeps(cmd *cobra.Command, opts *branchCloseOptions, cfg *c
 	for _, issue := range incompleteIssues {
 		if err := client.RemoveLabelFromIssue(owner, repo, issue.ID, "assigned"); err != nil {
 			fmt.Fprintf(cmd.ErrOrStderr(), "Warning: failed to remove 'assigned' label from #%d: %v\n", issue.Number, err)
+			closeFailures.add(fmt.Sprintf("remove 'assigned' label from #%d", issue.Number), err)
 		}
 	}
 
@@ -1227,13 +1240,13 @@ func runBranchCloseWithDeps(cmd *cobra.Command, opts *branchCloseOptions, cfg *c
 	// Output confirmation
 	fmt.Fprintf(cmd.OutOrStdout(), "✓ Branch closed: %s\n", releaseVersion)
 	if len(issuesToMove) > 0 {
-		fmt.Fprintf(cmd.OutOrStdout(), "✓ %d issue(s) moved to backlog (Branch cleared)\n", len(issuesToMove))
+		fmt.Fprintf(cmd.OutOrStdout(), "✓ %d issue(s) moved to backlog (Branch cleared)\n", movedCount)
 	}
 	if opts.tag {
 		fmt.Fprintf(cmd.OutOrStdout(), "✓ Tag created: %s\n", releaseVersion)
 	}
 
-	return nil
+	return closeFailures.err(fmt.Sprintf("closed branch %s", releaseVersion))
 }
 
 // newBranchReopenCommand creates the release reopen subcommand

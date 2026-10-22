@@ -2622,11 +2622,19 @@ func TestRunBranchCloseWithDeps_FieldSetFailureWarns(t *testing.T) {
 	cmd, output := newTestBranchCmd()
 	opts := &branchCloseOptions{branchName: "v1.2.0", yes: true}
 
-	_ = runBranchCloseWithDeps(cmd, opts, cfg, mock)
+	err := runBranchCloseWithDeps(cmd, opts, cfg, mock)
 
 	out := output.String()
 	if !strings.Contains(out, "Warning") || !strings.Contains(out, "#42") {
 		t.Errorf("expected a stderr warning naming #42's failed field update, got: %s", out)
+	}
+	// #938: a close that could not move an issue is a partial success, and the
+	// issue must not be counted as moved.
+	if !api.IsPartialSuccess(err) {
+		t.Errorf("expected a partial-success error, got: %v", err)
+	}
+	if strings.Contains(out, "issue(s) moved to backlog") && !strings.Contains(out, "0 issue(s) moved to backlog") {
+		t.Errorf("#42's move failed and must not be reported as moved, got: %s", out)
 	}
 }
 
@@ -2855,7 +2863,7 @@ func TestRunBranchCloseWithDeps_GetProjectItemIDError_ContinuesWithWarning(t *te
 	cleanup := setupBranchTestDir(t, cfg)
 	defer cleanup()
 
-	cmd, _ := newTestBranchCmd()
+	cmd, out := newTestBranchCmd()
 	var stderr bytes.Buffer
 	cmd.SetErr(&stderr)
 	opts := &branchCloseOptions{branchName: "v1.2.0", yes: true}
@@ -2863,9 +2871,19 @@ func TestRunBranchCloseWithDeps_GetProjectItemIDError_ContinuesWithWarning(t *te
 	// ACT
 	err := runBranchCloseWithDeps(cmd, opts, cfg, mock)
 
-	// ASSERT: Should succeed overall
-	if err != nil {
-		t.Fatalf("Expected no error, got: %v", err)
+	// ASSERT: the close completes, but #41 was not moved — a partial success,
+	// not a clean exit (#938)
+	if !api.IsPartialSuccess(err) {
+		t.Fatalf("Expected a partial-success error, got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "#41") {
+		t.Errorf("partial-success error should name #41, got: %v", err)
+	}
+	if len(mock.closeIssueCalls) != 1 {
+		t.Error("the tracker should still be closed")
+	}
+	if !strings.Contains(out.String(), "1 issue(s) moved to backlog") {
+		t.Errorf("expected the moved count to be the 1 issue actually moved, got: %s", out.String())
 	}
 
 	// Verify warning was shown for issue 41
@@ -3783,10 +3801,14 @@ func TestBranchCloseWithDeps_LabelErrorIsNonBlocking(t *testing.T) {
 	cmd, _ := newTestBranchCmd()
 	opts := &branchCloseOptions{branchName: "v1.2.0", yes: true}
 
-	// Should succeed even when label removal fails
+	// Non-blocking: the close still completes when label removal fails, but the
+	// failure is reported as a partial success rather than a clean exit (#938).
 	err := runBranchCloseWithDeps(cmd, opts, cfg, mock)
-	if err != nil {
-		t.Fatalf("Label error should be non-blocking, got: %v", err)
+	if len(mock.closeIssueCalls) != 1 {
+		t.Fatalf("Label error should be non-blocking: the tracker must still be closed")
+	}
+	if !api.IsPartialSuccess(err) || !strings.Contains(err.Error(), "#41") {
+		t.Fatalf("expected a partial-success error naming #41's label removal, got: %v", err)
 	}
 }
 
