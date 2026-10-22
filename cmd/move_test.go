@@ -2591,6 +2591,30 @@ func TestRunMoveWithDeps_BatchMutations_ReducedAPICalls(t *testing.T) {
 // =============================================================================
 
 // testIDPFMoveConfig returns a config with IDPF framework enabled
+// When the active-branch fetch failed, the discarded error left the release
+// list empty and validation allowed any branch — a mistyped --branch was
+// written to the item. The transition must fail instead (#939).
+func TestRunMoveWithDeps_ActiveBranchFetchFailureFailsTransition(t *testing.T) {
+	mock := setupMockWithIssueAndBody(42, "Test Issue", "", "item-42")
+	mock.getOpenIssuesByLabelErr = fmt.Errorf("GraphQL: secondary rate limit")
+	cfg := testIDPFMoveConfig()
+
+	cmd := &cobra.Command{}
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetErr(buf)
+
+	opts := &moveOptions{status: "in_progress", branch: "release/v9.9.9", yes: true}
+	err := runMoveWithDeps(cmd, []string{"42"}, opts, cfg, mock)
+
+	if err == nil || !strings.Contains(err.Error(), "secondary rate limit") {
+		t.Fatalf("expected the transition to fail with the fetch error, got: %v", err)
+	}
+	if len(mock.fieldUpdates) != 0 {
+		t.Errorf("no field may be written when branches could not be verified, got %v", mock.fieldUpdates)
+	}
+}
+
 func testIDPFMoveConfig() *config.Config {
 	cfg := testMoveConfig()
 	cfg.Framework = "IDPF"

@@ -410,10 +410,13 @@ func runMoveWithDeps(cmd *cobra.Command, args []string, opts *moveOptions, cfg *
 		var activeReleases []string
 		if len(issuesToUpdate) > 0 {
 			firstIssue := issuesToUpdate[0]
+			// An empty list means "no branch trackers" and allows any branch,
+			// so a failed fetch must not read as one: fail closed (#939).
 			releaseIssues, err := client.GetOpenIssuesByLabel(firstIssue.Owner, firstIssue.Repo, "branch")
-			if err == nil {
-				activeReleases = discoverActiveReleases(releaseIssues)
+			if err != nil {
+				return fmt.Errorf("could not verify active branches; no issues were updated: %w", err)
 			}
+			activeReleases = discoverActiveReleases(releaseIssues)
 		}
 
 		for _, info := range issuesToUpdate {
