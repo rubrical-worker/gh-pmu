@@ -362,6 +362,43 @@ func TestRunBoardWithDeps_EmptyProject(t *testing.T) {
 	}
 }
 
+// An item whose field values were truncated may show an empty Status or
+// Priority; the board must say so rather than present it as unset (#934).
+func TestRunBoardWithDeps_WarnsOnTruncatedFieldValues(t *testing.T) {
+	mock := newMockBoardClient()
+	mock.boardItems = []api.BoardItem{
+		{Number: 7, Title: "Many fields", Status: "Backlog", FieldValuesTruncated: true},
+		{Number: 8, Title: "Few fields", Status: "Backlog"},
+	}
+
+	cfg := &config.Config{
+		Project: config.Project{Owner: "test-org", Number: 1},
+		Fields: map[string]config.Field{
+			"status": {Field: "Status", Values: map[string]string{"backlog": "Backlog"}},
+		},
+	}
+
+	cmd := newBoardCommand()
+	var out, errOut bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&errOut)
+
+	if err := runBoardWithDeps(cmd, &boardOptions{}, cfg, mock); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	warning := errOut.String()
+	if !strings.Contains(warning, "#7") || !strings.Contains(strings.ToLower(warning), "truncated") {
+		t.Errorf("expected a truncation warning naming #7 on stderr, got: %q", warning)
+	}
+	if strings.Contains(warning, "#8") {
+		t.Errorf("warning should not name #8, got: %q", warning)
+	}
+	if strings.Contains(out.String(), "truncated") {
+		t.Errorf("warning belongs on stderr, not stdout")
+	}
+}
+
 func TestNewBoardCommand(t *testing.T) {
 	cmd := newBoardCommand()
 

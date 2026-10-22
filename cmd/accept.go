@@ -31,6 +31,11 @@ Terms must be accepted before using gh-pmu commands. Acceptance is
 recorded in .gh-pmu.json and covers all repository collaborators.
 
 The --yes flag is required to confirm acceptance.`,
+		Example: `  # Accept the terms for this repository
+  gh pmu accept --yes
+
+  # Accept for a config in another directory
+  gh pmu accept --yes --dir ../other-repo`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runAccept(cmd, opts)
 		},

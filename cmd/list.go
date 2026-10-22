@@ -62,8 +62,27 @@ func newListCommand() *cobra.Command {
 
 By default, displays Title, Status, Priority, and Assignees for each issue.
 Use filters to narrow down the results.`,
+		Example: `  # Issues in a status, highest priority only
+  gh pmu list --status ready --priority p1
+
+  # Issues on the active branch
+  gh pmu list --branch current
+
+  # JSON with selected fields, filtered with jq
+  gh pmu list --status backlog --json=number,title --jq='.items[].number'
+
+  # Show which fields --json accepts
+  gh pmu list --json-fields`,
 		Aliases: []string{"ls"},
+		Args:    cobra.NoArgs,
+		PreRunE: func(cmd *cobra.Command, args []string) error {
+			return validateListJSONFlag(cmd, opts)
+		},
 		RunE: func(cmd *cobra.Command, args []string) error {
+			// --json-fields needs no config or API access
+			if listFields, _ := cmd.Flags().GetBool("json-fields"); listFields {
+				return listListAvailableFields(cmd)
+			}
 			return runList(cmd, opts)
 		},
 	}
@@ -79,8 +98,8 @@ Use filters to narrow down the results.`,
 	cmd.MarkFlagsMutuallyExclusive("branch", "no-branch")
 	cmd.Flags().IntVarP(&opts.limit, "limit", "n", 0, "Limit number of results (0 for no limit)")
 	cmd.Flags().BoolVar(&opts.hasSubIssues, "has-sub-issues", false, "Filter to only show parent issues (issues with sub-issues)")
-	cmd.Flags().StringVar(&opts.jsonFields, "json", "", "Output JSON with specified fields (comma-separated, or empty to list available fields)")
-	cmd.Flags().Lookup("json").NoOptDefVal = "_list_" // When --json is used without value, list fields
+	cmd.Flags().StringVar(&opts.jsonFields, "json", "", "Output JSON with specified fields (comma-separated). Use --json-fields to list available fields")
+	cmd.Flags().Bool("json-fields", false, "List available JSON fields")
 	cmd.Flags().StringVar(&opts.jq, "jq", "", "Filter JSON output using a jq expression")
 	cmd.Flags().StringVarP(&opts.repo, "repo", "R", "", "Filter by repository (owner/repo format)")
 
@@ -325,11 +344,6 @@ func runListWithDeps(cmd *cobra.Command, opts *listOptions, cfg *config.Config, 
 
 	// Handle --json flag
 	if opts.jsonFields != "" {
-		// List available fields if --json used without value
-		if opts.jsonFields == "_list_" {
-			return listListAvailableFields(cmd)
-		}
-
 		// Output JSON with field filtering and jq
 		return outputListJSON(cmd, items, opts)
 	}
@@ -733,6 +747,19 @@ func listListAvailableFields(cmd *cobra.Command) error {
 	return listAvailableFields(cmd, listCommandJSONFields)
 }
 
+// validateListJSONFlag checks --json before any config load or API call, so
+// `list --json status` fails fast and non-zero instead of after a fetch (#926).
+func validateListJSONFlag(cmd *cobra.Command, opts *listOptions) error {
+	if err := requireJSONValue(cmd); err != nil {
+		return err
+	}
+	if opts.jsonFields == "" {
+		return nil
+	}
+	_, err := parseListJSONFields(opts.jsonFields)
+	return err
+}
+
 // parseListJSONFields parses and validates comma-separated field names
 func parseListJSONFields(fieldsStr string) ([]string, error) {
 	parts := strings.Split(fieldsStr, ",")
@@ -754,12 +781,12 @@ func parseListJSONFields(fieldsStr string) ([]string, error) {
 			}
 		}
 		if !valid {
-			return nil, fmt.Errorf("unknown field: %q. Run 'gh pmu list --json' to see available fields", field)
+			return nil, fmt.Errorf("unknown field %q in --json=%s. Run 'gh pmu list --json-fields' to see available fields", field, fieldsStr)
 		}
 	}
 
 	if len(fields) == 0 {
-		return nil, fmt.Errorf("no valid fields specified. Run 'gh pmu list --json' to see available fields")
+		return nil, fmt.Errorf("no valid fields in --json=%s. Run 'gh pmu list --json-fields' to see available fields", fieldsStr)
 	}
 
 	return fields, nil

@@ -1,13 +1,13 @@
 ---
-version: "v0.103.0"
-description: Produce DTCG-compliant design tokens with pluggable adapter architecture (project)
-argument-hint: "[--init | --discover | --export <adapter> | --theme <name> | --from-screenshot <path> | --diff | --showcase | --apply-decisions]"
+version: "v0.110.0"
+description: Produce DTCG-compliant design tokens with a pluggable adapter architecture, using the IDPF framework.
+argument-hint: "[--init | --discover | --export <adapter> | --theme <name> | --from-screenshot <path> | --diff | --showcase | --apply-decisions] [--help]"
 copyright: "Rubrical Works (c) 2026"
 ---
 <!-- EXTENSIBLE -->
 # /design-system
 Produce DTCG-compliant design token file (`Design-System/idpf-design.tokens.json`) with pluggable adapter architecture. Integrates with `/mockups` and `/catalog-screens`.
-**Extension Points:** `.claude/metadata/extension-points.json` or `/extensions list --command design-system`
+**Extension Points:** `.claude/metadata/extension-points.json` or `/extensions --list --command design-system`
 ---
 ## Prerequisites
 - Node.js built-ins only (no npm deps)
@@ -28,6 +28,9 @@ Produce DTCG-compliant design token file (`Design-System/idpf-design.tokens.json
 | `--discover --diff` | AC34 — combine discovery + diff, then selectively apply via `applySelectedDiff` (AC39). User decline → no writes. |
 | `--showcase` | Launch Living Style Guide showcase (#2429, Story 1.3): build bundle via `.claude/scripts/shared/showcase-bundle.js`, start loopback server via `.claude/scripts/shared/showcase-server.js`, open browser. Mutex with `--apply-decisions`. |
 | `--apply-decisions` | Apply pending decisions from `Design-System/showcase/decisions.json` without launching the server (#2429, Story 1.4). Implicit resume on subsequent invocations: pending decisions detected via `.applied.json` cursor sidecar are dispatched to `applyDesignSystem` in `.claude/scripts/shared/showcase-resume.js`, stamping `$lifecycle` on the addressed token. |
+| `--help` | Open this command's docs page. Takes precedence over every other argument and performs no action. |
+
+**`--help` takes precedence over every other argument and performs no action:** run `node .claude/scripts/shared/command-help.js design-system`, report its output, and STOP.
 
 ```
 /design-system              # Init or status; auto-resumes pending decisions
@@ -40,6 +43,7 @@ Produce DTCG-compliant design token file (`Design-System/idpf-design.tokens.json
 /design-system --diff                        # Drift report against discovered tokens; no writes
 /design-system --showcase           # Browser-based design review (#2429)
 /design-system --apply-decisions    # Apply pending decisions headlessly
+/design-system --help               # Open this command's docs page, do nothing else
 ```
 ---
 ## Execution

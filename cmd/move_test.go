@@ -40,7 +40,7 @@ func TestRunMoveWithDeps_RecursiveEnrichmentFailureWarns(t *testing.T) {
 	os.Stderr = w
 
 	opts := &moveOptions{status: "in_progress", recursive: true, yes: true, depth: 10}
-	_ = runMoveWithDeps(cmd, []string{"1"}, opts, cfg, mock)
+	err := runMoveWithDeps(cmd, []string{"1"}, opts, cfg, mock)
 
 	_ = w.Close()
 	os.Stderr = oldErr
@@ -49,6 +49,59 @@ func TestRunMoveWithDeps_RecursiveEnrichmentFailureWarns(t *testing.T) {
 
 	if !strings.Contains(strings.ToLower(errBuf.String()), "enrich") {
 		t.Errorf("expected a stderr warning about failed sub-issue enrichment, got: %q", errBuf.String())
+	}
+	// #938: the parent was moved but the sub-issues could not be, so the
+	// command is a partial success rather than a clean exit.
+	if !api.IsPartialSuccess(err) {
+		t.Errorf("expected a partial-success error, got: %v", err)
+	}
+}
+
+// A sub-issue tree that cannot be listed was skipped with only a warning, so a
+// recursive move exited 0 having moved none of the subtree (#938).
+func TestRunMoveWithDeps_RecursiveListingFailureIsPartialSuccess(t *testing.T) {
+	mock := newMockMoveClient()
+	mock.project = &api.Project{ID: "proj-1", Number: 1, Title: "Test Project"}
+	mock.issues["testowner/testrepo#1"] = &api.Issue{ID: "issue-1", Number: 1, Title: "Parent Issue"}
+	mock.projectItems = []api.ProjectItem{
+		{ID: "item-1", Issue: &api.Issue{Number: 1, Repository: api.Repository{Owner: "testowner", Name: "testrepo"}}},
+	}
+	mock.getSubIssuesBatchErr = fmt.Errorf("batch failed")
+	mock.getSubIssuesErr = fmt.Errorf("sub-issue listing failed")
+
+	cmd := &cobra.Command{}
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetErr(buf)
+	oldErr := os.Stderr
+	_, w, _ := os.Pipe()
+	os.Stderr = w
+
+	opts := &moveOptions{status: "in_progress", recursive: true, yes: true, depth: 10}
+	err := runMoveWithDeps(cmd, []string{"1"}, opts, testMoveConfig(), mock)
+
+	_ = w.Close()
+	os.Stderr = oldErr
+
+	if !api.IsPartialSuccess(err) || !strings.Contains(err.Error(), "#1") {
+		t.Errorf("expected a partial-success error naming #1's sub-issues, got: %v", err)
+	}
+}
+
+func TestCollectSubIssuesRecursive_ListingFailureReturnsError(t *testing.T) {
+	mock := newMockMoveClient()
+	mock.getSubIssuesBatchErr = fmt.Errorf("batch failed")
+	mock.getSubIssuesErr = fmt.Errorf("sub-issue listing failed")
+
+	oldErr := os.Stderr
+	_, w, _ := os.Pipe()
+	os.Stderr = w
+	_, err := collectSubIssuesRecursive(mock, "testowner", "testrepo", 1, map[string]string{}, map[string][]api.FieldValue{}, map[string]*api.Issue{}, 1, 10)
+	_ = w.Close()
+	os.Stderr = oldErr
+
+	if err == nil || !strings.Contains(err.Error(), "#1") {
+		t.Fatalf("expected an error naming #1's unlisted sub-issues, got: %v", err)
 	}
 }
 
@@ -451,6 +504,50 @@ func TestMoveCommand_RequiresAtLeastOneFlag(t *testing.T) {
 	err := cmd.Execute()
 	if err == nil {
 		t.Error("Expected error when no field flags provided")
+	}
+}
+
+func TestMoveCommand_HasExample(t *testing.T) {
+	moveCmd, _, err := NewRootCommand().Find([]string{"move"})
+	if err != nil {
+		t.Fatalf("move command not found: %v", err)
+	}
+	if !strings.Contains(moveCmd.Example, "gh pmu move 42 --status in_progress") {
+		t.Errorf("Expected move to define an Example with an invocation, got %q", moveCmd.Example)
+	}
+}
+
+// TestMoveCommand_RuntimeErrorOmitsUsage: an error returned from RunE prints
+// the error alone — no usage dump burying the cause (#927).
+func TestMoveCommand_RuntimeErrorOmitsUsage(t *testing.T) {
+	out, err := executeForErrorOutput(t, "move", "123")
+	if err == nil {
+		t.Fatal("Expected an error when no field flags are provided")
+	}
+	if !strings.Contains(out, "at least one of --status") {
+		t.Errorf("Expected the runtime error in the output, got:\n%s", out)
+	}
+	if strings.Contains(out, "Usage:") {
+		t.Errorf("Expected no usage block after a runtime error, got:\n%s", out)
+	}
+}
+
+// TestMoveCommand_ArgumentErrorShowsUsageAndExamplesOnce: an argument error
+// keeps the usage block, whose Examples section comes from the Example field
+// and is not duplicated by an appended line (#927).
+func TestMoveCommand_ArgumentErrorShowsUsageAndExamplesOnce(t *testing.T) {
+	out, err := executeForErrorOutput(t, "move")
+	if err == nil {
+		t.Fatal("Expected an argument error for move with no issue number")
+	}
+	if !strings.Contains(out, "Usage:") || !strings.Contains(out, "gh pmu move <issue-number>") {
+		t.Errorf("Expected the usage block with the Use line, got:\n%s", out)
+	}
+	if strings.Count(out, "Examples:") != 1 {
+		t.Errorf("Expected exactly one Examples section, got %d:\n%s", strings.Count(out, "Examples:"), out)
+	}
+	if strings.Count(out, "gh pmu move 42 --status in_progress") != 1 {
+		t.Errorf("Expected the example invocation exactly once, got:\n%s", out)
 	}
 }
 
@@ -1285,10 +1382,14 @@ func TestRunMoveWithDeps_RecursiveGetSubIssuesFails(t *testing.T) {
 	opts := &moveOptions{status: "in_progress", recursive: true, yes: true, depth: 10}
 
 	err := runMoveWithDeps(cmd, []string{"1"}, opts, cfg, mock)
-	// GetSubIssues failure is now a warning, not an error (graceful degradation)
-	// The parent issue should still be updated successfully
-	if err != nil {
-		t.Errorf("Unexpected error: %v", err)
+	// GetSubIssues failure degrades gracefully: the parent issue is still
+	// updated. But the subtree was not moved, so the command is a partial
+	// success rather than a clean exit (#938).
+	if len(mock.fieldUpdates) == 0 {
+		t.Error("the parent issue should still be updated")
+	}
+	if !api.IsPartialSuccess(err) {
+		t.Errorf("expected a partial-success error, got: %v", err)
 	}
 }
 
@@ -2490,6 +2591,30 @@ func TestRunMoveWithDeps_BatchMutations_ReducedAPICalls(t *testing.T) {
 // =============================================================================
 
 // testIDPFMoveConfig returns a config with IDPF framework enabled
+// When the active-branch fetch failed, the discarded error left the release
+// list empty and validation allowed any branch — a mistyped --branch was
+// written to the item. The transition must fail instead (#939).
+func TestRunMoveWithDeps_ActiveBranchFetchFailureFailsTransition(t *testing.T) {
+	mock := setupMockWithIssueAndBody(42, "Test Issue", "", "item-42")
+	mock.getOpenIssuesByLabelErr = fmt.Errorf("GraphQL: secondary rate limit")
+	cfg := testIDPFMoveConfig()
+
+	cmd := &cobra.Command{}
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetErr(buf)
+
+	opts := &moveOptions{status: "in_progress", branch: "release/v9.9.9", yes: true}
+	err := runMoveWithDeps(cmd, []string{"42"}, opts, cfg, mock)
+
+	if err == nil || !strings.Contains(err.Error(), "secondary rate limit") {
+		t.Fatalf("expected the transition to fail with the fetch error, got: %v", err)
+	}
+	if len(mock.fieldUpdates) != 0 {
+		t.Errorf("no field may be written when branches could not be verified, got %v", mock.fieldUpdates)
+	}
+}
+
 func testIDPFMoveConfig() *config.Config {
 	cfg := testMoveConfig()
 	cfg.Framework = "IDPF"

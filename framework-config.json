@@ -6,6 +6,7 @@
     "anti-pattern-analysis",
     "codebase-analysis",
     "command-spec-audit",
+    "diff-review",
     "drawio-generation",
     "electron-cross-build",
     "electron-development",
@@ -20,8 +21,8 @@
     "test-scaffold",
     "test-writing-patterns"
   ],
-  "frameworkVersion": "0.103.0",
-  "frameworkPath": "C:/ProgramData/praxis-hub/framework_root_0.103.0",
+  "frameworkVersion": "0.110.0",
+  "frameworkPath": ".claude/framework",
   "$schema": "framework-config.schema.json",
   "reviewSweep": "full",
   "testing": {
@@ -48,6 +49,41 @@
         ],
         "full": "go test -tags e2e ./test/e2e/ -v",
         "note": "Live GitHub API; requires gh auth. Run locally before release, never from CI or /work (#876)."
+      },
+      {
+        "id": "go-test-integration",
+        "role": "integration",
+        "kind": "framework",
+        "execution": "manual-only",
+        "full": "go test -tags=integration ./...",
+        "scoped": {
+          "mode": "package"
+        },
+        "note": "Live GitHub API calls; never run from CI or /work (#876)."
+      },
+      {
+        "id": "go-vet",
+        "role": "compile-check",
+        "kind": "script",
+        "match": [
+          "**/*.go"
+        ],
+        "full": "go vet -tags \"integration e2e\" ./...",
+        "scoped": {
+          "mode": "package"
+        }
+      },
+      {
+        "id": "golangci-lint",
+        "role": "compile-check",
+        "kind": "script",
+        "match": [
+          "**/*.go"
+        ],
+        "full": "golangci-lint run --timeout=5m ./...",
+        "scoped": {
+          "mode": "package"
+        }
       }
     ]
   }

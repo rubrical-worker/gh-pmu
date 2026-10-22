@@ -1,7 +1,7 @@
 # Project Charter Details: gh-pmu
 
 **Generated:** 2026-01-04
-**Last Updated:** 2026-03-27
+**Last Updated:** 2026-10-19
 
 ---
 
@@ -49,6 +49,9 @@ Managing GitHub Projects through the `gh` CLI is fragmented. Project field updat
 - [x] Config integrity verification
 - [x] Status transition validation
 - [x] Terms acceptance gate
+- [x] Status field value reconcile
+- [x] Custom field create/list
+- [x] Comment, history and filter utilities
 
 ### Out of Scope
 
@@ -106,7 +109,7 @@ CLI Extension - Single binary that extends GitHub CLI (`gh`) with project manage
 
 ### Coverage Target
 
-70%+ line coverage (see `coverage.html`)
+CI enforces a 15% total line-coverage floor (`.github/workflows/ci.yml`, `THRESHOLD=15`); 70%+ remains the aspiration (see `coverage.html`)
 
 ### Definition of Done
 
@@ -131,7 +134,7 @@ Solo developer with AI-assisted development
 ### Technical Constraints
 
 - Must use: `gh` CLI SDK (go-gh)
-- Must support: Windows, macOS, Linux
+- Must support: Windows, macOS, Linux (Windows cross-compiled; not in the CI build matrix)
 - Must work with: GitHub Projects v2
 
 ### Compliance
@@ -144,14 +147,16 @@ None (MIT licensed open source)
 
 ### Current Target
 
-**v1.4.x**: Stability, security hardening, and documentation improvements
+**v1.6.x**: Stabilize v1.6.0 — batched intake, Status field reconcile, persistent 1.x terms acceptance
 
 ### Milestone Roadmap
 
 | Milestone | Target | Criteria |
 |-----------|--------|----------|
-| v1.4.x | Current | Security fixes, documentation audit, stability |
-| v1.5.0 | Next | TBD based on backlog |
+| v1.4.x | Released | Security fixes, documentation audit, stability |
+| v1.5.x | Released | Correctness and error-surfacing overhaul, complete pagination, fail-loud exit codes, offline schema validation |
+| v1.6.x | Current | Intake performance, Status field reconcile, terms persistence |
+| v1.7.0 | Next | TBD based on backlog |
 
 See `Milestones.md` for full release history.
 
@@ -164,6 +169,7 @@ See `Milestones.md` for full release history.
 | 2026-01-04 | Charter extracted from codebase | Claude |
 | 2026-01-21 | Update focus to v0.14.0, add scope items, update milestones | Claude |
 | 2026-03-27 | Update to v1.4.x, remove microsprint refs, add new capabilities | Claude |
+| 2026-10-19 | Charter refresh: focus v1.6.x, scope adds shipped commands, coverage floor, Windows CI note | Claude |
 
 ---
 

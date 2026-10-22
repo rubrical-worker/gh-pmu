@@ -1,13 +1,13 @@
 ---
-version: "v0.103.0"
-description: Complete issues with criteria verification and status transitions (project)
-argument-hint: "[#issue... | --all] [--yes|-y] (optional)"
+version: "v0.110.0"
+description: Complete issues with criteria verification and status transitions, using the IDPF framework.
+argument-hint: "[#issue... | --all] [--yes] (optional) [--help]"
 copyright: "Rubrical Works (c) 2026"
 ---
 <!-- EXTENSIBLE -->
 # /done
 Move issues from `in_review` → `done` with a STOP boundary. Final transition only — `/work` owns `in_progress` → `in_review`.
-**Extension Points:** `/extensions list --command done`
+**Extension Points:** `/extensions --list --command done`
 
 ## Prerequisites
 - `gh pmu` installed, `.gh-pmu.json` configured
@@ -19,8 +19,13 @@ Move issues from `in_review` → `done` with a STOP boundary. Final transition o
 | `#issue` | Single issue (`#42` or `42`) |
 | `#issue #issue...` | Multiple |
 | `--all` | All `in_review` on current branch (with confirmation) |
-| `--yes` / `-y` | Auto-approve interactive prompts. With `--all`: unattended batch. Does NOT bypass safety gates (AC verification, force-move prohibition). |
+| `--yes` | Auto-approve interactive prompts. With `--all`: unattended batch. Does NOT bypass safety gates (AC verification, force-move prohibition). |
 | *(none)* | Query `in_review` issues for selection |
+| `--help` | Open this command's docs page. Takes precedence over every other argument and performs no action. |
+
+**`--help` takes precedence over every other argument and performs no action:** run `node .claude/scripts/shared/command-help.js done`, report its output, and STOP.
+
+**Retired forms:** `-y` is no longer accepted — reject it with a message naming `--yes`, and do nothing else; `done-preamble.js` refuses it the same way.
 
 ## Execution Instructions
 **REQUIRED:** Routed command — two-phase task creation. Phase 1: one preamble task. Phase 2 (after preamble confirms no redirect/early exit): bulk-create remaining tasks, **emitted in one message as parallel tool calls** — not one call per message (`07-task-creation-timing.md` § Emission). Redirect/early exit → mark preamble complete, stop. For each non-empty `USER-EXTENSION`, add a Phase 2 task. Track `in_progress` → `completed`. Post-compaction: re-read spec, resume from first incomplete task — no re-routing.
@@ -37,7 +42,7 @@ node .claude/scripts/shared/done-preamble.js                         # discovery
 
 Parse JSON, check `ok`:
 - **`ok: false`:** report `errors[]` (`code`, `message`, optional `suggestion`) → **STOP**
-- **Discovery** (`discovery` field): `mode: 'query'` (no-args) — present `discovery.issues` for user selection, re-run with `--issue N`. `mode: 'all'` (`--all`) — present list, ask "Complete all N in_review issues?"; yes → re-run with `--issues` for all numbers (deferred push: single push after last); empty list → "No in_review issues on current branch", STOP. **`yes: true` in envelope** (`--yes`/`-y`): SKIP the prompt, re-run with `--issues` for all (pass `--yes` through). `query` mode still requires user selection.
+- **Discovery** (`discovery` field): `mode: 'query'` (no-args) — present `discovery.issues` for user selection, re-run with `--issue N`. `mode: 'all'` (`--all`) — present list, ask "Complete all N in_review issues?"; yes → re-run with `--issues` for all numbers (deferred push: single push after last); empty list → "No in_review issues on current branch", STOP. **`yes: true` in envelope** (`--yes`): SKIP the prompt, re-run with `--issues` for all (pass `--yes` through). `query` mode still requires user selection.
 - **`ok: true` + `diffVerification`:** `requiresConfirmation: true` → report `warnings`, ask "Continue? (yes/no)"; yes → re-run with `--force-move`; no → **STOP**. **`yes: true` in envelope:** SKIP the prompt, re-run with `--force-move` (pass `--yes` through); still report warnings for audit. `requiresConfirmation: false` → already moved to done, proceed.
 
 **Safety gates under `--yes`:** suppresses interactive prompts only. Does NOT bypass AC verification, force-move prohibition (`/work` Step 4b), `gh pmu` errors, or any failure halt — all halt as usual regardless of `--yes`.
@@ -63,7 +68,7 @@ After preamble succeeds for a single issue, check `context.issue.labels` for `ep
 **`qa_required` is its own row, not `other` (#2821).** A QA sub-issue sits there deliberately — its gate is open and a human must run the check — so "was never started" is both false and unactionable: it names no command, and the epic stalls with no route forward. The row above names the one command that closes the gate.
 
 All `done` → skip processing, proceed to epic. `in_review` exist → process each through standard `/done` (Steps 1–3); per-sub-issue `Sub-issue #N: $TITLE → Done (M/T processed)`; push deferred until after epic.
-**Complete the epic with an explicit close, NEVER the preamble:** `done-preamble.js` refuses to move an `epic`-labelled issue (guard #2367) and reports the refusal as `gates.skippedReason: "epic-guard"` plus a matching `warnings[]` entry (#2670), so running it for the epic cannot move it whatever flags are passed.
+**Complete the epic with an explicit close, NEVER the preamble:** `done-preamble.js` refuses to move an `epic`-labeled issue (guard #2367) and reports the refusal as `gates.skippedReason: "epic-guard"` plus a matching `warnings[]` entry (#2670), so running it for the epic cannot move it whatever flags are passed.
 ```bash
 gh pmu move $ISSUE --status done --force
 ```
@@ -95,7 +100,7 @@ Read `data.status` and `data.upstreamSha` — the post-fetch `@{upstream}`, the 
 | `status` | Action |
 |---|---|
 | `ahead` | Continue to 2.4. |
-| `diverged` | Another developer pushed while this branch was being worked. **Rebase, not merge:** `git rebase @{u}`. Clean → 2.4. Conflict → capture the paths with `git diff --name-only --diff-filter=U`, then `git rebase --abort`, report the paths, **STOP** — the issue is already Done on the board from Step 1; say so, and that the commits remain local. Recovery by hand: `git rebase @{u}`, resolve, `git rebase --continue`, `git push`. |
+| `diverged` | Another developer pushed while this branch was being worked. **Rebase, not merge**, through the shared guard: `node .claude/scripts/shared/lib/rebase-guard.js --rebase` (#3014 — the one sequence `/sync-branch` and `/work` Step 1c also call; referenced, not restated). `ok: true` → 2.4. `ok: false`, `action: aborted` → the helper captured the conflicting paths and aborted; report `data.conflictingPaths`, **STOP** — the issue is already Done on the board from Step 1; say so, and that the commits remain local and the tree is as it was. Recovery: resolve by hand, or `/sync-branch` (same analysis and guard, with the change in front of the user). |
 | `up-to-date`, `behind` | Nothing local to push (2.1 catches this; reaching here means the ref moved between the calls). Report, skip to Step 3 as "Nothing to push". |
 | `no-upstream` | Continue to 2.4; git's own push error is the report if none is configured. |
 **Why rebase, not merge:** the per-AC `Refs #N` commits are what `scope-drift-check.js`, `log-changed-files.js`, and `nonstop-audit.js` key off — they match on message, not SHA. A merge commit adds an unattributed commit; a rebase keeps the set intact. Step 4f ran on the pre-rebase tree; Step 3's CI monitor is the check that the rebased tree still passes.
@@ -141,15 +146,16 @@ Multiple workflows → report per-workflow from `workflows[]`.
 **MUST DO:** Clear task list.
 ---
 ## Peer Announcements (#2663)
-Tells other sessions in this working directory that a push is happening, then how it resolved. Peers from `peers-check.js`, payloads from `peer-announce.js`, delivery by `SendMessage`.
-**Take `data.peers`, from the CLI (#2678)** — same access as `/work` Steps 3 and 6:
+Tells other sessions in this working directory that a push is happening, then how it resolved. **Composed by `announce.js`** (#2972), as `/work` and the review commands compose theirs; delivery by `SendMessage`.
 ```bash
-node .claude/scripts/shared/peers-check.js
+node .claude/scripts/shared/announce.js --event push-started --issues <N,N,...>
+node .claude/scripts/shared/announce.js --event ci-terminal --issues <N,N,...> --outcome armed|armed-degraded|skipped-no-workflows|skipped-paths-ignore [--run-url <url>]
+node .claude/scripts/shared/announce.js --event ci-resolved --issues <N,N,...> --ci-result-file .tmp-ci-result-$ISSUE.json
+node .claude/scripts/shared/announce.js --event push-rejected --issues <N,N,...>
 ```
-```javascript
-const { buildAnnouncement, EVENTS } = require('.claude/scripts/shared/peer-announce.js');
-const a = buildAnnouncement({ event: EVENTS.PUSH_STARTED, issues, peers });   // peers === envelope.data.peers
-```
+`announcement.shouldSend` true → `SendMessage` per `announcement.recipients` entry with `announcement.text`, then close out with the envelope's `dispatchReport` (`--dispatch-result sent|failed --ledger-id <id>`); false → report `announcement.notice` once, continue. Relay `warnings` verbatim.
+**Routed, not broadcast.** The script discovers peers and applies the same targeted-routing decision as every other event (#2915): `broadcast: false` + live `/overwatch` → monitor alone; missing, stale, unaddressable or ambiguously named monitor → broadcast fallback, `routing.fallbackReason` naming why. Not forced like branch operations (#2960) — a push changes only the remote copy of a branch every session here already shares. **Recorded:** each event is a record-only ledger entry, its first line ending `(ledger: <id>)`, so an `/overwatch` receipt reply is recorded with `announce.js --receipt-received`.
+**Never call `buildAnnouncement` or `peers-check.js` from here** — composing directly is how the push group went unrouted and unrecorded from #2915 to #2972, and invites the #2678 unwrapping mistake (`checkPeers()` top-level `peers` vs the CLI's `data.peers`, an `|| []` turning the wrong one into a silent empty list). The script reads peers itself.
 **`issues` comes from the PUSHED RANGE, not the batch (#2772).** Resolve **once**, before event 3, and reuse unchanged for events 4 and 6:
 ```javascript
 const { deriveAnnouncementIssues } = require('.claude/scripts/shared/lib/announcement-issues.js');
@@ -159,9 +165,7 @@ const issues = deriveAnnouncementIssues({ base, head, batch });
 **Why the batch is wrong.** `/work` commits per AC and defers every push to `/done`, so one push routinely carries several issues' commits. Any unpushed commit whose `Refs #N` is absent from the batch ships **unannounced**, undetectable from either side: the sender composes a well-formed message and the receiver cannot know a name is missing. Observed 2026-09-04 — a peer closed #2766 between the discovery and batch calls, so the batch correctly skipped it while its four commits went out in the same atomic push; all three announcements named only #2763 and #2765.
 **It is a union.** A batch member with no commits in the range is still named — "we closed this" is worth announcing even when nothing landed.
 **Do not restate the derivation.** It lives in the helper because a derivation carried only in a spec can be asserted as *text* and never *exercised*, and the helper inherits the boundary anchoring stopping `#245` matching `#2453` rather than reimplementing it. Precedent: `branch-review-gate.js`, `decideSweep`/`decideFlagSweep`, `decideStart`.
-**Resolve once, not per event** — the three are gated as one unit so a peer is never left holding an opener with no closer; deriving twice reintroduces that risk by another route.
-**The two shapes are not interchangeable and picking wrong fails silently.** `checkPeers()` returns `peers` at the **top level**; the CLI wraps it as **`data.peers`**. Requiring the module and reading `data.peers` yields `undefined`, and an `|| []` beside it makes that a genuine empty array before `buildAnnouncement` sees it — after which nothing downstream can tell the mistake from an empty working directory. This section previously named the helper and not the shape, and the reported incident came from this path.
-**A non-array `peers` is now named as such** rather than reported as empty, naming `data.peers`. That guard cannot see an empty array a caller manufactured — hence the shape written here as well as enforced there.
+**Resolve once, not per event** — the three are gated as one unit so a peer is never left holding an opener with no closer; deriving twice reintroduces that risk by another route. Pass the set to every `announce.js` call as `--issues`, comma-separated.
 **Gated by project config (#2702).** Resolve **once per `/done` invocation**, before event 3: `node .claude/scripts/shared/lib/cross-session-config.js`. `groups.push` false → events 3, 4 and 5 **all emit nothing**, no `SendMessage` and no skip notice; push, CI arming and the STOP sequence otherwise unchanged. `notices` false → dispatch unchanged, the dispatch-caveat and skip-reason lines not printed. Absent object, or any omitted key → enabled.
 **The three events are gated as ONE unit — the whole reason the setting is a group.** Every event 3 is followed by exactly one terminal event (4 or 5). A per-event toggle would make "push-started on, ci-terminal off" expressible in valid config, leaving a peer waiting forever for a message that never arrives. Grouping makes that **unrepresentable**, stronger than validating against it: never gate 3, 4 and 5 on separate reads, and never resolve twice within one invocation where the two reads could disagree.
 **Read the resolver; never re-derive the default inline** — a second copy here is how `/done` and `/work` drift apart. **No per-invocation skip notice, deliberately;** discoverability lives in the startup `Peers:` row and `/x-session-config`.
@@ -176,10 +180,10 @@ const issues = deriveAnnouncementIssues({ base, head, batch });
 *may* follow — never that one will. **#2660 stands:** `ci-watch.js` is neither slash command nor hook so cannot
 call `SendMessage`, and the raw-socket send was refuted (six shapes accepted, none delivered). The emitter is
 the **arming session**, back in a command context when its background task completes, emitting event 6
-(`ci-resolved`) with the `overall`/`workflows[]`/`failedSteps[]` payload `ci-watch.js` already returns.
+(`ci-resolved`) with the `overall`/`workflows[]` payload `ci-watch.js` already returns, `failedSteps[]` per workflow.
 **The terminal event owns the cleanup (#2772).** Whichever fires — event 4 on a CI skip, event 6 when the watch resolves — removes the pinned base after reading it: `rm -f .tmp-push-base-$ISSUE.txt`.
 **Re-derive before emitting event 6 if the set has left context.** The watch resolves long after Step 3 and compaction may land between; the base is on disk for exactly this reason, so `deriveAnnouncementIssues({base, head, batch})` reconstructs the set rather than the event falling back to the batch and reintroducing the defect at the last hop. Base file gone → name the batch and say the set could not be re-derived: a narrower answer stated as narrow, never a silent one.
-**Pass it under `ciResult` — one object, not top-level fields (#2764):** `buildAnnouncement({event: EVENTS.CI_RESOLVED, issues, peers, ciResult})`. `ci-watch.js` prints `{overall, workflows, failedSteps}`, and the line above names those three fields, so spreading them flat is the natural reading — and was **silently** wrong: `formatCiResolved` destructures `{issues, ciResult}`, so flat fields hit its fallback and **sent** *"the outcome could not be read"*, terminally, a green run reaching every peer as unreadable with no correction possible. Reproduced twice, caught both times only because a human read the text before sending. Since #2764 `buildAnnouncement` **refuses** that payload (`shouldSend: false`, notice naming this key) instead of announcing it, matching the guard `CI_TERMINAL` has always had.
+**Pass it as a file — `ci-watch.js` stdout written to `.tmp-ci-result-$ISSUE.json`, then `--ci-result-file` (#2764, #2972);** `announce.js` hands it to the composer as one `ciResult` object. Remove the file after composing. **Pass `ci-watch.js` stdout unaltered — no translation (#2892).** It prints `overall` + `workflows[]` on **every** path: 2+ runs `{overall, workflows}`; one run its own fields (`found`, `conclusion`, `runId`, `name`, `url`, `duration`, `failedSteps`) plus `overall` and a one-entry `workflows`; no run `{found: false, conclusion: "no-run-found", overall: "no-run-found", workflows: []}`. `failedSteps` sits on each workflow, never top-level in the multi-run shape. `ci-resolved` renders `success`, `failure`, `cancelled`, `timeout`, `no-run-found` as what they are and refuses anything else (`shouldSend: false`, notice naming the value) rather than announcing a failure; hand-mapping the output produced #2764 and #2892. The field names are still the trap: spreading them flat into a composer call is the natural reading (the file removes the chance) — and was **silently** wrong: `formatCiResolved` destructures `{issues, ciResult}`, so flat fields hit its fallback and **sent** *"the outcome could not be read"*, terminally, a green run reaching every peer as unreadable with no correction possible. Reproduced twice, caught both times only because a human read the text before sending. Since #2764 `buildAnnouncement` **refuses** that payload (`shouldSend: false`, notice naming this key) instead of announcing it, matching the guard `CI_TERMINAL` has always had.
 **Conditional, not promised.** The closer is emitted only if the arming session is re-invoked — measured for interactive, **not established** for headless `-p`. So the armed event says the
 follow-up is not guaranteed and that **the absence of one is not a verdict** (#2674, one level up). A peer reading silence as "green" has drawn the conclusion this channel must never license.
 **The two claims are mutually exclusive, and enforced.** Keeping "no further announcement will follow" while

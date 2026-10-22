@@ -1,14 +1,14 @@
 ---
-version: "v0.103.0"
-description: Discover and catalog screen elements from source code (project)
-argument-hint: "[#NN]"
+version: "v0.110.0"
+description: Discover and catalog screen elements from source code, using the IDPF framework.
+argument-hint: "[#NN] [--help]"
 copyright: "Rubrical Works (c) 2026"
 ---
 <!-- EXTENSIBLE -->
 # /catalog-screens
 Discovers and catalogs UI screen elements from source code, producing structured per-screen spec documents. Fully interactive — uses `AskUserQuestion`. All element fields defined by `.claude/metadata/screen-spec-schema.json`.
 
-**Extension Points:** See `.claude/metadata/extension-points.json` or run `/extensions list --command catalog-screens`
+**Extension Points:** See `.claude/metadata/extension-points.json` or run `/extensions --list --command catalog-screens`
 ## Prerequisites
 - Project contains UI source code (React, Electron, Vue, vanilla HTML, React Native)
 - Shared schema: `.claude/metadata/screen-spec-schema.json`
@@ -20,6 +20,9 @@ Discovers and catalogs UI screen elements from source code, producing structured
 | `--from-screenshots <dir>` | No | AC12 — bulk-extraction from directory. Non-image files skipped with warning. |
 | `--showcase` | No | Launch Living Style Guide showcase (#2429, Story 1.3). Bundles screen-catalog entries into UI Components and Iconography sections. Mutex with `--apply-decisions`. |
 | `--apply-decisions` | No | Apply pending decisions from `Design-System/showcase/decisions.json` without launching server (#2429, Story 1.4). `applyCatalogScreens` in `.claude/scripts/shared/showcase-resume.js` records rows to `Mockups/.showcase-applied.jsonl`. |
+| `--help` | No | Open this command's docs page. Takes precedence over every other argument and performs no action. |
+
+**`--help` takes precedence over every other argument and performs no action:** run `node .claude/scripts/shared/command-help.js catalog-screens`, report its output, and STOP.
 
 ```
 /catalog-screens            # Interactive, no issue context
@@ -68,7 +71,7 @@ Scan `Mockups/` and subdirectories:
 - "Create new screen specs"
 - "Update existing screen specs"
 - "Re-scan source for changes"
-- "Initialize full screen catalog" (brownfield bulk discovery — invokes `node .claude/scripts/shared/lib/bulk-discover-screens.js` to seed `Mockups/screen-catalog.json`, then renders `Mockups/NAVIGATION.md` via `navigation-graph.js`)
+- "Initialize full screen catalog" (brownfield bulk discovery — invokes `node .claude/scripts/shared/lib/bulk-discover-screens.js` to seed `Mockups/screen-catalog.json`, writing one placeholder spec per screen at `Mockups/Catalog/Specs/{Name}.json` (`placeholder: true`, never overwriting an existing file) so every `canonicalSpec` resolves and Step 6 validation passes on a fresh project, then renders `Mockups/NAVIGATION.md` via `navigation-graph.js`)
 
 **Condition:** If no existing specs found, skip Q1 and default to "Create new".
 

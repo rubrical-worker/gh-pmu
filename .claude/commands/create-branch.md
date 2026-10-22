@@ -1,13 +1,13 @@
 ---
-version: "v0.103.0"
-description: Create a branch with tracker issue (project)
-argument-hint: "<branch-name> (e.g., release/v0.16.0, my-feature, bugfix-123)"
+version: "v0.110.0"
+description: Create a branch with a tracker issue, using the IDPF framework.
+argument-hint: "<branch-name> (e.g., release/v0.16.0, my-feature, bugfix-123) [--help]"
 copyright: "Rubrical Works (c) 2026"
 ---
 <!-- EXTENSIBLE -->
 # /create-branch
 Create a new branch and associated tracker issue for any branch type.
-**Extension Points:** `.claude/metadata/extension-points.json` or `/extensions list --command create-branch`
+**Extension Points:** `.claude/metadata/extension-points.json` or `/extensions --list --command create-branch`
 ---
 ## Prerequisites
 - `gh pmu` extension installed
@@ -18,6 +18,10 @@ Create a new branch and associated tracker issue for any branch type.
 |----------|-------------|
 | `$1` | Branch name (valid git name) |
 | `--assignee <value>` | GitHub login for the tracker issue. Omitted → `@me`. |
+| `--help` | Open this command's docs page. Takes precedence over every other argument and performs no action. |
+
+**`--help` takes precedence over every other argument and performs no action:** run `node .claude/scripts/shared/command-help.js create-branch`, report its output, and STOP.
+
 ---
 ## Execution Guidance
 Use 2-3 coarse tasks: "Validate and create", "Configure", "Report and commit". Validate inline. Chain independent commands with `&&` or parallel where noted.
@@ -34,6 +38,12 @@ git status --porcelain
 1. Report: "Uncommitted changes detected. These will be carried to the new branch."
 2. Save output for Step 4
 3. Continue (do NOT block)
+
+#### Verify Config File Clean
+```bash
+git status --porcelain .gh-pmu.json
+```
+**If modified, STOP and restore.**
 
 <!-- USER-EXTENSION-START: pre-create -->
 ### Verify Config
@@ -67,7 +77,7 @@ Tracker issue for branch `$BRANCH`.
 Issues assigned to this branch appear as sub-issues below.
 ```
 ```bash
-gh pmu edit [TRACKER_NUMBER] -F .tmp-body.md && rm .tmp-body.md
+gh pmu edit [TRACKER_NUMBER] -F .tmp-[TRACKER_NUMBER].md && rm .tmp-[TRACKER_NUMBER].md
 ```
 ### Step 3: Configure Branch (parallelizable)
 Switch, push, set labels, assign tracker to branch and to a person — independent after creation.
@@ -84,7 +94,7 @@ gh pmu move [TRACKER_NUMBER] --branch "$BRANCH" && gh issue edit [TRACKER_NUMBER
 ```bash
 gh issue edit [TRACKER_NUMBER] --add-assignee {assignee}
 ```
-**Assignee:** substitute `{assignee}` from `node .claude/scripts/shared/lib/gh-pmu-config.js --assignee <value>` — pass the value the user supplied, omit it when they supplied none. The helper returns that login or `@me`, the branch creator by construction; it reads no config file. Never hardcode a login, never drop the flag: an omitted assignee silently leaves the tracker unassigned. An unresolvable login exits non-zero — report the error rather than retrying without the flag.
+**Assignee:** substitute `{assignee}` from the helper: `node .claude/scripts/shared/lib/gh-pmu-config.js --assignee <login>` when the user supplied a login, else `node .claude/scripts/shared/lib/gh-pmu-config.js --assignee` (bare flag, no value). NEVER run the helper with no arguments — it exits 1 with a usage message. Returns the login, or `@me` for the bare flag — the branch creator by construction; it reads no config file. Never hardcode a login, never drop the flag: an omitted assignee silently leaves the tracker unassigned. An unresolvable login exits non-zero — report the error rather than retrying without the flag.
 
 **Why `--add-assignee` (#2658):** `gh pmu branch start` exposes only `--name` and `gh pmu edit` exposes no assignee flag (gh-pmu 1.5.3), so an already-created tracker can only be assigned via raw `gh issue edit`. The user-facing argument stays `--assignee <value>`, matching `/bug` and `/enhancement`.
 

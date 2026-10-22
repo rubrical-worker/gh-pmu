@@ -1,6 +1,6 @@
 # Scope Boundaries: gh-pmu
 
-**Last Updated:** 2026-07-23
+**Last Updated:** 2026-10-19
 
 ---
 
@@ -20,6 +20,9 @@
 - [x] **Complete Pagination**: Labels, comments, projects, and project field values fetch without silent truncation
 - [x] **Fail-Loud Errors**: cmd and API layers propagate failures with partial-failure exit codes
 - [x] **Schema Resilience**: Cached-metadata fallback when the ProjectV2 fields resolver is unavailable
+- [x] **Status Field Reconcile**: `status --update` adds missing required Status values; `init` adds them on setup
+- [x] **Custom Fields**: Create and list project fields
+- [x] **Utilities**: Issue comments, git history with issue references, filtering piped issue JSON by project fields
 
 ### Capabilities
 
@@ -39,6 +42,9 @@
 | Fail-loud error propagation | P0 | Done |
 | Cached-metadata fallback for field resolver | P1 | Done |
 | Offline GraphQL validation against vendored schema | P2 | Done |
+| Status field value reconcile | P1 | Done |
+| Custom field create/list | P2 | Done |
+| Comment, history and filter utilities | P2 | Done |
 
 ---
 
@@ -49,7 +55,6 @@
 | Item | Reason | Future Consideration? |
 |------|--------|----------------------|
 | Web UI | Terminal-first philosophy | No |
-| Issue creation from scratch | Use `gh issue create` then `gh pmu move` | No |
 | Multi-org projects | Complexity, limited demand | Maybe |
 | Notifications | Not project management | No |
 

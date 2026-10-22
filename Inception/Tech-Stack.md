@@ -1,6 +1,6 @@
 # Tech Stack: gh-pmu
 
-**Last Updated:** 2026-09-14
+**Last Updated:** 2026-10-19
 
 ---
 
@@ -18,8 +18,8 @@
 
 ## Development Tools
 
-| Tool | Version | Purpose |
-|------|---------|---------|
+| Tool | Name | Version | Purpose |
+|------|------|---------|---------|
 | Package Manager | go mod | 1.23 | Dependency management |
 | Build Tool | go build / GoReleaser | - | Binary compilation, releases |
 | Linter | golangci-lint | Latest | Code quality |

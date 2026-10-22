@@ -1,0 +1,23 @@
+{
+  "$schema": "../metadata/test-harnesses-local-schema.json",
+  "_meta": {
+    "schemaVersion": 1,
+    "note": "Project-local harnesses added by /charter refresh (2026-10-19)."
+  },
+  "languages": {
+    "go": {
+      "compile-check": [
+        {
+          "id": "golangci-lint",
+          "role": "compile-check",
+          "name": "golangci-lint",
+          "kind": "script",
+          "full": "golangci-lint run --timeout=5m ./...",
+          "scoped": {
+            "mode": "package"
+          }
+        }
+      ]
+    }
+  }
+}

@@ -41,6 +41,7 @@ type createOptions struct {
 	milestone string
 	repo      string
 	fromFile  string
+	dryRun    bool
 
 	// parsedFile carries the file parsed during pre-flight validation so the
 	// execution path does not re-read it (single parse). Nil when the execution
@@ -58,6 +59,14 @@ func newCreateCommand() *cobra.Command {
 
 The issue is automatically added to the configured project and
 any specified field values (status, priority) are set.`,
+		Example: `  # Create non-interactively with the body read from a file
+  gh pmu create --title "Fix login redirect" --label bug --status backlog --priority p1 -F body.md
+
+  # Create on the active branch (ready/in_progress statuses require --branch)
+  gh pmu create --title "Add retry" --status ready --priority p2 --branch current -F body.md
+
+  # Read the body from standard input
+  cat body.md | gh pmu create --title "Update docs" --status backlog -F -`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runCreate(cmd, opts)
 		},
@@ -78,6 +87,7 @@ any specified field values (status, priority) are set.`,
 	cmd.Flags().StringVarP(&opts.milestone, "milestone", "m", "", "Set milestone (title or number)")
 	cmd.Flags().StringVarP(&opts.repo, "repo", "R", "", "Target repository (owner/repo format)")
 	cmd.Flags().StringVarP(&opts.fromFile, "from-file", "f", "", "Create issue from YAML/JSON file")
+	cmd.Flags().BoolVar(&opts.dryRun, "dry-run", false, "Resolve the repository, project and fields and print what would be created, without creating anything")
 
 	return cmd
 }
@@ -295,87 +305,129 @@ func runCreateWithDeps(cmd *cobra.Command, opts *createOptions, cfg *config.Conf
 	labels := append([]string{}, cfg.Defaults.Labels...)
 	labels = append(labels, opts.labels...)
 
+	// Resolve everything create reads from the API before writing anything, so
+	// a failed lookup leaves no issue behind (#929).
+	targets, err := resolveCreateTargets(client, cfg, owner, repo, opts.release)
+	if err != nil {
+		return err
+	}
+
+	if opts.dryRun {
+		printCreateDryRun(cmd, cfg, targets, createPreview{
+			repo: owner + "/" + repo, title: title, bodySource: createBodySource(opts),
+			labels: labels, assignees: opts.assignees, milestone: opts.milestone,
+			status: opts.status, priority: opts.priority,
+		})
+		return nil
+	}
+
 	// Create the issue with extended options
 	issue, err := client.CreateIssueWithOptions(owner, repo, title, body, labels, opts.assignees, opts.milestone)
 	if err != nil {
 		return fmt.Errorf("failed to create issue: %w", err)
 	}
 
-	// Add issue to project
-	project, err := client.GetProject(cfg.Project.Owner, cfg.Project.Number)
+	return finishCreate(client, cfg, targets, issue, opts.status, opts.priority)
+}
+
+// finishCreate adds the new issue to the project, writes its fields and reports
+// it. The issue already exists here, so any failure is a partial success that
+// names the issue and the failed steps, never a plain error a caller would
+// retry into a duplicate (#929).
+func finishCreate(client createClient, cfg *config.Config, targets *createTargets, issue *api.Issue, status, priority string) error {
+	itemID, err := client.AddIssueToProject(targets.project.ID, issue.ID)
 	if err != nil {
-		return fmt.Errorf("failed to get project: %w", err)
+		printCreatedIssue(issue)
+		return createPartialSuccess(issue, []string{"add to project"}, fmt.Errorf("failed to add issue to project: %w", err))
 	}
 
-	// Get project fields to resolve branch field name
-	projectFields, err := client.GetProjectFields(project.ID)
-	if err != nil {
-		return fmt.Errorf("failed to get project fields: %w", err)
+	failedSteps, firstErr := setCreateFields(client, cfg, targets, itemID, status, priority)
+	printCreatedIssue(issue)
+	if len(failedSteps) > 0 {
+		return createPartialSuccess(issue, failedSteps, firstErr)
 	}
-	branchFieldName := ResolveBranchFieldName(projectFields)
+	return nil
+}
 
-	itemID, err := client.AddIssueToProject(project.ID, issue.ID)
-	if err != nil {
-		return fmt.Errorf("failed to add issue to project: %w", err)
+// createPreview is what create would write, for --dry-run.
+type createPreview struct {
+	repo, title, bodySource, milestone, status, priority string
+	labels, assignees                                    []string
+}
+
+// printCreateDryRun reports the resolved repository, project, fields and body
+// source without creating anything (#929). Status and priority fall back to
+// the config defaults exactly as a real create would apply them.
+func printCreateDryRun(cmd *cobra.Command, cfg *config.Config, targets *createTargets, p createPreview) {
+	w := cmd.OutOrStdout()
+	orNone := func(values []string) string {
+		if len(values) == 0 {
+			return "(none)"
+		}
+		return strings.Join(values, ", ")
 	}
-
-	// Set project field values. Resolve the configured GitHub field names
-	// (cfg.Fields), falling back to the capitalized defaults.
-	statusFieldName := cfg.GetFieldNameOr("status", "Status")
-	priorityFieldName := cfg.GetFieldNameOr("priority", "Priority")
-	if opts.status != "" {
-		statusValue := cfg.ResolveFieldValue("status", opts.status)
-		if err := client.SetProjectItemField(project.ID, itemID, statusFieldName, statusValue); err != nil {
-			// Non-fatal - warn but continue
-			fmt.Fprintf(os.Stderr, "Warning: failed to set status: %v\n", err)
-		}
-	} else if cfg.Defaults.Status != "" {
-		// Apply default status from config
-		statusValue := cfg.ResolveFieldValue("status", cfg.Defaults.Status)
-		if err := client.SetProjectItemField(project.ID, itemID, statusFieldName, statusValue); err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: failed to set default status: %v\n", err)
-		}
-	}
-
-	if opts.priority != "" {
-		priorityValue := cfg.ResolveFieldValue("priority", opts.priority)
-		if err := client.SetProjectItemField(project.ID, itemID, priorityFieldName, priorityValue); err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: failed to set priority: %v\n", err)
-		}
-	} else if cfg.Defaults.Priority != "" {
-		// Apply default priority from config
-		priorityValue := cfg.ResolveFieldValue("priority", cfg.Defaults.Priority)
-		if err := client.SetProjectItemField(project.ID, itemID, priorityFieldName, priorityValue); err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: failed to set default priority: %v\n", err)
+	fieldValue := func(field, value, defaultValue string) string {
+		switch {
+		case value != "":
+			return cfg.ResolveFieldValue(field, value)
+		case defaultValue != "":
+			return cfg.ResolveFieldValue(field, defaultValue) + " (config default)"
+		default:
+			return "(none)"
 		}
 	}
-
-	// Set branch field
-	if opts.release != "" {
-		releaseValue := opts.release
-		if opts.release == "current" {
-			// Resolve "current" to active branch
-			releaseIssues, err := client.GetOpenIssuesByLabel(owner, repo, "branch")
-			if err != nil {
-				return fmt.Errorf("failed to get branch issues: %w", err)
-			}
-			activeRelease := findActiveBranchForCreate(releaseIssues)
-			if activeRelease == nil {
-				return fmt.Errorf("no active branch found. Run 'gh pmu branch start' to create one")
-			}
-			// Support both "Branch: " and "Release: " prefixes
-			releaseValue = stripBranchPrefix(activeRelease.Title)
-		}
-		if err := client.SetProjectItemField(project.ID, itemID, branchFieldName, releaseValue); err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: failed to set branch: %v\n", err)
-		}
+	branch := "(none)"
+	if targets.branchValue != "" {
+		branch = fmt.Sprintf("%s (%s field)", targets.branchValue, targets.branchFieldName)
+	}
+	milestone := p.milestone
+	if milestone == "" {
+		milestone = "(none)"
 	}
 
-	// Output the result
+	fmt.Fprintln(w, "Dry run: no issue will be created.")
+	fmt.Fprintf(w, "  Repository: %s\n", p.repo)
+	fmt.Fprintf(w, "  Project:    %s (%s #%d)\n", targets.project.Title, cfg.Project.Owner, cfg.Project.Number)
+	fmt.Fprintf(w, "  Title:      %s\n", p.title)
+	fmt.Fprintf(w, "  Body:       %s\n", p.bodySource)
+	fmt.Fprintf(w, "  Labels:     %s\n", orNone(p.labels))
+	fmt.Fprintf(w, "  Assignees:  %s\n", orNone(p.assignees))
+	fmt.Fprintf(w, "  Milestone:  %s\n", milestone)
+	fmt.Fprintf(w, "  Status:     %s\n", fieldValue("status", p.status, cfg.Defaults.Status))
+	fmt.Fprintf(w, "  Priority:   %s\n", fieldValue("priority", p.priority, cfg.Defaults.Priority))
+	fmt.Fprintf(w, "  Branch:     %s\n", branch)
+}
+
+// createBodySource names where create takes the issue body from.
+func createBodySource(opts *createOptions) string {
+	switch {
+	case opts.fromFile != "" && opts.body == "":
+		return "--from-file " + opts.fromFile
+	case opts.bodyStdin, opts.bodyFile == "-":
+		return "standard input"
+	case opts.bodyFile != "":
+		return "--body-file " + opts.bodyFile
+	case opts.template != "":
+		return "--template " + opts.template
+	case opts.body != "":
+		return "--body"
+	default:
+		return "(empty)"
+	}
+}
+
+func printCreatedIssue(issue *api.Issue) {
 	fmt.Printf("Created issue #%d: %s\n", issue.Number, issue.Title)
 	fmt.Printf("%s\n", issue.URL)
+}
 
-	return nil
+func createPartialSuccess(issue *api.Issue, steps []string, err error) error {
+	return &api.PartialSuccessError{
+		Resource: fmt.Sprintf("issue #%d", issue.Number),
+		URL:      issue.URL,
+		Steps:    steps,
+		Err:      err,
+	}
 }
 
 // runCreateFromFileWithDeps is the testable implementation of runCreateFromFile
@@ -437,68 +489,30 @@ func runCreateFromFileWithDeps(cmd *cobra.Command, opts *createOptions, cfg *con
 		}
 	}
 
+	// Resolve everything create reads from the API before writing anything, so
+	// a failed lookup leaves no issue behind (#929). --branch/--release is
+	// honored in from-file mode too.
+	targets, err := resolveCreateTargets(client, cfg, owner, repo, opts.release)
+	if err != nil {
+		return err
+	}
+
+	if opts.dryRun {
+		printCreateDryRun(cmd, cfg, targets, createPreview{
+			repo: owner + "/" + repo, title: title, bodySource: createBodySource(opts),
+			labels: labels, assignees: assignees, milestone: milestone,
+			status: status, priority: priority,
+		})
+		return nil
+	}
+
 	// Create the issue
 	issue, err := client.CreateIssueWithOptions(owner, repo, title, body, labels, assignees, milestone)
 	if err != nil {
 		return fmt.Errorf("failed to create issue: %w", err)
 	}
 
-	// Add issue to project
-	project, err := client.GetProject(cfg.Project.Owner, cfg.Project.Number)
-	if err != nil {
-		return fmt.Errorf("failed to get project: %w", err)
-	}
-
-	// Resolve project fields up front so the Branch field name can be resolved
-	// (honoring --branch/--release in from-file mode).
-	projectFields, err := client.GetProjectFields(project.ID)
-	if err != nil {
-		return fmt.Errorf("failed to get project fields: %w", err)
-	}
-
-	itemID, err := client.AddIssueToProject(project.ID, issue.ID)
-	if err != nil {
-		return fmt.Errorf("failed to add issue to project: %w", err)
-	}
-
-	// Set project field values. Resolve the configured GitHub field names
-	// (cfg.Fields), falling back to the capitalized defaults.
-	statusFieldName := cfg.GetFieldNameOr("status", "Status")
-	priorityFieldName := cfg.GetFieldNameOr("priority", "Priority")
-	if status != "" {
-		statusValue := cfg.ResolveFieldValue("status", status)
-		if err := client.SetProjectItemField(project.ID, itemID, statusFieldName, statusValue); err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: failed to set status: %v\n", err)
-		}
-	} else if cfg.Defaults.Status != "" {
-		statusValue := cfg.ResolveFieldValue("status", cfg.Defaults.Status)
-		if err := client.SetProjectItemField(project.ID, itemID, statusFieldName, statusValue); err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: failed to set default status: %v\n", err)
-		}
-	}
-
-	if priority != "" {
-		priorityValue := cfg.ResolveFieldValue("priority", priority)
-		if err := client.SetProjectItemField(project.ID, itemID, priorityFieldName, priorityValue); err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: failed to set priority: %v\n", err)
-		}
-	} else if cfg.Defaults.Priority != "" {
-		priorityValue := cfg.ResolveFieldValue("priority", cfg.Defaults.Priority)
-		if err := client.SetProjectItemField(project.ID, itemID, priorityFieldName, priorityValue); err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: failed to set default priority: %v\n", err)
-		}
-	}
-
-	// Honor --branch/--release in from-file mode (previously silently ignored).
-	if err := setCreateBranchField(client, project.ID, itemID, owner, repo, opts.release, projectFields); err != nil {
-		return err
-	}
-
-	// Output the result
-	fmt.Printf("Created issue #%d: %s\n", issue.Number, issue.Title)
-	fmt.Printf("%s\n", issue.URL)
-
-	return nil
+	return finishCreate(client, cfg, targets, issue, status, priority)
 }
 
 // validateCreateOptions validates IDPF rules for issue creation
@@ -552,30 +566,94 @@ func stripBranchPrefix(title string) string {
 	return strings.TrimPrefix(title, "Release: ")
 }
 
-// setCreateBranchField resolves the --branch/--release value ("current" -> the
-// active branch) and sets the Branch project field. A no-op when branchFlag is
-// empty. Field-set failures are non-fatal (warning); an unresolved "current" is a
-// hard error. Shared by the from-file create path so --branch is honored there.
-func setCreateBranchField(client createClient, projectID, itemID, owner, repo, branchFlag string, projectFields []api.ProjectField) error {
-	if branchFlag == "" {
-		return nil
+// resolveCreateBranchValue resolves the --branch/--release value: "current"
+// becomes the active branch name, anything else passes through, and "" means
+// no branch. An unresolved "current" is a hard error.
+func resolveCreateBranchValue(client createClient, owner, repo, branchFlag string) (string, error) {
+	if branchFlag != "current" {
+		return branchFlag, nil
 	}
-	branchValue := branchFlag
-	if branchFlag == "current" {
-		releaseIssues, err := client.GetOpenIssuesByLabel(owner, repo, "branch")
-		if err != nil {
-			return fmt.Errorf("failed to get branch issues: %w", err)
+	releaseIssues, err := client.GetOpenIssuesByLabel(owner, repo, "branch")
+	if err != nil {
+		return "", fmt.Errorf("failed to get branch issues: %w", err)
+	}
+	activeRelease := findActiveBranchForCreate(releaseIssues)
+	if activeRelease == nil {
+		return "", fmt.Errorf("no active branch found. Run 'gh pmu branch start' to create one")
+	}
+	// Support both "Branch: " and "Release: " prefixes
+	return stripBranchPrefix(activeRelease.Title), nil
+}
+
+// createTargets is everything create reads from the API before it writes.
+type createTargets struct {
+	project         *api.Project
+	branchFieldName string
+	branchValue     string // resolved --branch value; "" when not set
+}
+
+// resolveCreateTargets performs every lookup create depends on — the project,
+// its fields and the --branch current tracker — none of which depend on the new
+// issue. Running them before CreateIssueWithOptions leaves add-to-project and
+// the field writes as the only post-create failure points (#929).
+func resolveCreateTargets(client createClient, cfg *config.Config, owner, repo, branchFlag string) (*createTargets, error) {
+	project, err := client.GetProject(cfg.Project.Owner, cfg.Project.Number)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get project: %w", err)
+	}
+	projectFields, err := client.GetProjectFields(project.ID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get project fields: %w", err)
+	}
+	branchValue, err := resolveCreateBranchValue(client, owner, repo, branchFlag)
+	if err != nil {
+		return nil, err
+	}
+	return &createTargets{
+		project:         project,
+		branchFieldName: ResolveBranchFieldName(projectFields),
+		branchValue:     branchValue,
+	}, nil
+}
+
+// setCreateFields writes status, priority (or their config defaults) and branch
+// onto the new project item. Field names come from cfg.Fields, falling back to
+// the capitalized defaults. Every write is attempted even after one fails, so a
+// single bad field does not leave the others unset; the failed steps and the
+// first error are returned for the partial-success report.
+func setCreateFields(client createClient, cfg *config.Config, targets *createTargets, itemID, status, priority string) ([]string, error) {
+	projectID := targets.project.ID
+	var failedSteps []string
+	var firstErr error
+	set := func(step, fieldName, value string) {
+		if err := client.SetProjectItemField(projectID, itemID, fieldName, value); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to %s: %v\n", step, err)
+			failedSteps = append(failedSteps, step)
+			if firstErr == nil {
+				firstErr = fmt.Errorf("failed to %s: %w", step, err)
+			}
 		}
-		activeRelease := findActiveBranchForCreate(releaseIssues)
-		if activeRelease == nil {
-			return fmt.Errorf("no active branch found. Run 'gh pmu branch start' to create one")
-		}
-		branchValue = stripBranchPrefix(activeRelease.Title)
 	}
-	if err := client.SetProjectItemField(projectID, itemID, ResolveBranchFieldName(projectFields), branchValue); err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: failed to set branch: %v\n", err)
+
+	statusFieldName := cfg.GetFieldNameOr("status", "Status")
+	priorityFieldName := cfg.GetFieldNameOr("priority", "Priority")
+
+	if status != "" {
+		set("set status", statusFieldName, cfg.ResolveFieldValue("status", status))
+	} else if cfg.Defaults.Status != "" {
+		set("set status (config default)", statusFieldName, cfg.ResolveFieldValue("status", cfg.Defaults.Status))
 	}
-	return nil
+
+	if priority != "" {
+		set("set priority", priorityFieldName, cfg.ResolveFieldValue("priority", priority))
+	} else if cfg.Defaults.Priority != "" {
+		set("set priority (config default)", priorityFieldName, cfg.ResolveFieldValue("priority", cfg.Defaults.Priority))
+	}
+
+	if targets.branchValue != "" {
+		set("set branch", targets.branchFieldName, targets.branchValue)
+	}
+	return failedSteps, firstErr
 }
 
 // maxBodyFileSize is the maximum size for body/template file reads (1MB).

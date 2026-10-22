@@ -1,13 +1,13 @@
 ---
-version: "v0.103.0"
-description: Create an enhancement issue with standard template (project)
-argument-hint: "<title> [--prior-art]"
+version: "v0.110.0"
+description: Create an enhancement issue from the IDPF framework's standard template.
+argument-hint: "<title> [--prior-art] [--help]"
 copyright: "Rubrical Works (c) 2026"
 ---
 <!-- EXTENSIBLE -->
 # /enhancement
 Create a labeled enhancement issue with standard template and add to project board.
-**Extension Points:** `.claude/metadata/extension-points.json` or `/extensions list --command enhancement`
+**Extension Points:** `.claude/metadata/extension-points.json` or `/extensions --list --command enhancement`
 ---
 ## Prerequisites
 - `gh pmu` extension installed
@@ -20,6 +20,9 @@ Create a labeled enhancement issue with standard template and add to project boa
 | `--prior-art` | Run prior-art sweep before composing body. Absent = current behavior, no sweep. |
 | `--assignee <value>` | GitHub login for the new issue. Omitted → `@me`. |
 | `--target <owner/name>` | File the issue against a registered companion repository instead of this one. |
+| `--help` | Open this command's docs page. Takes precedence over every other argument and performs no action. |
+
+**`--help` takes precedence over every other argument and performs no action:** run `node .claude/scripts/shared/command-help.js enhancement`, report its output, and STOP.
 
 If not provided, prompt user.
 ---
@@ -66,16 +69,15 @@ Runs **before** the body is composed, so findings change what gets written rathe
 | `already-shipped` | **STOP.** Create no issue. Report conflicting issue numbers and file paths. |
 | `found-but-warranted` | Continue. Record `**Prior Art:**` — what exists, how this differs. |
 | `none-found` | Continue. Record `noneFoundFormat` line including terms searched. |
-**Two marker forms are recognised on read (#2700).** Emission is unchanged — always the bold inline form from `prior-art-sweep.json` `bodyFormat`. Detection also accepts a markdown heading:
+**Two marker forms are recognized on read (#2700).** Emission is unchanged — always the bold inline form from `prior-art-sweep.json` `bodyFormat`. Detection also accepts a markdown heading:
 
-| Form | Example | Recognised |
+| Form | Example | Recognized |
 |---|---|---|
 | Bold inline (emitted) | `**Prior Art:** found — …` | yes |
 | Markdown heading | `## Prior Art` / `### Prior Art:` — any level | yes |
 | Bare, neither | `Prior Art: found — …` | **no** |
 
-Before #2700 only the bold counted, so a researched `## Prior Art` read as one nobody wrote. Authoritative: `bodyFormat.recognisedForms`, pinned to `classifyMarker` by test.
-
+Before #2700 only the bold counted, so a researched `## Prior Art` read as one nobody wrote. Authoritative: `bodyFormat.recognizedForms`, pinned to `classifyMarker` by test.
 
 **Emit the section on every `--prior-art` invocation, including a nil result.** Presence records the sweep ran; absence means none ran. Omitting on nil makes "nothing found" indistinguishable from "nobody looked".
 Use exact `bodyFormat` strings (`heading`, `noneFoundFormat`, `foundEntryFormat`, `partialFormat`) — never paraphrase, so consumers test the marker without parsing prose. `PARTIAL` is treated as equivalent to an absent marker and triggers re-sweep.
@@ -90,50 +92,65 @@ Mode `off` deliberately overrides a typed flag. Earlier revisions of this spec, 
 <!-- USER-EXTENSION-END: pre-create -->
 
 ### Step 3: Create Issue
-Body template:
-```markdown
-## Enhancement
-
-**Description:**
-{user description or "To be documented"}
-
-**Motivation:**
-{infer from description, or "To be documented"}
-
-**Proposed Solution:**
-{infer from description, or "To be documented"}
-
-**Scope:**
-- **In scope:** {infer from description, or "To be documented"}
-- **Out of scope:** {infer from description, or "To be documented"}
-**Acceptance Criteria:**
-- [ ] {infer from description, or "To be documented"}
+**Creation goes through the shared script (#3049).** `.claude/scripts/shared/file-issue.js` carries the template, label, status, assignee resolution, a unique `.tmp-` body file and `gh pmu create` — one implementation for `/bug`, `/enhancement` and `/code-review`, so they cannot drift. This step supplies only what it judges: field text, the priority, the Step 2b prior-art line, and which Step 2a gates it applied.
+**Generate the entry path first — once per invocation, before the entry is composed.** A fixed path collides across sessions filing in this directory — one write lands between another's write and its filing, filing the wrong content silently; no issue number exists yet to name it after (#1034 covers editing only). Suffix from a shelled-out command, never invented — **the same scheme `/bug` uses (#2980)**, so the siblings do not diverge:
+```bash
+ENHANCEMENT_ENTRY_FILE=".tmp-enhancement-entry-$(node -e "console.log(require('crypto').randomBytes(4).toString('hex'))").json"
 ```
-Populate from user input where possible. Use "To be documented" only where insufficient.
-**Sweep ran (Step 2b):** insert `**Prior Art:**` after `**Description:**`, using `bodyFormat` strings.
+**Keep the `.tmp-` prefix** so the startup stale-scratch sweep collects a file an interrupted run left.
+Write one entry to `$ENHANCEMENT_ENTRY_FILE`:
+```json
+{
+  "type": "enhancement",
+  "title": "{title}",
+  "priority": "p2",
+  "assignee": "{login — only when --assignee was given}",
+  "gatesApplied": ["verificationGate", "phaseFeasibility"],
+  "fields": {
+    "description": "...", "priorArt": "...",
+    "motivation": "...", "proposedSolution": "...",
+    "inScope": "...", "outOfScope": "...",
+    "acceptanceCriteria": ["..."]
+  }
+}
+```
+The script renders the standard enhancement template — Description, Motivation, Proposed Solution, Scope, Acceptance Criteria — filling omitted fields with "To be documented". Populate from the user's description; omit a field only without enough input.
+**Sweep ran (Step 2b):** set `fields.priorArt` to the `**Prior Art:**` line built from `bodyFormat` strings; the script places it after `**Description:**`. No sweep → omit it, so absence still reads as "no sweep ran".
+`priority` is `p2`, the enhancement default set by this command. The script refuses an entry without one rather than defaulting: priority is decided by the caller, never in the script.
+`gatesApplied` names only gates Step 2a actually applied — leave out any it did not reach, so `gatesNotApplied` reports it instead of hiding it.
 Create:
 ```bash
-gh pmu create --title "[Enhancement]: {title}" --label enhancement --status backlog --priority p2 --assignee {assignee} -F .tmp-body.md
+node .claude/scripts/shared/file-issue.js --input $ENHANCEMENT_ENTRY_FILE
+rm $ENHANCEMENT_ENTRY_FILE
 ```
-
+Report from `results[0]`: `number`, `url`, `priority`. `ok: false` → "Failed to create issue: {error}" → STOP. A `warning` means created but number unreadable — it **exists**; do NOT file again.
+**Assignee:** the script resolves it via `gh-pmu-config.js` — the entry's `assignee` when `--assignee <login>` was given, else `@me` — and never drops the flag (an omitted `--assignee` silently creates an unassigned issue). NEVER hardcode a login. An unresolvable login makes `gh pmu` exit 1 and create nothing; the script reports it as the entry's `error`. Report it; do NOT retry without the login.
 **Cross-repo filing (`--target <owner/name>`, #2665):** resolve BEFORE composing the issue — a refusal after the body is written wastes the work and tempts a retry against the wrong repo.
 ```javascript
 const { resolveFilingTarget, resolveBoardFields, formatUnresolvedBoardFields } = require('.claude/scripts/shared/lib/companion-projects.js');
-const target = resolveFilingTarget(charterContent, requestedRepo);
+const target = resolveFilingTarget(charterContent, requestedRepo);   // charterContent = CHARTER.md
 ```
-`ok:false` → report `reason` verbatim, **STOP**. Two refusals, never merged: not registered → register with `/charter update --register-proj`; registered with `fileIssues:false` → marked read-only on purpose, enable with `--register-proj`. Searchable-but-not-filable is the common case, so the second is usually correct rather than an oversight, and one combined message sends the user to the wrong remedy half the time.
-`ok: true` → **do NOT add `-R` to `gh pmu create`.** Delegate the cross-repo filing to the shared helper:
+`ok:false` → report `reason` verbatim, **STOP**. Two refusals, never merged: not registered → register with `/charter --update --register-proj`; registered with `fileIssues:false` → marked read-only on purpose, enable with `--register-proj`. Searchable-but-not-filable is the common case — usually deliberate; one combined message sends the user to the wrong remedy.
+`ok: true` → **do NOT run `file-issue.js --input`, and never `gh pmu create -R`.** Render the same template into a body file, then delegate to the companion helper:
+```bash
+ENHANCEMENT_BODY_FILE=".tmp-enhancement-body-$(node -e "console.log(require('crypto').randomBytes(4).toString('hex'))").md"
+node .claude/scripts/shared/file-issue.js --input $ENHANCEMENT_ENTRY_FILE --render-to $ENHANCEMENT_BODY_FILE
+```
 ```javascript
 const { fileCompanionIssue } = require('.claude/scripts/shared/file-companion-issue.js');
 const resolution = resolveBoardFields(target.entry);   // { resolved, fields, board, reason }
 const result = fileCompanionIssue({
-  repo: target.entry.repo, title, bodyFile: '.tmp-body.md',
+  repo: target.entry.repo, title, bodyFile: $ENHANCEMENT_BODY_FILE,
   labels: [LABEL], assignee, status: STATUS, priority: PRIORITY,
   board: target.entry.board || null, fields: resolution.fields,
 });
 ```
-**Why not `gh pmu create -R` (#2775).** gh-pmu takes the *repository* from `-R` but the *project* from the **local** `.gh-pmu.json`, with no override — so it files into the companion and adds the issue to **this** repo's board (observed: px-manager#1155 landed on Project-Varia, reporting fields unset, which concealed the pollution).
-The helper creates the issue with the **bare `gh issue create`** form, then adds it to the *companion's* board explicitly — the one case where the bare form is correct: rule 02 prohibits it because it reaches no board, and here the **local** board is what must not be reached. Membership is redirected, not abandoned.
+```bash
+rm $ENHANCEMENT_BODY_FILE $ENHANCEMENT_ENTRY_FILE
+```
+**Why not `gh pmu create -R` (#2775).** gh-pmu takes the *repository* from `-R` but the *project* from the **local** `.gh-pmu.json`, with no override — so the issue lands on **this** repo's board (px-manager#1155, 2026-09-04).
+The helper uses the **bare `gh issue create`** form, then adds the issue to the *companion's* board — the one case the bare form is correct, since the **local** board must not be reached. Membership is redirected, not abandoned.
+`PRIORITY` is `p2`, resolved against the **companion board's own** options, not this repo's `.gh-pmu.json`: no matching option → reported under `fields.unset`, filed without a priority rather than on a guess. `assignee` from `node .claude/scripts/shared/lib/gh-pmu-config.js --assignee <login>` when given, else `node .claude/scripts/shared/lib/gh-pmu-config.js --assignee` (bare flag → `@me`); NEVER run the helper with no arguments.
 **Report the envelope; re-derive none of it.** `{ok, issue:{number,url}, board:{added, owner, number, fields:{set,unset}}, errors}`.
 | Envelope | Report |
 |---|---|
@@ -142,12 +159,8 @@ The helper creates the issue with the **bare `gh issue create`** form, then adds
 | `board.added: true`, `fields.unset` non-empty | The same **plus every `errors` entry** — an unset field must never pass for a set one |
 | `board.added: false` with a board registered | Issue created, board-add failed; print `errors`. The issue **exists** — do not file it again |
 | No board registered | Issue created, no board touched. Print `formatUnresolvedBoardFields(repo, resolution)` unchanged |
-**Never guess a field or option id.** The helper resolves them from the companion's own `gh project field-list` and reports anything unresolvable as unset; a guess files onto the wrong column silently.
-```bash
-rm .tmp-body.md
-```
-**Note:** Always `-F .tmp-body.md` (never inline `--body`).
-**Assignee:** substitute `{assignee}` from `node .claude/scripts/shared/lib/gh-pmu-config.js --assignee <value>` — pass the user's `--assignee` value, omit when none given. Helper returns that login, else `@me`; reads no config file. NEVER hardcode a login or drop the flag (omitted `--assignee` silently creates an unassigned issue). Unresolvable login → `gh pmu` exits 1 and creates nothing; report the error, do NOT retry without the flag.
+**Never guess a field or option id** — the helper resolves them from the companion's `gh project field-list`; unresolvable → unset.
+**Note:** The body always travels by file (`-F` / `--body-file`), never inline `--body`.
 ### Step 4: Cleanup, Report, and STOP
 Three parts, in order. The prune is **part of** this step, and this step is **numbered** — `One task per numbered step` now covers it, so an unpruned list surfaces as an unfinished task like any other. The halt is part (3) and lives nowhere earlier: while it sat in this step's TITLE a reader stopped at the title and never reached the prune (#2641).
 **(1) Prune the task list** (unconditional — every path, including early-exit paths where Phase 1 created tasks and later phases never ran):

@@ -3,6 +3,7 @@ package api
 import (
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 )
@@ -31,6 +32,61 @@ func TestIsNotFound_WithOtherError(t *testing.T) {
 func TestIsNotFound_WithNil(t *testing.T) {
 	if IsNotFound(nil) {
 		t.Error("Expected IsNotFound to return false for nil")
+	}
+}
+
+func TestPartialSuccessError_NamesResourceURLAndSteps(t *testing.T) {
+	err := &PartialSuccessError{
+		Resource: "issue #42",
+		URL:      "https://github.com/o/r/issues/42",
+		Steps:    []string{"set status", "set priority"},
+		Err:      errors.New("field update failed"),
+	}
+	msg := err.Error()
+	for _, want := range []string{"issue #42", "https://github.com/o/r/issues/42", "set status", "set priority", "field update failed"} {
+		if !strings.Contains(msg, want) {
+			t.Errorf("Expected %q in error message, got: %s", want, msg)
+		}
+	}
+}
+
+// Commands that did not create anything — a branch close, a multi-issue view —
+// report their own completed work instead of "created … do not retry the
+// create" (#938).
+func TestPartialSuccessError_DoneReplacesCreateWording(t *testing.T) {
+	err := &PartialSuccessError{
+		Done:  "closed branch release/v1",
+		Steps: []string{"move #7 to backlog"},
+		Err:   errors.New("field update failed"),
+	}
+	msg := err.Error()
+	for _, want := range []string{"partial success", "closed branch release/v1", "move #7 to backlog", "field update failed"} {
+		if !strings.Contains(msg, want) {
+			t.Errorf("Expected %q in error message, got: %s", want, msg)
+		}
+	}
+	if strings.Contains(msg, "created") || strings.Contains(msg, "retry the create") {
+		t.Errorf("non-create partial success must not use the create wording, got: %s", msg)
+	}
+}
+
+func TestPartialSuccessError_DetectableThroughWrapping(t *testing.T) {
+	inner := errors.New("add failed")
+	err := fmt.Errorf("create: %w", &PartialSuccessError{Resource: "issue #1", Steps: []string{"add to project"}, Err: inner})
+	if !IsPartialSuccess(err) {
+		t.Error("Expected IsPartialSuccess to see a wrapped PartialSuccessError")
+	}
+	if !errors.Is(err, inner) {
+		t.Error("Expected PartialSuccessError to unwrap to its cause")
+	}
+	if IsPartialSuccess(inner) || IsPartialSuccess(nil) {
+		t.Error("Expected IsPartialSuccess false for a plain error and for nil")
+	}
+}
+
+func TestExitCodePartialSuccess_IsSix(t *testing.T) {
+	if ExitCodePartialSuccess != 6 {
+		t.Errorf("ExitCodePartialSuccess = %d, want 6 (#914 tranche A numbering)", ExitCodePartialSuccess)
 	}
 }
 

@@ -3,6 +3,7 @@ package cmd
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"math"
 	"os"
 	"sort"
@@ -215,6 +216,7 @@ func runBoardWithDeps(cmd *cobra.Command, opts *boardOptions, cfg *config.Config
 		if err != nil {
 			return fmt.Errorf("failed to get project items: %w", err)
 		}
+		warnTruncatedBoardItems(cmd.ErrOrStderr(), items)
 
 		// Apply state filter client-side (only needed for fallback path)
 		if opts.state != "" && opts.state != "all" {
@@ -350,6 +352,21 @@ func filterBoardItemsByState(items []api.BoardItem, state string) []api.BoardIte
 		}
 	}
 	return filtered
+}
+
+// warnTruncatedBoardItems names the items whose field values ran past one page,
+// whose Status or Priority may therefore show as unset (#934).
+func warnTruncatedBoardItems(w io.Writer, items []api.BoardItem) {
+	var refs []string
+	for _, item := range items {
+		if item.FieldValuesTruncated {
+			refs = append(refs, fmt.Sprintf("#%d", item.Number))
+		}
+	}
+	if len(refs) == 0 {
+		return
+	}
+	fmt.Fprintf(w, "warning: field values truncated for %s; Status or Priority may be missing\n", strings.Join(refs, ", "))
 }
 
 // enrichIssuesToBoardItems converts issues to BoardItems and enriches them with project field values.

@@ -182,6 +182,83 @@ func TestSave_PreservesKeysTheStructDoesNotModel(t *testing.T) {
 	}
 }
 
+// Unknown-key preservation stopped at the top level, so a key a newer build
+// wrote inside fields.<alias> or a metadata.fields[] entry was lost the first
+// time an older build saved (#936).
+func TestSave_PreservesNestedKeysTheStructDoesNotModel(t *testing.T) {
+	dir, path := seedConfigFile(t, `{
+  "project": {"owner": "acme", "number": 2},
+  "repositories": ["acme/app"],
+  "fields": {"status": {"field": "Status", "values": {"backlog": "Backlog"}, "futureAliasKey": {"a": 1}}},
+  "metadata": {"project": {"id": "PVT_1"}, "fields": [
+    {"name": "Status", "id": "PVTSSF_1", "data_type": "SINGLE_SELECT", "futureMetaKey": "keep"}
+  ]}
+}`)
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("load seeded config: %v", err)
+	}
+	if err := cfg.Save(dir); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read saved config: %v", err)
+	}
+	var saved struct {
+		Fields   map[string]map[string]json.RawMessage `json:"fields"`
+		Metadata struct {
+			Fields []map[string]json.RawMessage `json:"fields"`
+		} `json:"metadata"`
+	}
+	if err := json.Unmarshal(data, &saved); err != nil {
+		t.Fatalf("saved config is not valid JSON: %v\n%s", err, data)
+	}
+	var aliasKey bytes.Buffer
+	if err := json.Compact(&aliasKey, saved.Fields["status"]["futureAliasKey"]); err != nil || aliasKey.String() != `{"a":1}` {
+		t.Errorf("fields.status.futureAliasKey = %s, want {\"a\":1} kept. Saved file:\n%s", saved.Fields["status"]["futureAliasKey"], data)
+	}
+	if len(saved.Metadata.Fields) != 1 || string(saved.Metadata.Fields[0]["futureMetaKey"]) != `"keep"` {
+		t.Errorf("metadata.fields[0].futureMetaKey not kept. Saved file:\n%s", data)
+	}
+	if string(saved.Fields["status"]["field"]) != `"Status"` {
+		t.Errorf("modeled alias keys must be written as before. Saved file:\n%s", data)
+	}
+}
+
+// MergeUnownedKeys carries over keys the writer does not model, but never a key
+// the writer owns and left out on purpose — init drops a stale acceptance
+// record by omitting it, and resurrecting it would skip re-acceptance (#936).
+func TestMergeUnownedKeys_KeepsUnownedAndNeverResurrectsOwnedKeys(t *testing.T) {
+	type writer struct {
+		Project    string `json:"project"`
+		Acceptance *struct {
+			Version string `json:"version"`
+		} `json:"acceptance,omitempty"`
+	}
+	encoded := []byte(`{"project":"new"}`)
+	previous := []byte(`{"project":"old","acceptance":{"version":"0.9.0"},"configIntegrity":"strict"}`)
+
+	merged, err := MergeUnownedKeys(encoded, previous, &writer{})
+	if err != nil {
+		t.Fatalf("MergeUnownedKeys: %v", err)
+	}
+	var got map[string]json.RawMessage
+	if err := json.Unmarshal(merged, &got); err != nil {
+		t.Fatalf("merged output is not valid JSON: %v\n%s", err, merged)
+	}
+	if string(got["project"]) != `"new"` {
+		t.Errorf("project = %s, want the writer's value kept", got["project"])
+	}
+	if string(got["configIntegrity"]) != `"strict"` {
+		t.Errorf("configIntegrity = %s, want the unowned key carried over", got["configIntegrity"])
+	}
+	if _, ok := got["acceptance"]; ok {
+		t.Errorf("acceptance is owned by the writer and was omitted on purpose; it must not be resurrected: %s", merged)
+	}
+}
+
 func TestSave_ModeledKeysKeepDeclarationOrderAlongsideUnmodeledKeys(t *testing.T) {
 	// ARRANGE
 	dir, path := seedConfigFile(t, unmodeledConfigJSON)

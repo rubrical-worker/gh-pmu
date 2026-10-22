@@ -1448,6 +1448,14 @@ func TestFetchFieldsByNames_AllResolve(t *testing.T) {
 	if got[0].Name != "Title" || got[1].Name != "Branch" {
 		t.Errorf("Expected order preserved; got %+v", got)
 	}
+	// The per-name lookup runs no org issue field classification, so a field
+	// it returns may be issue-backed; it must not read as a known project
+	// field (#933).
+	for _, f := range got {
+		if !f.Unclassified {
+			t.Errorf("field %q from the per-name lookup should be marked Unclassified", f.Name)
+		}
+	}
 }
 
 func TestFetchFieldsByNames_PartialMissing(t *testing.T) {
@@ -4374,6 +4382,94 @@ func TestParseParentIssueBatchResponse_EmptyInput(t *testing.T) {
 	}
 	if len(result) != 0 {
 		t.Errorf("expected empty map, got %d entries", len(result))
+	}
+}
+
+// The raw transport fails only on non-200, so GitHub's HTTP 200 {errors: [...]}
+// responses (rate limit, insufficient scope) reach the parsers. A document-level
+// error must fail the batch with GitHub's message rather than read as an empty
+// or not-found result (#937).
+const rateLimitedResponse = `{"data": null, "errors": [{"type": "RATE_LIMITED", "message": "API rate limit exceeded for user ID 1."}]}`
+
+func assertGitHubMessage(t *testing.T, err error) {
+	t.Helper()
+	if err == nil {
+		t.Fatal("expected an error for a document-level GraphQL error, got nil")
+	}
+	if !strings.Contains(err.Error(), "API rate limit exceeded") {
+		t.Errorf("error should carry GitHub's message, got: %v", err)
+	}
+}
+
+func TestParseIssuesBatchResponse_DocumentLevelError(t *testing.T) {
+	_, _, _, err := parseIssuesBatchResponse([]byte(rateLimitedResponse), []int{42, 43}, "", "owner", "repo")
+	assertGitHubMessage(t, err)
+}
+
+func TestParseIssuesBatchResponse_ShortPathError(t *testing.T) {
+	data := []byte(`{"data": {"repository": null}, "errors": [{"type": "FORBIDDEN", "message": "Resource not accessible by integration", "path": ["repository"]}]}`)
+
+	_, _, _, err := parseIssuesBatchResponse(data, []int{42}, "", "owner", "repo")
+	if err == nil || !strings.Contains(err.Error(), "Resource not accessible by integration") {
+		t.Fatalf("expected a top-level error carrying GitHub's message, got: %v", err)
+	}
+}
+
+func TestParseParentIssueBatchResponse_DocumentLevelError(t *testing.T) {
+	_, err := parseParentIssueBatchResponse([]byte(rateLimitedResponse), []int{42, 43})
+	assertGitHubMessage(t, err)
+}
+
+func TestParseParentIssueBatchResponse_AliasErrorStaysPerIssue(t *testing.T) {
+	data := []byte(`{
+		"data": {
+			"repository": {
+				"i0": {"parent": {"id": "PID1", "number": 10, "title": "Epic", "state": "OPEN", "url": "https://example.com/10"}},
+				"i1": null
+			}
+		},
+		"errors": [{"type": "NOT_FOUND", "message": "Could not resolve to an Issue with the number of 99.", "path": ["repository", "i1"]}]
+	}`)
+
+	result, err := parseParentIssueBatchResponse(data, []int{42, 99})
+	if err != nil {
+		t.Fatalf("an alias-scoped error must not fail the batch, got: %v", err)
+	}
+	if result[42] == nil || result[42].Number != 10 {
+		t.Errorf("expected parent #10 for issue 42, got %v", result[42])
+	}
+	if result[99] != nil {
+		t.Errorf("expected nil parent for the errored alias, got %v", result[99])
+	}
+}
+
+func TestGetProjectFieldsForIssuesBatch_DocumentLevelError(t *testing.T) {
+	client := &Client{rawGQL: &mockRawGraphQL{response: []byte(rateLimitedResponse)}}
+
+	_, err := client.getProjectFieldsForIssuesBatch("PVT_1", []string{"I_kwDOAAAAAA1", "I_kwDOAAAAAA2"})
+	assertGitHubMessage(t, err)
+}
+
+func TestGetProjectFieldsForIssuesBatch_AliasErrorStaysPerIssue(t *testing.T) {
+	client := &Client{rawGQL: &mockRawGraphQL{response: []byte(`{
+		"data": {
+			"n0": {"id": "I_kwDOAAAAAA1", "projectItems": {"nodes": [{"project": {"id": "PVT_1"}, "fieldValues": {"nodes": [
+				{"__typename": "ProjectV2ItemFieldTextValue", "text": "hello", "field": {"name": "Notes"}}
+			]}}]}},
+			"n1": null
+		},
+		"errors": [{"type": "NOT_FOUND", "message": "Could not resolve to a node with the global id of 'I_kwDOAAAAAA2'", "path": ["n1"]}]
+	}`)}}
+
+	result, err := client.getProjectFieldsForIssuesBatch("PVT_1", []string{"I_kwDOAAAAAA1", "I_kwDOAAAAAA2"})
+	if err != nil {
+		t.Fatalf("an alias-scoped error must not fail the batch, got: %v", err)
+	}
+	if len(result["I_kwDOAAAAAA1"]) != 1 {
+		t.Errorf("expected the healthy issue's field values, got %v", result["I_kwDOAAAAAA1"])
+	}
+	if _, ok := result["I_kwDOAAAAAA2"]; ok {
+		t.Errorf("expected no entry for the errored alias")
 	}
 }
 

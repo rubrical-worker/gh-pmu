@@ -83,19 +83,18 @@ func runInitPostCreate(client initPostCreateClient, in *initPostCreateInputs) er
 		}
 	}
 
-	// Refetch — warn+continue today (metadata may be stale but config still writable).
-	fields, err := client.GetProjectFields(in.NewProject.ID)
-	if err != nil {
-		fmt.Fprintf(in.ErrOut, "Warning: failed to refetch project fields: %v\n", err)
+	// Refetch so metadata captures fields created above. On failure, keep the
+	// fields from the first fetch rather than writing empty metadata, finish
+	// writing the config, and report a partial success (#938).
+	fields, refetchErr := client.GetProjectFields(in.NewProject.ID)
+	if refetchErr != nil {
+		fmt.Fprintf(in.ErrOut, "Warning: failed to refetch project fields: %v\n", refetchErr)
+		fields = projectFields
 	}
 
 	metadata := &ProjectMetadata{ProjectID: in.NewProject.ID}
 	for _, f := range fields {
-		fm := FieldMetadata{ID: f.ID, Name: f.Name, DataType: f.DataType}
-		for _, opt := range f.Options {
-			fm.Options = append(fm.Options, OptionMetadata{ID: opt.ID, Name: opt.Name})
-		}
-		metadata.Fields = append(metadata.Fields, fm)
+		metadata.Fields = append(metadata.Fields, fieldMetadataFromProjectField(f))
 	}
 
 	if err := writeConfigWithMetadata(in.Cwd, in.Cfg, metadata); err != nil {
@@ -103,5 +102,13 @@ func runInitPostCreate(client initPostCreateClient, in *initPostCreateInputs) er
 		return rollback(FailedStepWriteConfig, fmt.Errorf("failed to write config: %w", err), true)
 	}
 
+	if refetchErr != nil {
+		return &api.PartialSuccessError{
+			Resource: fmt.Sprintf("project #%d", in.NewProject.Number),
+			URL:      in.NewProject.URL,
+			Steps:    []string{"refetch project fields (metadata may lack fields created during init)"},
+			Err:      refetchErr,
+		}
+	}
 	return nil
 }

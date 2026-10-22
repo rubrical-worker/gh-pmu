@@ -55,6 +55,48 @@ func (e *APIError) Unwrap() error {
 	return e.Err
 }
 
+// ExitCodePartialSuccess is the process exit code for a command that created a
+// resource and then failed a later step — the numbering #914 tranche A proposes,
+// so that contract can absorb it rather than renumber it (#929).
+const ExitCodePartialSuccess = 6
+
+// PartialSuccessError reports that a resource was created but one or more later
+// steps failed. It is distinct from total failure because a caller retrying the
+// command would create a duplicate: the resource already exists (#929).
+//
+// A command that completed some of its work without creating anything (a branch
+// close that moved only some issues, a view that loaded only some) sets Done
+// instead of Resource, and the message reports that work (#938).
+type PartialSuccessError struct {
+	Resource string   // what was created, e.g. "issue #42"
+	URL      string   // where it lives, so the caller can find it without a lookup
+	Done     string   // what completed when nothing was created, e.g. "closed branch release/v1"
+	Steps    []string // the steps that failed after creation, in order
+	Err      error    // the first underlying failure
+}
+
+func (e *PartialSuccessError) Error() string {
+	if e.Done != "" {
+		return fmt.Sprintf("partial success: %s, but %s failed: %v", e.Done, strings.Join(e.Steps, ", "), e.Err)
+	}
+	where := e.Resource
+	if e.URL != "" {
+		where = fmt.Sprintf("%s (%s)", e.Resource, e.URL)
+	}
+	return fmt.Sprintf("partial success: created %s, but %s failed: %v — do not retry the create",
+		where, strings.Join(e.Steps, ", "), e.Err)
+}
+
+func (e *PartialSuccessError) Unwrap() error {
+	return e.Err
+}
+
+// IsPartialSuccess reports whether err is, or wraps, a PartialSuccessError.
+func IsPartialSuccess(err error) bool {
+	var partial *PartialSuccessError
+	return errors.As(err, &partial)
+}
+
 // IsNotFound checks if an error indicates a resource was not found
 func IsNotFound(err error) bool {
 	if errors.Is(err, ErrNotFound) {

@@ -1,12 +1,12 @@
 {
   "$schema": ".claude/metadata/domain-entities-schema.json",
   "generatedFrom": "CHARTER.md",
-  "generatedAt": "2026-09-14",
-  "projectVersion": "0.103.0",
+  "generatedAt": "2026-10-19",
+  "projectVersion": "0.108.0",
   "boundedContext": {
     "name": "GitHub Praxis Management Utility",
     "purpose": "To be documented",
-    "boundary": "GitHub Praxis Management Utility: Project field management; Sub-issue hierarchy with progress tracking; Batch operations (+12 more)"
+    "boundary": "GitHub Praxis Management Utility: Project field management; Sub-issue hierarchy with progress tracking; Batch operations (+15 more)"
   },
   "entities": {
     "internal-packages": {
@@ -40,6 +40,70 @@
         "Construction/Design-Decisions/"
       ],
       "relationships": []
+    },
+    "idpf-praxis-dev": {
+      "description": "idpf-praxis-dev — IDPF framework development — commands, rules, scripts and references deployed into this project",
+      "external": true,
+      "locations": [
+        "idpf-praxis-dev"
+      ],
+      "searchable": true,
+      "fileIssues": true,
+      "relationships": [
+        {
+          "type": "references",
+          "target": "idpf-phm-project-templates",
+          "evidence": "Location/context references idpf-phm-project-templates — Catalog of project templates (pre-filled charter, skill assignments, lock files, configuration) for new IDPF projects"
+        }
+      ],
+      "repo": "rubrical-worker/idpf-praxis-dev",
+      "board": "rubrical-worker/7"
+    },
+    "idpf-skills-dev": {
+      "description": "idpf-skills-dev — Claude Code skill development for the idpf-praxis-skills distribution repository; the skills this project installs per project",
+      "external": true,
+      "locations": [
+        "idpf-skills-dev"
+      ],
+      "searchable": true,
+      "fileIssues": true,
+      "relationships": [
+        {
+          "type": "references",
+          "target": "idpf-praxis-dev",
+          "evidence": "Location/context references idpf-praxis-dev — IDPF framework development — commands, rules, scripts and references deployed into this project"
+        },
+        {
+          "type": "references",
+          "target": "idpf-phm-project-templates",
+          "evidence": "Location/context references idpf-phm-project-templates — Catalog of project templates (pre-filled charter, skill assignments, lock files, configuration) for new IDPF projects"
+        }
+      ],
+      "repo": "rubrical-works/idpf-skills-dev",
+      "board": "rubrical-works/6"
+    },
+    "idpf-phm-project-templates": {
+      "description": "idpf-phm-project-templates — Catalog of project templates (pre-filled charter, skill assignments, lock files, configuration) for new IDPF projects",
+      "external": true,
+      "locations": [
+        "idpf-phm-project-templates"
+      ],
+      "searchable": true,
+      "fileIssues": true,
+      "relationships": [
+        {
+          "type": "references",
+          "target": "idpf-praxis-dev",
+          "evidence": "Location/context references idpf-praxis-dev — IDPF framework development — commands, rules, scripts and references deployed into this project"
+        },
+        {
+          "type": "references",
+          "target": "idpf-skills-dev",
+          "evidence": "Location/context references idpf-skills-dev — Claude Code skill development for the idpf-praxis-skills distribution repository; the skills this project installs per project"
+        }
+      ],
+      "repo": "rubrical-works/idpf-phm-project-templates",
+      "board": "rubrical-works/7"
     }
   },
   "problemStatement": "",
@@ -77,7 +141,10 @@
     "Resilience to upstream GraphQL schema rollouts (cached-metadata fallback for ProjectV2 field resolver via `.gh-pmu.json`)",
     "Complete pagination for user-facing fetches (labels, comments, projects, project field values)",
     "Fail-loud error propagation across the cmd and API layers, with partial-failure exit codes",
-    "Offline validation of GraphQL operations against a vendored GitHub schema"
+    "Offline validation of GraphQL operations against a vendored GitHub schema",
+    "Status field value reconcile (`status --update`; `init` adds missing required values)",
+    "Custom field creation and listing (`field create`, `field list`)",
+    "Issue comment, git history and piped-JSON filter utilities (`comment`, `history`, `filter`)"
   ],
   "scopeBoundaries": {
     "inScope": [
@@ -95,7 +162,10 @@
       "Resilience to upstream GraphQL schema rollouts (cached-metadata fallback for ProjectV2 field resolver via `.gh-pmu.json`)",
       "Complete pagination for user-facing fetches (labels, comments, projects, project field values)",
       "Fail-loud error propagation across the cmd and API layers, with partial-failure exit codes",
-      "Offline validation of GraphQL operations against a vendored GitHub schema"
+      "Offline validation of GraphQL operations against a vendored GitHub schema",
+      "Status field value reconcile (`status --update`; `init` adds missing required values)",
+      "Custom field creation and listing (`field create`, `field list`)",
+      "Issue comment, git history and piped-JSON filter utilities (`comment`, `history`, `filter`)"
     ],
     "outOfScope": []
   },
@@ -164,6 +234,21 @@
       "type": "location-exists",
       "entity": "design-decision-records",
       "description": "Location must exist for design-decision-records"
+    },
+    {
+      "type": "location-exists",
+      "entity": "idpf-praxis-dev",
+      "description": "Location must exist for idpf-praxis-dev"
+    },
+    {
+      "type": "location-exists",
+      "entity": "idpf-skills-dev",
+      "description": "Location must exist for idpf-skills-dev"
+    },
+    {
+      "type": "location-exists",
+      "entity": "idpf-phm-project-templates",
+      "description": "Location must exist for idpf-phm-project-templates"
     }
   ]
 }

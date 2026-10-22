@@ -1,7 +1,7 @@
 ---
-version: "v0.103.0"
-description: Prepare release with PR, merge to main, and tag
-argument-hint: "[version] [--skip-coverage] [--dry-run] [--help]"
+version: "v0.110.0"
+description: Prepare a release by opening a PR, merging to main, and tagging, using the IDPF framework.
+argument-hint: "[version] [--skip-coverage] [--skip-review] [--dry-run] [--help]"
 copyright: "Rubrical Works (c) 2026"
 ---
 
@@ -10,14 +10,17 @@ copyright: "Rubrical Works (c) 2026"
 
 Validate, create PR to main, merge, and tag for deployment.
 
-**Extension Points:** See `.claude/metadata/extension-points.json` or run `/extensions list --command prepare-release`
+**Extension Points:** See `.claude/metadata/extension-points.json` or run `/extensions --list --command prepare-release`
 ## Arguments
 | Argument | Description |
 |----------|-------------|
 | `[version]` | Version to release (e.g., v1.2.0) |
 | `--skip-coverage` | Skip coverage gate |
-| `--dry-run` | Preview without changes |
-| `--help` | Show extension points |
+| `--skip-review` | Skip the branch diff review gate (Step 2.1); skip recorded in the Summary Checklist |
+| `--dry-run` | Preview without changes; the Step 2.1 review gate reports what it would review and runs no review |
+| `--help` | Open this command's docs page. Takes precedence over every other argument and performs no action. |
+
+**`--help` takes precedence over every other argument and performs no action:** run `node .claude/scripts/shared/command-help.js prepare-release`, report its output, and STOP.
 
 ## Execution Instructions
 
@@ -231,6 +234,12 @@ The script outputs JSON: `{"success": true/false, "testsRun": N, "testsPassed": 
 E2E tests validate complete workflows against the test project.
 <!-- USER-EXTENSION-END: post-validation -->
 
+### Step 2.1: Branch Diff Review Gate
+Refuses a release with an unreviewed change or an introduced high-severity finding; runs before Phase 3 touches version files.
+- `--skip-review` → report `Review gate skipped (--skip-review).` and continue, even with `--dry-run`; the reference below is not read.
+- Otherwise read `{frameworkPath}/Reference/code-review-execution.md` and execute its § Release Review Gate with `<command>` = `prepare-release` — the whole gate (base, empty diff, `lastDiffReview` freshness, inline `/code-review --diff` on a missing/stale record, `--dry-run`, severity policy), shared with `/prepare-beta`.
+- The file cannot be read → **STOP** with `Review gate could not read {frameworkPath}/Reference/code-review-execution.md; /prepare-release stopped.` The gate never passes unread.
+
 **ASK USER:** Confirm validation passed.
 
 ## Phase 3: Prepare
@@ -307,6 +316,12 @@ node .claude/scripts/shared/wait-for-ci.js
 
 **ASK USER:** Approve and merge.
 
+**Once approved, announce the release to every peer before merging (#2960).** The merge to `main`, tracker close, tag push that starts the distribution deploy and branch deletion all follow, and none can be undone:
+```bash
+node .claude/scripts/shared/announce.js --event release-starting --branch "$BRANCH" --tag "$VERSION"
+```
+Script composes the text (never hand-compose); **forced broadcast** — every addressable peer, live `/overwatch` included, whatever `broadcast` says — honoring only the master switch (`enabled: false`, `IDPF_X_SESSION=off`, `discovery: false`); announcement groups do not apply. `announcement.shouldSend` true → `SendMessage` to every `announcement.recipients` entry with `announcement.text`, then close out with the envelope's `dispatchReport` (`--dispatch-result sent|failed --ledger-id <id>`). A failed `SendMessage` is reported and recorded `failed`; the release proceeds. `shouldSend` false → report `announcement.notice` once, continue. **Advisory, never a gate:** nothing awaits delivery, no follow-up is sent.
+
 ```bash
 gh pr merge --merge
 ```
@@ -342,7 +357,7 @@ if [ "$after" -gt "$before" ]; then git stash pop; fi
 
 **Pop only when something was stashed (#2602).** On a clean tree `git stash` saves nothing and exits 0, then `git stash pop` exits **1** with `No stash entries found.` — the last command before the tag step. The pair straddles checkout/pull, so the sequence appears to work and ends on a failure immediately before an irreversible tag.
 
-The guard compares `git stash list` before and after rather than testing the tree: `git status --porcelain` can report changes `git stash push` declines to save, so a dirtiness test and the stash's own behaviour can disagree. The stash count cannot.
+The guard compares `git stash list` before and after rather than testing the tree: `git status --porcelain` can report changes `git stash push` declines to save, so a dirtiness test and the stash's own behavior can disagree. The stash count cannot.
 
 <!-- USER-EXTENSION-START: pre-tag -->
 ### Important Rules
@@ -391,9 +406,13 @@ node .claude/scripts/shared/wait-for-ci.js --branch $VERSION --timeout 900
 ```
 **If the run fails or times out, STOP and report** its URL and conclusion. Do not continue to Step 4.8 — the tag is already pushed, so this is the last point at which a broken publish can be caught before the release is announced.
 
+**On exit 3 (`no_runs` / `no_executing_runs`): report "expected run not found" and STOP.** Do not continue. Past the trigger check a tag-triggered workflow is known to exist, so exit 3 means the gate examined nothing, not that there was nothing to gate on. Report the payload's `status`, `waitedMs` and the tag; check `gh run list --branch $VERSION` by hand before re-running this step (#2952).
+
+**Why STOP here when other callers continue (#2952):** `/work` Step 1a and `/prepare-beta` never establish that a run must exist, so exit 3 there is an honest "nothing to wait for". `wait-for-ci.js` waits out a registration window before `no_runs` (re-polls every 15s for up to 90s), so a run registered seconds after the push is gated normally and a surviving `no_runs` is a real absence, not a race. On v0.104.0, before the window, the wait declared `no_runs` seconds before `Deploy to Distribution Repo` registered.
+
 **Scope the wait to the TAG, not the checked-out branch (#2653).** This step used to resolve the branch name at runtime and pass that. After Step 4.4 the checked-out branch is `main`, and a tag-triggered run carries the **tag name** as its `headBranch` — so `matchesFilter` rejected the run the tag had just created, and the newest `main` run supplied the verdict: the already-completed post-merge `Tests` run. The gate reported a pass without waiting for anything, **vacuous in exactly the projects that have tag-triggered workflows**. `$VERSION` is the tag, so the existing filter matches with no change to `selectRun()`. (The defective form is described, not quoted: a guard test rejects that literal anywhere in this step.)
 
-**`--branch` is still not optional (#2464).** Bare, the gate passes a null filter and `selectRun()` returns the newest run **repo-wide** — an unrelated run can supply the verdict. **`--timeout 900`** states the budget explicitly rather than relying on adaptive extension of the 300s default (#2257).
+**`--branch` is still not optional (#2464).** Bare, the gate passes a null filter and `selectRun()` returns the newest run **repo-wide** — an unrelated run can supply the verdict. **`--timeout 900`** states the 15-minute budget explicitly rather than relying on adaptive extension of the 300s default (#2257) — it is `wait-for-ci.js`'s `MAX_CAP`, so the whole request is enforced; a larger one is clamped and reported (#3022).
 
 **Why the trigger check, not a file-existence check (#2653).** The old conditional asked whether *any* workflow file exists. Almost every project has one, so it passed nearly always and sent the step on to wait against a filter that could not match — a vacuous pass dressed as a gate. Whether anything triggers on tags is the question that decides whether waiting is meaningful. The `grep` is a deliberate heuristic that errs toward waiting: over-waiting costs a timeout that reports honestly; under-waiting is the defect this step just had.
 ### Step 4.8: Update Release Notes
@@ -443,6 +462,7 @@ Do NOT auto-close issues just because they shipped.
 - [ ] Commits analyzed
 - [ ] Version confirmed
 - [ ] CHANGELOG updated
+- [ ] Branch diff review passed (or `--skip-review`)
 - [ ] PR merged
 
 <!-- USER-EXTENSION-START: checklist-before-tag -->
@@ -452,9 +472,8 @@ Do NOT auto-close issues just because they shipped.
 
 **Core (After tagging):**
 - [ ] Tag pushed
-- [ ] CI workflow completed — **check this only on Step 4.7's verdict** (#2653): a passing tag-scoped `wait-for-ci.js` run, or its explicit "no tag-triggered workflows" skip. Before #2653 this box was ticked by convention with nothing having verified it
+- [ ] CI workflow completed — **check this only on Step 4.7's verdict**: a passing tag-scoped `wait-for-ci.js` run, or its explicit "no tag-triggered workflows" skip. Ticking it by convention is what this wording exists to prevent
 - [ ] Release notes updated
-- [ ] **Rules reach context in a freshly-installed project (#2736).** Install this release into a scratch project via PHM, start a session, and confirm a rule's content is actually loaded — ask for something only a rule states. **Do not accept the startup block as evidence:** it renders from the hook, a different channel, and rendered correctly throughout the period in which no rule reached context in any deployed project. `/context` reporting a Memory-files figure far below the rules on disk is the symptom. Manual — needs a real PHM install and a live session; `node .claude/scripts/framework/repro-rules-junction.js` builds the isolated fixture to bisect a failure
 
 <!-- USER-EXTENSION-START: checklist-after-tag -->
 - [ ] All CI jobs completed
@@ -463,7 +482,6 @@ Do NOT auto-close issues just because they shipped.
 <!-- USER-EXTENSION-END: checklist-after-tag -->
 
 <!-- USER-EXTENSION-START: pre-close -->
-<!-- Pre-close validation, notifications -->
 <!-- USER-EXTENSION-END: pre-close -->
 
 ## Phase 5: Close & Cleanup

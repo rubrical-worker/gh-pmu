@@ -1,13 +1,13 @@
 ---
-version: "v0.103.0"
-description: Collaborative path analysis for proposals and enhancements (project)
-argument-hint: "#issue"
+version: "v0.110.0"
+description: Analyze paths collaboratively for proposals and enhancements, using the IDPF framework.
+argument-hint: "#issue [--help]"
 copyright: "Rubrical Works (c) 2026"
 ---
 <!-- EXTENSIBLE -->
 # /paths
 Turn-based collaborative scenario path discovery on proposals/enhancements. AI and user work through scenario categories to identify paths early.
-**Extension Points:** `.claude/metadata/extension-points.json` or `/extensions list --command paths`
+**Extension Points:** `.claude/metadata/extension-points.json` or `/extensions --list --command paths`
 ## Prerequisites
 - `gh pmu` installed
 - `.gh-pmu.json` in repo root
@@ -19,6 +19,10 @@ Turn-based collaborative scenario path discovery on proposals/enhancements. AI a
 | `--dry-run` | No | Non-interactive summary, no prompts/file changes |
 | `--categories IDs` | No | CSV IDs for selective re-run. Valid: `nominal`, `alternative`, `exception`, `edge`, `corner`, `negative` |
 | `--from-code [path]` | No | Delegate to `code-path-discovery` skill |
+| `--help` | No | Open this command's docs page. Takes precedence over every other argument and performs no action. |
+
+**`--help` takes precedence over every other argument and performs no action:** run `node .claude/scripts/shared/command-help.js paths`, report its output, and STOP.
+
 ## Execution
 **REQUIRED:** `TaskCreate` tasks from steps + one per non-empty `USER-EXTENSION` block; mark `in_progress`→`completed`; post-compaction re-read and regenerate.
 ## Workflow
@@ -67,20 +71,21 @@ Search `## Path Analysis`. Use `context.partial`.
             {category.description}
             Remaining: {remaining category names}
 ```
-**4b:** AI generates 2–5 candidates specific to proposal. With screen spec data (Step 2a), use element details for precision — boundary values from `inputRange`, required field violations, dependency chains, conditional rendering edge cases.
+**4b:** AI generates 2–3 candidates specific to proposal. With screen spec data (Step 2a), use element details for precision — boundary values from `inputRange`, required field violations, dependency chains, conditional rendering edge cases.
 **4c: User validates via AskUserQuestion**
 ```javascript
 AskUserQuestion({
   questions: [{
     question: `${category.name}: Select the paths that apply:`,
-    header: category.name,
+    header: category.shortName,
     options: [...candidates, { label: "Skip this category", description: "Move on without confirming paths" }],
     multiSelect: true
   }]
 });
 ```
 "Skip this category" → record 0, proceed.
-Re-run with existing paths: include as pre-populated options.
+Re-run: existing paths count toward the 3 candidate slots — ≤3 options + "Skip this category" per prompt, further rounds of 3 when more remain.
+**Why:** `AskUserQuestion` rejects >4 options or a `header` >12 chars ("Invalid tool parameters") — so 3 candidates + skip is the ceiling and `header` is config `shortName` (≤12, schema-enforced), never `name`. Other prompts (2b, 4d, 5) have 2–3 options; "Generate more" yields 2–3, presented the same way.
 **4d: User contributes / generates more.** `AskUserQuestion`: "No, continue" / "Yes, add paths" / "Generate more candidates". "Generate more": AI produces 2-3 additional avoiding duplicates. All duplicates → "No new unique candidates."
 **4e: Buffer confirmed** for incremental save.
 
@@ -140,7 +145,7 @@ const updated = applyPathMarker(body, marker);
 **Path Analysis:** {N} paths — {destination} — Quick pass, {done}/{total} categories ({YYYY-MM-DD})
 **Path Analysis:** {N} paths — {destination} — Partial, {done}/{total} categories ({YYYY-MM-DD})
 ```
-**Both destinations are recorded, and the destination is part of the marker.** `destination` = proposal file path, or literal `issue comment` for the Step 6 fallback. The marker records that `/paths` was applied and names where output went **as data** — the comment fallback is not a second format to recognise.
+**Both destinations are recorded, and the destination is part of the marker.** `destination` = proposal file path, or literal `issue comment` for the Step 6 fallback. The marker records that `/paths` was applied and names where output went **as data** — the comment fallback is not a second format to recognize.
 **Qualifier matches the file footer.** `--quick` and interrupted runs annotate the footer `(Quick pass — 3/{total} categories)` / `(Partial — N/{total} categories)`; the marker carries the same qualifier in the same words, so **a partial or quick pass is never readable as a complete one**. Pass `run: { kind: 'quick' | 'partial', categoriesDone, categoriesTotal }`; omit `run` for a full pass. Helper refuses a qualifier without its counts.
 **Update flow** — standard body edit, never inline `--body`:
 ```bash

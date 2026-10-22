@@ -149,6 +149,138 @@ func TestSubCreateCommand_RequiresTitleFlag(t *testing.T) {
 	}
 }
 
+// TestSubCreate_DryRunWritesNothing: --dry-run resolves the parent and prints
+// the plan without sending CreateIssue or AddSubIssue (#929). Offline: the
+// scenario harness redirects every request to a local mock server.
+func TestSubCreate_DryRunWritesNothing(t *testing.T) {
+	handler := newMockGraphQLHandler()
+	handler.respondTo("GetIssue", gqlData(map[string]interface{}{
+		"repository": map[string]interface{}{
+			"issue": map[string]interface{}{
+				"id": "parent-node", "number": 10, "title": "Parent epic", "state": "OPEN",
+				"url":       "https://github.com/test-org/test-repo/issues/10",
+				"author":    map[string]interface{}{"login": "someone"},
+				"assignees": map[string]interface{}{"nodes": []interface{}{}},
+				"labels":    map[string]interface{}{"nodes": []interface{}{}},
+				"milestone": map[string]interface{}{"title": ""},
+			},
+		},
+	}))
+	_, cleanup := setupTestEnvironment(t, handler)
+	defer cleanup()
+
+	cmd := newSubCreateCommand()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetErr(buf)
+	cmd.SetArgs([]string{"--parent", "10", "--title", "Dry child", "--label", "task", "--dry-run"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("sub create --dry-run: unexpected error: %v\n%s", err, buf.String())
+	}
+
+	for _, op := range []string{"CreateIssue", "AddSubIssue"} {
+		if n := len(handler.requestsFor(op)); n != 0 {
+			t.Errorf("dry run sent %d %s mutation(s); ops: %v", n, op, handler.operationNames())
+		}
+	}
+	for _, want := range []string{"Dry run", "test-org/test-repo", "Parent epic", "Dry child", "task"} {
+		if !strings.Contains(buf.String(), want) {
+			t.Errorf("expected %q in dry-run output, got:\n%s", want, buf.String())
+		}
+	}
+}
+
+// The sub-issue exists and is linked once created; failing to add it to
+// --project printed a warning and exited 0. It is a partial success, and
+// re-running would create a duplicate (#938).
+func TestSubCreate_ProjectAddFailureIsPartialSuccess(t *testing.T) {
+	handler := newMockGraphQLHandler()
+	handler.respondToFunc("GetIssue", issueByNumberFixture(map[int]string{10: "Parent epic"}))
+	handler.respondTo("GetRepositoryID", gqlData(map[string]interface{}{
+		"repository": map[string]interface{}{"id": "repo-node-1"},
+	}))
+	handler.respondTo("CreateIssue", gqlData(map[string]interface{}{
+		"createIssue": map[string]interface{}{
+			"issue": map[string]interface{}{
+				"id": "issue-node-new", "number": 21, "title": "Child", "body": "", "state": "OPEN",
+				"url": "https://github.com/test-org/test-repo/issues/21",
+			},
+		},
+	}))
+	handler.respondTo("AddSubIssue", gqlData(map[string]interface{}{
+		"addSubIssue": map[string]interface{}{
+			"issue":    map[string]interface{}{"id": "issue-10"},
+			"subIssue": map[string]interface{}{"id": "issue-node-new"},
+		},
+	}))
+	projectMissing := map[string]interface{}{"errors": []interface{}{map[string]interface{}{"message": "Could not resolve to a ProjectV2 with the number 5."}}}
+	handler.respondTo("GetUserProject", projectMissing)
+	handler.respondTo("GetOrgProject", projectMissing)
+
+	_, cleanup := setupTestEnvironment(t, handler)
+	defer cleanup()
+
+	cmd := newSubCreateCommand()
+	var buf bytes.Buffer
+	cmd.SetOut(&buf)
+	cmd.SetErr(&buf)
+
+	err := runSubCreate(cmd, &subCreateOptions{parent: "10", title: "Child", project: 5})
+	if !api.IsPartialSuccess(err) {
+		t.Fatalf("expected a partial-success error when adding to the project fails, got: %v (output %q)", err, buf.String())
+	}
+	if !strings.Contains(err.Error(), "#21") || !strings.Contains(err.Error(), "project 5") {
+		t.Errorf("error should name the created issue and the project step, got: %v", err)
+	}
+}
+
+// sub list discarded parent and sibling fetch errors, so a failed call printed
+// "no parent" / "no siblings" and exited 0 (#939). Like the children fetch,
+// they now fail the command.
+func TestSubList_RelationFetchFailureReturnsError(t *testing.T) {
+	gqlError := func(msg string) map[string]interface{} {
+		return map[string]interface{}{"errors": []interface{}{map[string]interface{}{"message": msg}}}
+	}
+	parent := gqlData(map[string]interface{}{
+		"repository": map[string]interface{}{"issue": map[string]interface{}{
+			"parent": map[string]interface{}{"id": "issue-10", "number": 10, "title": "Parent epic", "state": "OPEN", "url": "https://github.com/test-org/test-repo/issues/10"},
+		}},
+	})
+	cases := []struct {
+		name     string
+		relation string
+		setup    func(*mockGraphQLHandler)
+		want     string
+	}{
+		{"parent", "parent", func(h *mockGraphQLHandler) {
+			h.respondTo("GetParentIssue", gqlError("parent lookup timed out"))
+		}, "parent lookup timed out"},
+		{"siblings", "siblings", func(h *mockGraphQLHandler) {
+			h.respondTo("GetParentIssue", parent)
+			h.respondTo("GetSubIssues", gqlError("sibling lookup timed out"))
+		}, "sibling lookup timed out"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			handler := newMockGraphQLHandler()
+			handler.respondToFunc("GetIssue", issueByNumberFixture(map[int]string{15: "Child"}))
+			tc.setup(handler)
+			_, cleanup := setupTestEnvironment(t, handler)
+			defer cleanup()
+
+			cmd := newSubListCommand()
+			var buf bytes.Buffer
+			cmd.SetOut(&buf)
+			cmd.SetErr(&buf)
+
+			err := runSubList(cmd, []string{"15"}, &subListOptions{state: "all", relation: tc.relation})
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("expected an error carrying %q, got: %v (output %q)", tc.want, err, buf.String())
+			}
+		})
+	}
+}
+
 func TestSubListCommand_Exists(t *testing.T) {
 	cmd := NewRootCommand()
 	cmd.SetArgs([]string{"sub", "list", "--help"})

@@ -276,6 +276,110 @@ func TestSubcommandUsageLinePrefix(t *testing.T) {
 	}
 }
 
+// executeForErrorOutput runs the root command with args and returns everything
+// it wrote (stdout and stderr share one buffer) plus the returned error.
+func executeForErrorOutput(t *testing.T, args ...string) (string, error) {
+	t.Helper()
+	cmd := NewRootCommand()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetErr(buf)
+	cmd.SetArgs(args)
+	err := cmd.Execute()
+	return buf.String(), err
+}
+
+// chdirNoConfig moves into an empty temp dir so a command fails on config load
+// inside RunE — a runtime error reached without any API call. It skips if a
+// .gh-pmu.json above the temp dir would let the command reach the network.
+func chdirNoConfig(t *testing.T) {
+	t.Helper()
+	dir := t.TempDir()
+	if _, err := config.FindConfigFile(dir); err == nil {
+		t.Skip("a .gh-pmu.json above the temp dir would let this command reach the API")
+	}
+	chdirTemp(t, dir)
+}
+
+// TestArgumentError_NoExampleShowsUseLineOnly: a subcommand without an
+// Example field still gets the usage block on an argument error, carrying its
+// Use line and no Examples section (#927).
+func TestArgumentError_NoExampleShowsUseLineOnly(t *testing.T) {
+	root := NewRootCommand()
+	addCmd, _, err := root.Find([]string{"branch", "add"})
+	if err != nil {
+		t.Fatalf("branch add command not found: %v", err)
+	}
+	if addCmd.Example != "" {
+		t.Fatal("precondition: branch add must have no Example field")
+	}
+
+	out, err := executeForErrorOutput(t, "branch", "add")
+	if err == nil {
+		t.Fatal("Expected an argument error for branch add with no issue number")
+	}
+	if !strings.Contains(out, "Usage:") || !strings.Contains(out, "gh pmu branch add <issue-number>") {
+		t.Errorf("Expected the usage block with the Use line, got:\n%s", out)
+	}
+	if strings.Contains(out, "Examples:") {
+		t.Errorf("Expected no Examples section for a subcommand without Example, got:\n%s", out)
+	}
+}
+
+// TestSubcommandExamples: the most-used commands carry an Example field, so
+// --help shows an Examples section and an argument error can show one (#928).
+func TestSubcommandExamples(t *testing.T) {
+	tests := []struct {
+		path []string
+		want []string // substrings the Example must contain
+	}{
+		{[]string{"create"}, []string{"gh pmu create --title", "-F "}},
+		{[]string{"view"}, []string{"gh pmu view 42 --json="}},
+		{[]string{"list"}, []string{"gh pmu list"}},
+		{[]string{"accept"}, []string{"gh pmu accept --yes"}},
+		{[]string{"branch", "current"}, []string{"gh pmu branch current"}},
+	}
+	for _, tt := range tests {
+		name := strings.Join(tt.path, " ")
+		t.Run(name, func(t *testing.T) {
+			sub, _, err := NewRootCommand().Find(tt.path)
+			if err != nil {
+				t.Fatalf("%s command not found: %v", name, err)
+			}
+			if strings.TrimSpace(sub.Example) == "" {
+				t.Fatalf("Expected %s to define a non-empty Example field", name)
+			}
+			for _, w := range tt.want {
+				if !strings.Contains(sub.Example, w) {
+					t.Errorf("Expected %s Example to contain %q, got:\n%s", name, w, sub.Example)
+				}
+			}
+
+			out, _ := executeForErrorOutput(t, append(tt.path, "--help")...)
+			if !strings.Contains(out, "Examples:") {
+				t.Errorf("Expected %s --help to show an Examples section, got:\n%s", name, out)
+			}
+		})
+	}
+}
+
+// TestCreateExample_NonInteractiveUsesBodyFile: create's -F example sets every
+// field a non-interactive run needs, so it can be copied as-is (#928).
+func TestCreateExample_NonInteractiveUsesBodyFile(t *testing.T) {
+	createCmd, _, _ := NewRootCommand().Find([]string{"create"})
+	for _, line := range strings.Split(createCmd.Example, "\n") {
+		if strings.Contains(line, "gh pmu create") && strings.Contains(line, "-F ") {
+			for _, flag := range []string{"--title", "--status", "--priority"} {
+				if !strings.Contains(line, flag) {
+					t.Errorf("Expected the -F example to set %s, got: %s", flag, line)
+				}
+			}
+			return
+		}
+	}
+	t.Fatalf("Expected a create example using -F, got:\n%s", createCmd.Example)
+}
+
 // TestRootCommandUsageLinePrefix verifies that `gh pmu --help` renders
 // `Usage: gh pmu [command]`.
 func TestRootCommandUsageLinePrefix(t *testing.T) {

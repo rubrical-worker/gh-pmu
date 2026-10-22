@@ -2624,6 +2624,35 @@ func TestRunInitPostCreate_StatusUpdateFailure_RollsBack(t *testing.T) {
 	}
 }
 
+// A failed post-setup refetch wrote .gh-pmu.json with empty metadata and exited
+// 0. The fields from the first fetch are kept, the project is not rolled back,
+// and the command reports a partial success (#938).
+func TestRunInitPostCreate_RefetchFailure_KeepsFieldsAndIsPartialSuccess(t *testing.T) {
+	errBuf := &bytes.Buffer{}
+	client := &fakeInitClient{
+		getFieldsResult: []api.ProjectField{
+			{ID: "PVTSSF_status", Name: "Status", DataType: "SINGLE_SELECT", Options: []api.FieldOption{{ID: "opt_b", Name: "Backlog"}}},
+		},
+		refetchFieldsErr: fmt.Errorf("resolver 502"),
+	}
+	in := newAtomicityInputs(t, errBuf)
+
+	err := runInitPostCreate(client, in)
+	if !api.IsPartialSuccess(err) || !strings.Contains(err.Error(), "#176") {
+		t.Fatalf("expected a partial-success error naming project #176, got: %v", err)
+	}
+	if len(client.deleteProjectCalls) != 0 {
+		t.Errorf("a refetch failure must not roll back the project, got DeleteProject calls: %v", client.deleteProjectCalls)
+	}
+	cfg, loadErr := config.Load(filepath.Join(in.Cwd, ".gh-pmu.json"))
+	if loadErr != nil {
+		t.Fatalf("reload config: %v", loadErr)
+	}
+	if cfg.Metadata == nil || len(cfg.Metadata.Fields) != 1 || cfg.Metadata.Fields[0].ID != "PVTSSF_status" {
+		t.Errorf("expected the first fetch's fields kept in metadata, got %+v", cfg.Metadata)
+	}
+}
+
 func TestRunInitPostCreate_Success_NoRollback(t *testing.T) {
 	errBuf := &bytes.Buffer{}
 	client := &fakeInitClient{}

@@ -184,6 +184,87 @@ func TestRunFieldCreate_TextFieldSuccess(t *testing.T) {
 	}
 }
 
+// field create caches the created field's own classification rather than a
+// hard-coded PROJECT_FIELD, so the entry matches what the field is (#933).
+func TestRunFieldCreate_RecordsCreatedFieldClassification(t *testing.T) {
+	cases := []struct {
+		name    string
+		created api.ProjectField
+		want    config.FieldMetadata
+	}{
+		{
+			name:    "project field",
+			created: api.ProjectField{ID: "PVTF_new", Name: "PRD", DataType: "TEXT"},
+			want:    config.FieldMetadata{Name: "PRD", ID: "PVTF_new", DataType: "TEXT", Kind: api.FieldKindProject},
+		},
+		{
+			name: "issue-backed field",
+			created: api.ProjectField{ID: "PVTF_new", Name: "PRD", DataType: "TEXT",
+				IssueField: &api.IssueFieldInfo{ID: "IFT_prd", DataType: "TEXT"}},
+			want: config.FieldMetadata{Name: "PRD", ID: "PVTF_new", DataType: "TEXT", Kind: api.FieldKindIssueField,
+				IssueFieldID: "IFT_prd", IssueFieldDataType: "TEXT"},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			cmd, _ := newTestFieldCmd()
+			created := tc.created
+			mock := &mockFieldClient{project: &api.Project{ID: "PVT_test", Title: "Test Project"}, createdField: &created}
+			cfg := &config.Config{Project: config.Project{Owner: "test-owner", Number: 1}, Repositories: []string{"test-owner/test-repo"}}
+			cleanup := setupFieldTestDir(t, cfg)
+			defer cleanup()
+
+			if err := runFieldCreateWithDeps(cmd, "PRD", &fieldCreateOptions{fieldType: "text", yes: true}, cfg, mock); err != nil {
+				t.Fatalf("expected no error, got %v", err)
+			}
+			saved, err := config.Load(".gh-pmu.json")
+			if err != nil {
+				t.Fatalf("reload config: %v", err)
+			}
+			if saved.Metadata == nil || len(saved.Metadata.Fields) != 1 {
+				t.Fatalf("expected one metadata entry, got %+v", saved.Metadata)
+			}
+			got := saved.Metadata.Fields[0]
+			if got.Kind != tc.want.Kind || got.IssueFieldID != tc.want.IssueFieldID || got.IssueFieldDataType != tc.want.IssueFieldDataType || got.ID != tc.want.ID {
+				t.Errorf("metadata = %+v, want %+v", got, tc.want)
+			}
+		})
+	}
+}
+
+// The field exists on the board once created; failing to record it in
+// .gh-pmu.json is a partial success, and re-running would create a duplicate
+// (#938).
+func TestRunFieldCreate_ConfigUpdateFailureIsPartialSuccess(t *testing.T) {
+	cmd, _ := newTestFieldCmd()
+	mock := &mockFieldClient{
+		project:      &api.Project{ID: "PVT_test", Title: "Test Project"},
+		createdField: &api.ProjectField{ID: "PVTF_new", Name: "PRD", DataType: "TEXT"},
+	}
+	cfg := &config.Config{Project: config.Project{Owner: "test-owner", Number: 1}, Repositories: []string{"test-owner/test-repo"}}
+
+	// A directory with no .gh-pmu.json anywhere above it.
+	originalDir, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	if err := os.Chdir(t.TempDir()); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+	defer func() { _ = os.Chdir(originalDir) }()
+	if _, findErr := config.FindConfigFile(mustGetwd()); findErr == nil {
+		t.Skip("a .gh-pmu.json exists above the temp dir; cannot simulate a missing config")
+	}
+
+	err = runFieldCreateWithDeps(cmd, "PRD", &fieldCreateOptions{fieldType: "text", yes: true}, cfg, mock)
+	if !api.IsPartialSuccess(err) {
+		t.Fatalf("expected a partial-success error when the config cannot be updated, got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "PRD") {
+		t.Errorf("error should name the created field, got: %v", err)
+	}
+}
+
 func TestRunFieldCreate_FieldAlreadyExists(t *testing.T) {
 	cmd, _ := newTestFieldCmd()
 
@@ -331,5 +412,43 @@ func TestRunFieldCreate_ValidTypes(t *testing.T) {
 				t.Errorf("Type %q should be valid, got: %v", ft, err)
 			}
 		})
+	}
+}
+
+func TestRunFieldList_ShowsOrgIssueFieldKindAndOptions(t *testing.T) {
+	cmd, buf := newTestFieldCmd()
+
+	mock := &mockFieldClient{
+		project: &api.Project{ID: "PVT_org", Title: "Org Project"},
+		fields: []api.ProjectField{
+			{ID: "F1", Name: "Status", DataType: "SINGLE_SELECT", Options: []api.FieldOption{{ID: "O1", Name: "Backlog"}}},
+			{ID: "PVTSSF_pri", Name: "Priority", DataType: "SINGLE_SELECT",
+				Options: []api.FieldOption{
+					{ID: "IFSSO_P0", Name: "P0"}, {ID: "IFSSO_P1", Name: "P1"}, {ID: "IFSSO_P2", Name: "P2"},
+				},
+				IssueField: &api.IssueFieldInfo{ID: "IFSS_pri", DataType: "SINGLE_SELECT"}},
+			{ID: "PVTF_start", Name: "Start date", DataType: "DATE",
+				IssueField: &api.IssueFieldInfo{ID: "IFD_start", DataType: "DATE"}},
+		},
+	}
+	cfg := &config.Config{
+		Project:      config.Project{Owner: "acme", Number: 2},
+		Repositories: []string{"acme/app"},
+	}
+
+	if err := runFieldListWithDeps(cmd, cfg, mock); err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+
+	output := buf.String()
+	for _, want := range []string{
+		"Status (SINGLE_SELECT)\n",
+		"Priority (SINGLE_SELECT, org issue field)",
+		"Options: P0, P1, P2",
+		"Start date (DATE, org issue field)",
+	} {
+		if !strings.Contains(output, want) {
+			t.Errorf("expected %q in output, got:\n%s", want, output)
+		}
 	}
 }

@@ -1,13 +1,13 @@
 ---
-version: "v0.103.0"
-description: Transform proposal into Agile PRD
-argument-hint: "<issue-number> | extract [<directory>]"
+version: "v0.110.0"
+description: Transform a proposal into an Agile PRD using the IDPF framework.
+argument-hint: "<issue-number> | --extract [<directory>] [--help]"
 copyright: "Rubrical Works (c) 2026"
 ---
 <!-- EXTENSIBLE -->
 # /create-prd
 Transform a proposal document into an Agile PRD with user stories, acceptance criteria, and epic groupings.
-**Extension Points:** `.claude/metadata/extension-points.json` or `/extensions list --command create-prd`
+**Extension Points:** `.claude/metadata/extension-points.json` or `/extensions --list --command create-prd`
 
 ## Prerequisites
 Load shared from `.claude/metadata/command-boilerplate.json` -> `prerequisites.common`. **Graceful degradation when boilerplate not found:** use defaults — `gh pmu` installed, `.gh-pmu.json` configured.
@@ -17,15 +17,20 @@ Load shared from `.claude/metadata/command-boilerplate.json` -> `prerequisites.c
 | Argument | Description |
 |----------|-------------|
 | `<issue-number>` | Proposal issue (`123` or `#123`) |
-| `extract` | Extract PRD from codebase (requires `/charter`) |
-| `extract <directory>` | Extract from specific directory |
+| `--extract` | Extract PRD from codebase (requires `/charter`) |
+| `--extract <directory>` | Extract from specific directory |
 | `--assignee <value>` | GitHub login for the new issue. Omitted → `@me`. |
+| `--help` | Open this command's docs page. Takes precedence over every other argument and performs no action. |
+
+**`--help` takes precedence over every other argument and performs no action:** run `node .claude/scripts/shared/command-help.js create-prd`, report its output, and STOP.
+
+**Retired forms:** `extract` typed bare is no longer accepted — reject it with a message naming `--extract`, and do nothing else.
 
 ## Modes
 | Mode | Invocation | Description |
 |------|------------|-------------|
 | **Issue-Driven** | `/create-prd 123` | Transform proposal to PRD |
-| **Extract** | `/create-prd extract [src/]` | Extract PRD from codebase |
+| **Extract** | `/create-prd --extract [src/]` | Extract PRD from codebase |
 | **Interactive** | `/create-prd` | Prompt for mode selection |
 
 ## Execution Instructions
@@ -160,6 +165,11 @@ Re-read `.claude/metadata/ac-feasibility-prompts.json`. For each AC produced in 
 <!-- USER-EXTENSION-END: pre-diagram -->
 
 ### Phase 5.5a: Diagram Style Selection
+Detect optional third-party `diagram-design` skill (#2969):
+```bash
+node .claude/scripts/shared/diagram-design-detect.js
+```
+→ `{found, source, skillPath, reason}` (probes project skill, user skill, plugin registry; never throws). Hold `skillPath` for 5.5b. Build options from result:
 ```javascript
 AskUserQuestion({
   questions: [{
@@ -167,13 +177,15 @@ AskUserQuestion({
     header: "Diagram style",
     options: [
       { label: "drawio (Rich SVG)", description: "Generate .drawio.svg files — editable in draw.io, rich visuals, stored in Diagrams/" },
-      { label: "ASCII (Text-based UML)", description: "Text-based UML inline in PRD markdown — renders everywhere, clean diffs, no external tooling" }
+      { label: "ASCII (Text-based UML)", description: "Text-based UML inline in PRD markdown — renders everywhere, clean diffs, no external tooling" },
+      // only when found: true
+      { label: "diagram-design (editorial SVG)", description: "Editorial HTML + inline SVG via the diagram-design skill, exported to diffable .svg in Diagrams/" }
     ],
     multiSelect: false
   }]
 });
 ```
-Store selection for Phase 5.5b.
+`found: true` → three options. `found: false` → the two existing options, plus one line before the question: `diagram-design is not installed — optional third-party skill; see {frameworkPath}/Docs/02-Advanced/Diagram-Design-Optional-Skill.md for why and how to install it.` (absence visible, not silent; never blocks). Store selection for Phase 5.5b.
 
 ### Phase 5.5b: Diagram Generation
 | Type | Default | When |
@@ -195,6 +207,15 @@ Store selection for Phase 5.5b.
 | Class | Class boxes with compartments (name, attributes, methods) |
 | Component | Component boxes with stereotype, interfaces |
 | State | State boxes, transitions with labels, start/end markers |
+**diagram-design style:** read the file at `skillPath` and follow its `references/*.md` relative to the skill directory. **Do NOT invoke it with the Skill tool** — `Skill` transfers control and does not return; Phase 6 would never run. **First-run style-guide gate:** the skill pauses before its first diagram in a project whose style guide is still default — allow that prompt **once**, relay it to the user, follow the chosen branch (a resolved `.diagram-design` profile or "keep default" skips it later). Never answer on the user's behalf. **Output:** skill writes `.html`; export to SVG by **reading and following `references/export.md`** — **SVG only** (no PNG, no Playwright). **Never invoke `/diagram-design:export-diagram`** — a slash command transfers control like `Skill`. **Keep the `.html`** beside the `.svg` as editable source; commit both at `PRD/{PRD-Name}/Diagrams/{Epic-Name}/{type}-{description}.html` + `.svg`; link the `.svg` from the PRD.
+| PRD type | diagram-design type |
+|---|---|
+| Sequence | Sequence |
+| State | State machine |
+| Class | UML class |
+| Activity | Flowchart (Swimlane when actors own lanes) |
+| Component | Architecture |
+| Use Case | **No counterpart** — fall back to the ASCII Use Case template for this type only, inline under `### Diagrams` |
 
 <!-- USER-EXTENSION-START: diagram-generator -->
 <!-- USER-EXTENSION-END: diagram-generator -->
@@ -206,7 +227,7 @@ Store selection for Phase 5.5b.
 <!-- USER-EXTENSION-END: pre-generation -->
 
 ### Phase 6: Generate PRD
-Structure: `PRD/{PRD-Name}/PRD-{PRD-Name}.md` with `Diagrams/{Epic-Name}/{type}-{description}.drawio.svg` under it (drawio only). ASCII style: diagrams inline, no `Diagrams/`. Flat legacy PRDs (`PRD/PRD-{name}.md`) grandfathered.
+Structure: `PRD/{PRD-Name}/PRD-{PRD-Name}.md` with `Diagrams/{Epic-Name}/{type}-{description}.drawio.svg` under it (drawio), or an `{type}-{description}.html` + `.svg` pair (diagram-design; Use Case falls back to inline ASCII). ASCII style: diagrams inline, no `Diagrams/`. Flat legacy PRDs (`PRD/PRD-{name}.md`) grandfathered.
 Create PRD at `PRD/{name}/PRD-{name}.md`. Load template `{frameworkPath}/Templates/artifacts/prd-template.md` and populate. **Graceful degradation:** template missing — warn `"PRD template file missing, using inline fallback."`, use sections: Overview, Epics, User Stories, Diagrams, Technical Notes, Non-Functional Requirements, Out of Scope, Dependencies, Open Questions.
 
 <!-- USER-EXTENSION-START: post-generation -->
@@ -226,9 +247,14 @@ Create PRD at `PRD/{name}/PRD-{name}.md`. Load template `{frameworkPath}/Templat
 **Derivation:** parse each story's ACs; generate 2-3 test cases per AC (valid, invalid, edge); identify cross-story/cross-epic integration points; extract E2E scenarios from user journeys.
 
 ### Phase 6.6: Create Test Plan Approval Issue
-**Assignee:** substitute `{assignee}` from `node .claude/scripts/shared/lib/gh-pmu-config.js --assignee <value>` — pass the user's `--assignee` value, omit when none given. Helper returns that login, else `@me`; reads no config file. NEVER hardcode a login or drop the flag (omitted `--assignee` silently creates an unassigned issue). Unresolvable login → `gh pmu` exits 1 and creates nothing; report the error, do NOT retry without the flag. Applies to both `gh pmu create` calls below.
+**Assignee:** substitute `{assignee}` from the helper: `node .claude/scripts/shared/lib/gh-pmu-config.js --assignee <login>` when the user supplied a login, else `node .claude/scripts/shared/lib/gh-pmu-config.js --assignee` (bare flag, no value). NEVER run the helper with no arguments — it exits 1 with a usage message. Returns the login, or `@me` for the bare flag; reads no config file. NEVER hardcode a login or drop the flag (omitted `--assignee` silently creates an unassigned issue). Unresolvable login → `gh pmu` exits 1 and creates nothing; report the error, do NOT retry without the flag. Applies to both `gh pmu create` calls below.
 **Body via temp file, never inline `--body`.** Gate `no-aspirational-mechanism`'s text contains backticks; inside a double-quoted `--body` bash runs them as command substitution. `05-windows-shell.md` requires `-F` regardless.
-Write `.tmp-test-plan-approval.md`:
+**Generate the approval body path first — once per invocation, before the body is composed.** A fixed path is shared by every session running this command here: a write landing between another's write and its `gh pmu create` files the second issue with the first one's body, unreported. The issue number cannot supply it — it does not exist until the body is written, which is why #1034's per-issue fix covers editing, not creation. Suffix from a shelled-out command, never invented — **`/bug`'s scheme (#2980)**:
+```bash
+APPROVAL_FILE=".tmp-test-plan-approval-$(node -e "console.log(require('crypto').randomBytes(4).toString('hex'))").md"
+```
+Use `$APPROVAL_FILE` at the Write tool target, `gh pmu create -F` and the `rm`. **Keep the `.tmp-` prefix** so the startup stale-scratch sweep still collects a file an interrupted run left.
+Write `$APPROVAL_FILE`:
 ```markdown
 ## Test Plan Review
 
@@ -258,9 +284,9 @@ A TDD test plan has been generated for **{Name}**.
 ```bash
 gh pmu create --label test-plan --label approval-required --assignee {assignee} \
   --title "Approve Test Plan: {Name}" \
-  -F .tmp-test-plan-approval.md \
+  -F $APPROVAL_FILE \
   --status backlog
-rm .tmp-test-plan-approval.md
+rm $APPROVAL_FILE
 ```
 **The six `## Review Checklist` lines render from `.claude/metadata/test-plan-approval-gates.json` `gates[].text`, in declared order (#2710).** Do NOT reword here — `tests/metadata/test-plan-approval-gates.test.js` compares them element-wise against the gate file AND the template `## Approval Checklist`; a one-surface change fails CI. The two were independently worded and had diverged (five items vs six).
 Update test plan frontmatter with the approval issue number after creation.
@@ -335,7 +361,7 @@ fi
 | No changes to commit | `git diff --cached --quiet` short-circuits; skip, continue — non-blocking |
 | Unrelated staged changes | Use explicit paths — never `git add .` |
 | Proposal already in `Implemented/` | Step 1 skipped `git mv`; commit covers only `PRD/{name}/` |
-| Diagrams (drawio) | Already under `PRD/{name}/Diagrams/`, picked up by `git add PRD/{name}/` |
+| Diagrams (drawio or diagram-design) | Already under `PRD/{name}/Diagrams/` — `.drawio.svg`, or the diagram-design `.html` + `.svg` pair — picked up by `git add PRD/{name}/` |
 | `git commit` fails | Surface error; on disk complete but uncommitted — do NOT roll back |
 **Message discipline:** `Refs #$issue_num` (not `Fixes`/`Closes`/`Resolves`) per `.claude/rules/02-github-workflow.md` — Step 2 already closed the proposal via `gh issue close`.
 
@@ -354,7 +380,7 @@ Next: /create-backlog {prd_issue_num}
 For `/create-prd` (no arguments): prompt `1. From a proposal issue (enter issue number)` / `2. From existing code (extraction)`. Option 1: prompt for issue number, run Issue-Driven workflow.
 
 ## Workflow (Extract Mode)
-For `/create-prd extract` or `/create-prd extract <directory>`:
+For `/create-prd --extract` or `/create-prd --extract <directory>`:
 
 ### Step 1: Check Prerequisites
 Verify `.claude/skills/codebase-analysis/SKILL.md` exists. Check `Inception/`.

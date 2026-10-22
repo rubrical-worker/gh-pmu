@@ -28,6 +28,8 @@ type mockViewClient struct {
 	getSubIssuesErr              error
 	getParentIssueErr            error
 	getIssueCommentsErr          error
+	getSubIssuesBatchErr         error
+	getParentIssueBatchErr       error
 
 	// Multi-issue support
 	issues          map[int]*api.Issue
@@ -119,6 +121,9 @@ func (m *mockViewClient) GetIssuesWithProjectFieldsBatch(projectID, owner, repo 
 }
 
 func (m *mockViewClient) GetSubIssuesBatch(owner, repo string, numbers []int) (map[int][]api.SubIssue, error) {
+	if m.getSubIssuesBatchErr != nil {
+		return nil, m.getSubIssuesBatchErr
+	}
 	result := make(map[int][]api.SubIssue)
 	for _, n := range numbers {
 		if m.subIssuesMap != nil {
@@ -131,6 +136,9 @@ func (m *mockViewClient) GetSubIssuesBatch(owner, repo string, numbers []int) (m
 }
 
 func (m *mockViewClient) GetParentIssueBatch(owner, repo string, numbers []int) (map[int]*api.Issue, error) {
+	if m.getParentIssueBatchErr != nil {
+		return nil, m.getParentIssueBatchErr
+	}
 	result := make(map[int]*api.Issue)
 	for _, n := range numbers {
 		if m.parentIssuesMap != nil {
@@ -145,6 +153,64 @@ func (m *mockViewClient) GetParentIssueBatch(owner, repo string, numbers []int) 
 // ============================================================================
 // runViewWithDeps Tests
 // ============================================================================
+
+// A discarded sub-issue, parent or comment fetch error made a failed call look
+// like "none": view printed no sub-issues and exited 0 (#939). The issue is
+// still shown, and the failure is reported as a partial success.
+func TestRunViewWithDeps_RelatedFetchFailureIsReported(t *testing.T) {
+	cases := []struct {
+		name   string
+		inject func(*mockViewClient)
+		opts   viewOptions
+		step   string
+	}{
+		{"sub-issues", func(m *mockViewClient) { m.getSubIssuesErr = errors.New("sub-issues 502") }, viewOptions{}, "sub-issues 502"},
+		{"parent", func(m *mockViewClient) { m.getParentIssueErr = errors.New("parent 502") }, viewOptions{}, "parent 502"},
+		{"comments", func(m *mockViewClient) { m.getIssueCommentsErr = errors.New("comments 502") }, viewOptions{comments: true}, "comments 502"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			mock := newMockViewClient()
+			tc.inject(mock)
+			cmd := &cobra.Command{}
+			buf := new(bytes.Buffer)
+			cmd.SetOut(buf)
+			opts := tc.opts
+
+			err := runViewWithDeps(cmd, &opts, mock, "owner", "repo", 42)
+
+			if !api.IsPartialSuccess(err) || !strings.Contains(err.Error(), tc.step) {
+				t.Fatalf("expected a partial-success error carrying %q, got: %v", tc.step, err)
+			}
+			if !strings.Contains(buf.String(), "Test Issue") {
+				t.Errorf("the issue should still be shown, got: %s", buf.String())
+			}
+		})
+	}
+}
+
+func TestRunViewMulti_RelatedBatchFetchFailureIsReported(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		inject func(*mockViewClient)
+	}{
+		{"sub-issues", func(m *mockViewClient) { m.getSubIssuesBatchErr = errors.New("batch 502") }},
+		{"parents", func(m *mockViewClient) { m.getParentIssueBatchErr = errors.New("batch 502") }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			mock := newMultiMockViewClient()
+			tc.inject(mock)
+			cmd := &cobra.Command{}
+			cmd.SetOut(new(bytes.Buffer))
+			refs := []viewIssueRef{{owner: "o", repo: "r", number: 42}, {owner: "o", repo: "r", number: 43}}
+
+			err := runViewMulti(cmd, &viewOptions{jsonFields: "number"}, mock, refs, nil)
+			if !api.IsPartialSuccess(err) || !strings.Contains(err.Error(), "batch 502") {
+				t.Fatalf("expected a partial-success error carrying the batch failure, got: %v", err)
+			}
+		})
+	}
+}
 
 func TestRunViewWithDeps_Success(t *testing.T) {
 	mock := newMockViewClient()
@@ -326,6 +392,108 @@ func TestViewCommand_HasJSONFlag(t *testing.T) {
 	flag := viewCmd.Flags().Lookup("json")
 	if flag == nil {
 		t.Fatal("Expected --json flag to exist")
+	}
+}
+
+// TestViewCommand_RuntimeErrorOmitsUsage: a failure inside RunE (here, no
+// configuration) prints the error without the usage dump (#927).
+func TestViewCommand_RuntimeErrorOmitsUsage(t *testing.T) {
+	chdirNoConfig(t)
+	out, err := executeForErrorOutput(t, "view", "42")
+	if err == nil {
+		t.Fatal("Expected a runtime error with no configuration")
+	}
+	if !strings.Contains(out, "failed to load configuration") {
+		t.Errorf("Expected the runtime error in the output, got:\n%s", out)
+	}
+	if strings.Contains(out, "Usage:") {
+		t.Errorf("Expected no usage block after a runtime error, got:\n%s", out)
+	}
+}
+
+// TestViewCommand_ArgumentErrorKeepsUsage: an argument error keeps the usage
+// block with the Use line, plus Examples whenever view defines them (#927).
+func TestViewCommand_ArgumentErrorKeepsUsage(t *testing.T) {
+	out, err := executeForErrorOutput(t, "view")
+	if err == nil {
+		t.Fatal("Expected an argument error for view with no issue number")
+	}
+	if !strings.Contains(out, "Usage:") || !strings.Contains(out, "gh pmu view <issue-number>") {
+		t.Errorf("Expected the usage block with the Use line, got:\n%s", out)
+	}
+	viewCmd, _, _ := NewRootCommand().Find([]string{"view"})
+	if viewCmd.Example != "" && strings.Count(out, "Examples:") != 1 {
+		t.Errorf("Expected exactly one Examples section, got:\n%s", out)
+	}
+}
+
+func TestViewCommand_JSONSpaceFormMatchesEqualsForm(t *testing.T) {
+	spaced := newViewCommand()
+	if err := parseJSONFlagCommand(t, spaced, []string{"42", "--json", "status,title"}); err != nil {
+		t.Fatalf("--json status,title: unexpected error: %v", err)
+	}
+	equals := newViewCommand()
+	if err := parseJSONFlagCommand(t, equals, []string{"42", "--json=status,title"}); err != nil {
+		t.Fatalf("--json=status,title: unexpected error: %v", err)
+	}
+	a, _ := spaced.Flags().GetString("json")
+	b, _ := equals.Flags().GetString("json")
+	if a != b || a != "status,title" {
+		t.Errorf("space form parsed %q, equals form parsed %q; want both \"status,title\"", a, b)
+	}
+	if got := spaced.Flags().Args(); len(got) != 1 || got[0] != "42" {
+		t.Errorf("space form positional args = %v, want [42]: the field list must not leak into issue numbers", got)
+	}
+}
+
+func TestViewCommand_JSONValueIsRequired(t *testing.T) {
+	if err := newViewCommand().ParseFlags([]string{"42", "--json"}); err == nil {
+		t.Error("Expected bare --json to be rejected; use --json-fields to list fields")
+	}
+	err := parseJSONFlagCommand(t, newViewCommand(), []string{"42", "--json="})
+	if err == nil {
+		t.Fatal("Expected --json= with no fields to be rejected rather than silently printing text")
+	}
+	if !strings.Contains(err.Error(), "--json-fields") {
+		t.Errorf("Expected error to point at --json-fields, got: %v", err)
+	}
+}
+
+// An unknown --json field must fail before any API call rather than be
+// silently dropped from the output (#941).
+func TestViewCommand_JSONRejectsUnknownField(t *testing.T) {
+	for _, args := range [][]string{
+		{"42", "--json=number,titel"},
+		{"42", "43", "--json=number,titel"},
+	} {
+		// AC: both the single- and multi-issue forms are rejected.
+		err := parseJSONFlagCommand(t, newViewCommand(), args)
+		if err == nil {
+			t.Errorf("%v: expected unknown field to be rejected", args)
+			continue
+		}
+		for _, want := range []string{`"titel"`, "gh pmu view --json-fields"} {
+			if !strings.Contains(err.Error(), want) {
+				t.Errorf("%v: expected error to contain %q, got: %v", args, want, err)
+			}
+		}
+	}
+}
+
+func TestViewCommand_JSONRejectsListWithNoFields(t *testing.T) {
+	err := parseJSONFlagCommand(t, newViewCommand(), []string{"42", "--json=,"})
+	if err == nil || !strings.Contains(err.Error(), "no valid fields") {
+		t.Errorf("expected --json=, to be rejected with \"no valid fields\", got: %v", err)
+	}
+}
+
+func TestViewCommand_JSONFieldsMatchCaseInsensitively(t *testing.T) {
+	cmd := newViewCommand()
+	if err := parseJSONFlagCommand(t, cmd, []string{"42", "--json=Number,TITLE,fieldvalues"}); err != nil {
+		t.Fatalf("expected mixed-case field names to be accepted, got: %v", err)
+	}
+	if got, _ := cmd.Flags().GetString("json"); got != "number,title,fieldValues" {
+		t.Errorf("--json = %q, want canonical \"number,title,fieldValues\"", got)
 	}
 }
 
@@ -2229,8 +2397,10 @@ func TestRunViewMulti_InvalidIssuePartialSuccess(t *testing.T) {
 	var errBuf bytes.Buffer
 	_, _ = io.Copy(&errBuf, rErr)
 
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+	// #938: the loaded issues are still printed, but a view that could not load
+	// every requested issue is a partial success, not a clean exit.
+	if !api.IsPartialSuccess(err) || !strings.Contains(err.Error(), "#99") {
+		t.Fatalf("expected a partial-success error naming #99, got: %v", err)
 	}
 
 	// Should output valid JSON with just issue 42

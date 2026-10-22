@@ -111,6 +111,17 @@ JSON output (--json) returns an array for multiple issues, a single object for o
 Also shows sub-issues if any exist, and parent issue if this is a sub-issue.
 
 Note: --body-file and --body-stdout are only supported for single issues.`,
+		Example: `  # View an issue with its project fields
+  gh pmu view 42
+
+  # Select JSON fields and extract one with jq
+  gh pmu view 42 --json=status --jq='.status'
+
+  # Several issues at once (JSON array)
+  gh pmu view 42 43 --json=number,title,status
+
+  # Write the raw body to stdout for editing
+  gh pmu view 42 --body-stdout > body.md`,
 		Args: func(cmd *cobra.Command, args []string) error {
 			// --json-fields doesn't require an issue number
 			if listFields, _ := cmd.Flags().GetBool("json-fields"); listFields {
@@ -120,6 +131,12 @@ Note: --body-file and --body-stdout are only supported for single issues.`,
 				return fmt.Errorf("requires at least 1 arg(s), received %d", len(args))
 			}
 			return nil
+		},
+		PreRunE: func(cmd *cobra.Command, args []string) error {
+			if err := requireJSONValue(cmd); err != nil {
+				return err
+			}
+			return canonicalizeViewJSONFlag(cmd)
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runView(cmd, args, opts)
@@ -261,6 +278,10 @@ func runViewMulti(cmd *cobra.Command, opts *viewOptions, client viewClient, refs
 		refOrder = append(refOrder, issueKey(ref))
 	}
 
+	// Issues, sub-issues, parents or comments that fail to load are reported
+	// once the rest are printed (#938, #939).
+	var loadFailures partialFailures
+
 	// Fetch all data with batch calls
 	allIssues := make(map[issueKey]*api.Issue)
 	allFieldValues := make(map[issueKey][]api.FieldValue)
@@ -292,21 +313,29 @@ func runViewMulti(cmd *cobra.Command, opts *viewOptions, client viewClient, refs
 			}
 		}
 
-		// Calls 2-3: Sub-issues + parent issues (parallel)
+		// Calls 2-3: Sub-issues + parent issues (parallel). A failed batch is
+		// reported after the output rather than shown as "none" (#939).
 		var subIssuesMap map[int][]api.SubIssue
 		var parentIssuesMap map[int]*api.Issue
+		var subErr, parentErr error
 		var wg sync.WaitGroup
 
 		wg.Add(2)
 		go func() {
 			defer wg.Done()
-			subIssuesMap, _ = client.GetSubIssuesBatch(key.owner, key.repo, validNumbers)
+			subIssuesMap, subErr = client.GetSubIssuesBatch(key.owner, key.repo, validNumbers)
 		}()
 		go func() {
 			defer wg.Done()
-			parentIssuesMap, _ = client.GetParentIssueBatch(key.owner, key.repo, validNumbers)
+			parentIssuesMap, parentErr = client.GetParentIssueBatch(key.owner, key.repo, validNumbers)
 		}()
 		wg.Wait()
+		if subErr != nil {
+			loadFailures.add(fmt.Sprintf("fetch sub-issues for %s/%s", key.owner, key.repo), subErr)
+		}
+		if parentErr != nil {
+			loadFailures.add(fmt.Sprintf("fetch parent issues for %s/%s", key.owner, key.repo), parentErr)
+		}
 
 		for num, subs := range subIssuesMap {
 			allSubIssues[issueKey{key.owner, key.repo, num}] = subs
@@ -322,22 +351,28 @@ func runViewMulti(cmd *cobra.Command, opts *viewOptions, client viewClient, refs
 		for _, ref := range refs {
 			k := issueKey(ref)
 			if _, ok := allIssues[k]; ok {
-				comments, _ := client.GetIssueComments(ref.owner, ref.repo, ref.number)
+				comments, err := client.GetIssueComments(ref.owner, ref.repo, ref.number)
+				if err != nil {
+					loadFailures.add(fmt.Sprintf("fetch comments for #%d", ref.number), err)
+				}
 				allComments[k] = comments
 			}
 		}
 	}
 
-	// Build results in argument order
+	// Build results in argument order. Issues that fail to load are skipped and
+	// reported once the rest are printed (#938).
 	var results []viewResult
 	for _, k := range refOrder {
 		if e, ok := allErrors[k]; ok && e != nil {
 			fmt.Fprintf(os.Stderr, "Warning: failed to get issue #%d: %v\n", k.number, e)
+			loadFailures.add(fmt.Sprintf("load #%d", k.number), e)
 			continue
 		}
 		issue, ok := allIssues[k]
 		if !ok {
 			fmt.Fprintf(os.Stderr, "Warning: issue #%d not found\n", k.number)
+			loadFailures.add(fmt.Sprintf("load #%d", k.number), fmt.Errorf("issue #%d not found", k.number))
 			continue
 		}
 		results = append(results, viewResult{
@@ -355,10 +390,16 @@ func runViewMulti(cmd *cobra.Command, opts *viewOptions, client viewClient, refs
 	}
 
 	// Output
+	var outErr error
 	if opts.jsonFields != "" {
-		return outputViewMultiJSON(cmd, opts, results)
+		outErr = outputViewMultiJSON(cmd, opts, results)
+	} else {
+		outErr = outputViewMultiTable(cmd, results)
 	}
-	return outputViewMultiTable(cmd, results)
+	if outErr != nil {
+		return outErr
+	}
+	return loadFailures.err(fmt.Sprintf("showed %d of %d issues", len(results), len(refOrder)))
 }
 
 // outputViewMultiJSON outputs multiple issues as a JSON array
@@ -444,34 +485,53 @@ func runViewWithDeps(cmd *cobra.Command, opts *viewOptions, client viewClient, o
 		return nil
 	}
 
-	// Fetch sub-issues and parent issue in parallel
+	// Fetch sub-issues and parent issue in parallel. A failed fetch is reported
+	// after the output rather than shown as "none" (#939).
 	var subIssues []api.SubIssue
 	var parentIssue *api.Issue
+	var subErr, parentErr error
 	var wg sync.WaitGroup
 
 	wg.Add(2)
 	go func() {
 		defer wg.Done()
-		subIssues, _ = client.GetSubIssues(owner, repo, number)
+		subIssues, subErr = client.GetSubIssues(owner, repo, number)
 	}()
 	go func() {
 		defer wg.Done()
-		parentIssue, _ = client.GetParentIssue(owner, repo, number)
+		parentIssue, parentErr = client.GetParentIssue(owner, repo, number)
 	}()
 	wg.Wait()
+
+	var fetchFailures partialFailures
+	if subErr != nil {
+		fetchFailures.add("fetch sub-issues", subErr)
+	}
+	if parentErr != nil {
+		fetchFailures.add("fetch parent issue", parentErr)
+	}
 
 	// Fetch comments if requested (not parallelized - only when needed)
 	var comments []api.Comment
 	if opts.comments {
-		comments, _ = client.GetIssueComments(owner, repo, number)
+		var commentsErr error
+		comments, commentsErr = client.GetIssueComments(owner, repo, number)
+		if commentsErr != nil {
+			fetchFailures.add("fetch comments", commentsErr)
+		}
 	}
 
 	// Output
+	var outErr error
 	if opts.jsonFields != "" {
-		return outputViewJSON(cmd, opts, issue, fieldValues, subIssues, parentIssue, comments)
+		outErr = outputViewJSON(cmd, opts, issue, fieldValues, subIssues, parentIssue, comments)
+	} else {
+		outErr = outputViewTable(cmd, issue, fieldValues, subIssues, parentIssue, comments)
 	}
-
-	return outputViewTable(cmd, issue, fieldValues, subIssues, parentIssue, comments)
+	if outErr != nil {
+		return outErr
+	}
+	return fetchFailures.err(fmt.Sprintf("showed issue #%d", number))
 }
 
 // ViewJSONOutput represents the JSON output for view command
@@ -989,6 +1049,50 @@ func listAvailableFields(cmd *cobra.Command, fields []string) error {
 		fmt.Fprintf(cmd.OutOrStdout(), "  %s\n", field)
 	}
 	return nil
+}
+
+// requireJSONValue rejects an explicitly empty --json=. list, view and branch
+// current all take a required field list (#926); an empty one would otherwise
+// fall through to text output and exit 0, the silent-ignore this guards.
+func requireJSONValue(cmd *cobra.Command) error {
+	flag := cmd.Flags().Lookup("json")
+	if flag == nil || !flag.Changed || strings.TrimSpace(flag.Value.String()) != "" {
+		return nil
+	}
+	return fmt.Errorf("--json requires a comma-separated field list; run '%s --json-fields' to list available fields", cmd.CommandPath())
+}
+
+// canonicalizeViewJSONFlag rejects an unknown --json field before any API call,
+// rather than letting the output silently drop it (#941), and rewrites the flag
+// to the canonical field names so mixed-case input selects the same fields.
+func canonicalizeViewJSONFlag(cmd *cobra.Command) error {
+	flag := cmd.Flags().Lookup("json")
+	if flag == nil || !flag.Changed {
+		return nil
+	}
+	input := flag.Value.String()
+	var fields []string
+	for _, p := range strings.Split(input, ",") {
+		field := strings.TrimSpace(p)
+		if field == "" {
+			continue
+		}
+		canonical := ""
+		for _, available := range viewAvailableFields {
+			if strings.EqualFold(field, available) {
+				canonical = available
+				break
+			}
+		}
+		if canonical == "" {
+			return fmt.Errorf("unknown field %q in --json=%s. Run 'gh pmu view --json-fields' to see available fields", field, input)
+		}
+		fields = append(fields, canonical)
+	}
+	if len(fields) == 0 {
+		return fmt.Errorf("no valid fields in --json=%s. Run 'gh pmu view --json-fields' to see available fields", input)
+	}
+	return cmd.Flags().Set("json", strings.Join(fields, ","))
 }
 
 // parseJSONFields parses comma-separated field names and returns a slice

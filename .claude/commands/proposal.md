@@ -1,7 +1,7 @@
 ---
-version: "v0.103.0"
-description: Create a proposal document and tracking issue (project)
-argument-hint: "<title> [--prior-art] [--update [changes]]"
+version: "v0.110.0"
+description: Create a proposal document and tracking issue, using the IDPF framework.
+argument-hint: "<title> [--prior-art] [--update [changes]] [--help]"
 copyright: "Rubrical Works (c) 2026"
 ---
 
@@ -10,7 +10,7 @@ copyright: "Rubrical Works (c) 2026"
 
 Creates a proposal document (`Proposal/[Name].md`) and a tracking issue with the `proposal` label. Also triggered by the `idea:` alias.
 
-**Extension Points:** See `.claude/metadata/extension-points.json` or run `/extensions list --command proposal`
+**Extension Points:** See `.claude/metadata/extension-points.json` or run `/extensions --list --command proposal`
 
 ## Prerequisites
 
@@ -24,8 +24,12 @@ Creates a proposal document (`Proposal/[Name].md`) and a tracking issue with the
 | `<title>` | No | Proposal title (e.g., `Dark Mode Support`) |
 | `--prior-art` | No | Run prior-art sweep before composing proposal. Absent = current behavior, no sweep. |
 | `--assignee <value>` | No | GitHub login for the new issue. Omitted → `@me`. |
-| `--target <owner/name>` | No | File the issue against a registered companion repository instead of this one. |
+| `--target <owner/name>` | No | File the issue against a registered companion repository instead of this one. The document belongs to the companion too — see Step 4. |
+| `--target-path <dir>` | No | With `--target`: a local checkout of that companion. The document is written to `<target-path>/Proposal/[Name].md` for you to commit there. Omitted → the document is printed instead. |
 | `--update [changes]` | No | Revise an existing `Proposal/[Name].md` instead of creating one. Following text is applied directly; a bare flag starts an interactive `AskUserQuestion` workflow. Requires the document to exist. |
+| `--help` | No | Open this command's docs page. Takes precedence over every other argument and performs no action. |
+
+**`--help` takes precedence over every other argument and performs no action:** run `node .claude/scripts/shared/command-help.js proposal`, report its output, and STOP.
 
 If no title provided, prompt the user. **Alias:** `idea:` is identical to `proposal:`.
 
@@ -47,7 +51,7 @@ Extract `<title>` from arguments. **If empty:** ask for title. **If special char
 **`--prior-art` token:** recognize anywhere in argument text, **remove it from the title**, set sweep flag. Absent → no sweep. Strip **before** name conversion, or the token lands in the filename (`Dark-Mode-Support---Prior-Art.md`). Required for direct slash-command invocation (no hook runs there); on the trigger-word path `workflow-trigger.js` already strips flag-shaped tokens by **shape**, not allowlist membership (#2515). A `--` that is not flag-shaped (bare separator, `---` rule, `--` in prose) is preserved verbatim.
 
 **`--update` token:** recognize anywhere in argument text, **remove it from the title**, set update mode. Strip **before** name conversion or the token lands in the filename (`Dark-Mode-Support---Update.md`). Text following the flag is the **change instruction**; an empty remainder selects the interactive form (Step 3b).
-**Text form works on both paths since #2770.** It was direct-invocation-only under #2767, when a recognised flag claimed **exactly one token**, so `proposal: Dark Mode --update rename the risk section` bound only `rename` and returned the rest to the title. #2767 declined to patch that because a rest-of-line variant would change attachment for **every** command sharing the convention to suit one flag — correct, and why #2770 made attachment **per flag**: `trigger-flag-allowlist.json` declares `--update` as `{"flag": "--update", "attach": "rest-of-line"}` and every other flag keeps the one-token default. A rest-of-line value **stops at the next flag-shaped token**, so `--update rewrite the intro --assignee octocat` binds `rewrite the intro` and leaves `--assignee` its own value — preserving `02-github-workflow.md`'s guarantee that no flag-shaped token is silently discarded. The **bare interactive form** is unchanged on both paths.
+**Text form works on both paths since #2770.** It was direct-invocation-only under #2767, when a recognized flag claimed **exactly one token**, so `proposal: Dark Mode --update rename the risk section` bound only `rename` and returned the rest to the title. #2767 declined to patch that because a rest-of-line variant would change attachment for **every** command sharing the convention to suit one flag — correct, and why #2770 made attachment **per flag**: `trigger-flag-allowlist.json` declares `--update` as `{"flag": "--update", "attach": "rest-of-line"}` and every other flag keeps the one-token default. A rest-of-line value **stops at the next flag-shaped token**, so `--update rewrite the intro --assignee octocat` binds `rewrite the intro` and leaves `--assignee` its own value — preserving `02-github-workflow.md`'s guarantee that no flag-shaped token is silently discarded. The **bare interactive form** is unchanged on both paths.
 
 **Name conversion:** Replace spaces with hyphens, Title-Case each word. Example: `dark mode support` → `Dark-Mode-Support`.
 
@@ -150,15 +154,15 @@ Runs **before** the proposal document is composed, so findings change what gets 
 | `already-shipped` | **STOP.** Create neither the document nor the tracking issue. Report conflicting issue numbers and file paths. |
 | `found-but-warranted` | Continue. Record `**Prior Art:**` — what exists, how this differs. |
 | `none-found` | Continue. Record `noneFoundFormat` line including terms searched. |
-**Two marker forms are recognised on read (#2700).** Emission is unchanged — always the bold inline form from `prior-art-sweep.json` `bodyFormat`. Detection also accepts a markdown heading:
+**Two marker forms are recognized on read (#2700).** Emission is unchanged — always the bold inline form from `prior-art-sweep.json` `bodyFormat`. Detection also accepts a markdown heading:
 
-| Form | Example | Recognised |
+| Form | Example | Recognized |
 |---|---|---|
 | Bold inline (emitted) | `**Prior Art:** found — …` | yes |
 | Markdown heading | `## Prior Art` / `### Prior Art:` — any level | yes |
 | Bare, neither | `Prior Art: found — …` | **no** |
 
-Before #2700 only the bold counted, so a researched `## Prior Art` read as one nobody wrote. Authoritative: `bodyFormat.recognisedForms`, pinned to `classifyMarker` by test.
+Before #2700 only the bold counted, so a researched `## Prior Art` read as one nobody wrote. Authoritative: `bodyFormat.recognizedForms`, pinned to `classifyMarker` by test.
 
 
 **Both artifacts carry the section.** Write `**Prior Art:**` into `Proposal/[Name].md` (Step 4) **and** the tracking issue body (Step 5) — a reader of either must see what was searched without opening the other.
@@ -178,6 +182,13 @@ Mode `off` deliberately overrides a typed flag. Earlier revisions of this spec, 
 <!-- USER-EXTENSION-END: pre-create -->
 
 ### Step 4: Create Proposal Document
+
+**With `--target` the document belongs to the companion (#3067).** The issue is filed there and its `**File:** Proposal/[Name].md` is what `/create-prd` run *there* reads, so no `Proposal/[Name].md` is written in this repo:
+| Given | Action |
+|---|---|
+| `--target-path <dir>` | `git -C <dir> remote get-url origin` must name `<owner/name>` (HTTPS or SSH). Mismatch or not a git repo → report, **STOP** before writing. Match → write `<target-path>/Proposal/[Name].md` (create `Proposal/` if missing; Step 2 overwrite check applies there). Commit nothing — tell the user to commit it in the companion. |
+| No `--target-path` | Write nothing. After Step 5, **print the document** in full, with the instruction to add it to the companion as `Proposal/[Name].md` and commit it there. |
+`**File:**` stays `Proposal/[Name].md`, relative to the companion root — a URL into this repo was rejected: `/create-prd` in the companion could not read it. `--target-path` without `--target` → report it requires `--target`, **STOP**.
 
 Ensure `Proposal/` directory exists. Create `Proposal/[Name].md`:
 
@@ -243,8 +254,13 @@ Build issue body:
 
 **Sweep ran (Step 3a):** include the `**Prior Art:**` section here too, after `### Summary`. Both artifacts carry it.
 
+**Generate the body path first — once per invocation, before the body is composed.** A fixed path is shared by every session running this command here: a write landing between another's write and its `gh pmu create` files the second issue with the first one's body, unreported. The number cannot supply it — it does not exist until the body is written (#1034 covers editing, not creation). Shell out for the suffix, never invent it — **`/bug`'s scheme (#2980)**:
 ```bash
-gh pmu create --title "Proposal: {title}" --label proposal --status backlog --priority p2 --assignee {assignee} -F .tmp-body.md
+PROPOSAL_BODY_FILE=".tmp-proposal-body-$(node -e "console.log(require('crypto').randomBytes(4).toString('hex'))").md"
+```
+Use `$PROPOSAL_BODY_FILE` at every site below — `gh pmu create -F`, the `rm`. **Keep the `.tmp-` prefix** so the startup stale-scratch sweep still collects a file an interrupted run left.
+```bash
+gh pmu create --title "Proposal: {title}" --label proposal --status backlog --priority p2 --assignee {assignee} -F $PROPOSAL_BODY_FILE
 ```
 
 **Cross-repo filing (`--target <owner/name>`, #2665):** resolve BEFORE composing the issue — a refusal after the body is written wastes the work and tempts a retry against the wrong repo.
@@ -252,21 +268,41 @@ gh pmu create --title "Proposal: {title}" --label proposal --status backlog --pr
 const { resolveFilingTarget, resolveBoardFields, formatUnresolvedBoardFields } = require('.claude/scripts/shared/lib/companion-projects.js');
 const target = resolveFilingTarget(charterContent, requestedRepo);
 ```
-`ok:false` → report `reason` verbatim, **STOP**. Two refusals, never merged: not registered → register with `/charter update --register-proj`; registered with `fileIssues:false` → marked read-only on purpose, enable with `--register-proj`. Searchable-but-not-filable is the common case, so the second is usually correct rather than an oversight, and one combined message sends the user to the wrong remedy half the time.
-`ok:true` → add `-R <owner/name>` to `gh pmu create`; all other flags unchanged.
-**Board fields:** `resolveBoardFields(target.entry)`. `resolved:true` → set them. `resolved:false` → **create the issue anyway**, then print `formatUnresolvedBoardFields(repo, resolution)`, naming the unset fields and why. NEVER guess a field ID — a guess files onto the wrong board column silently, which is worse than an unset field plus a line saying so.
-```bash
-rm .tmp-body.md
+`ok:false` → report `reason` verbatim, **STOP**. Two refusals, never merged: not registered → register with `/charter --update --register-proj`; registered with `fileIssues:false` → marked read-only on purpose, enable with `--register-proj`. Searchable-but-not-filable is the common case, so the second is usually correct rather than an oversight, and one combined message sends the user to the wrong remedy half the time.
+`ok:true` → **do NOT run the `gh pmu create` above, with or without a repo flag** (#3067): gh-pmu takes the *repository* from that flag but the *project* from the **local** `.gh-pmu.json`, so the issue lands on **this** board (px-manager#1155). Delegate, as `/bug` and `/enhancement` do (#2775):
+```javascript
+const { fileCompanionIssue } = require('.claude/scripts/shared/file-companion-issue.js');
+const resolution = resolveBoardFields(target.entry);   // { resolved, fields, board, reason }
+const result = fileCompanionIssue({
+  repo: target.entry.repo, title: `Proposal: ${title}`, bodyFile: $PROPOSAL_BODY_FILE,
+  labels: ['proposal'], assignee, status: 'backlog', priority: 'p2',
+  board: target.entry.board || null, fields: resolution.fields,
+});
 ```
-**Assignee:** substitute `{assignee}` from `node .claude/scripts/shared/lib/gh-pmu-config.js --assignee <value>` — pass the user's `--assignee` value, omit when none given. Helper returns that login, else `@me`; reads no config file. NEVER hardcode a login or drop the flag (omitted `--assignee` silently creates an unassigned issue). Unresolvable login → `gh pmu` exits 1 and creates nothing; report the error, do NOT retry without the flag.
+Bare `gh issue create`, then added to the *companion's* board — the one case the bare form is correct. `priority` resolves against the companion board's options; no match → `fields.unset`, never guessed. `assignee` = `{assignee}` below.
+**Report the envelope; re-derive none of it.** `{ok, issue:{number,url}, board:{added, owner, number, fields:{set,unset}}, errors}`.
+| Envelope | Report |
+|---|---|
+| `ok: false` | The `errors` verbatim; nothing was created, or the failure is named |
+| `board.added: true`, `fields.unset` empty | Issue number/URL, the board joined, the fields set |
+| `board.added: true`, `fields.unset` non-empty | The same **plus every `errors` entry** — an unset field must never pass for a set one |
+| `board.added: false` with a board registered | Issue created, board-add failed; print `errors`. The issue **exists** — do not file it again |
+| No board registered | Issue created, no board touched. Print `formatUnresolvedBoardFields(repo, resolution)` unchanged |
+**NEVER guess a field or option id** — the helper resolves them from the companion's `gh project field-list`; unresolvable → unset.
+```bash
+rm $PROPOSAL_BODY_FILE
+```
+**Assignee:** substitute `{assignee}` from the helper: `node .claude/scripts/shared/lib/gh-pmu-config.js --assignee <login>` when the user supplied a login, else `node .claude/scripts/shared/lib/gh-pmu-config.js --assignee` (bare flag, no value). NEVER run the helper with no arguments — it exits 1 with a usage message. Returns the login, or `@me` for the bare flag; reads no config file. NEVER hardcode a login or drop the flag (omitted `--assignee` silently creates an unassigned issue). Unresolvable login → `gh pmu` exits 1 and creates nothing; report the error, do NOT retry without the flag.
 
-**Note:** Always use `-F .tmp-body.md` (never inline `--body`).
+**Note:** Always use `-F $PROPOSAL_BODY_FILE` (never inline `--body`).
 
 ### Step 6: Update Proposal with Issue Reference
 
-Update tracking issue field: `**Tracking Issue:** #[issue-number]`
+Update tracking issue field: `**Tracking Issue:** #[issue-number]`. With `--target`, the companion's number, written into `<target-path>/Proposal/[Name].md` or the printed document.
 
 ### Step 6a: Commit Proposal
+
+**Skipped with `--target`** — nothing was written here; the companion's copy is committed in the companion (Step 4).
 
 **Guard:** Only commit if changes exist:
 ```bash

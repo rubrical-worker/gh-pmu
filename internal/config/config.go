@@ -79,22 +79,30 @@ func (c *Config) UnmarshalJSON(data []byte) error {
 	if err := json.Unmarshal(data, (*alias)(c)); err != nil {
 		return err
 	}
-
-	var all map[string]json.RawMessage
-	if err := json.Unmarshal(data, &all); err != nil {
+	unknown, err := captureUnknownKeys(data, modeledConfigKeys)
+	if err != nil {
 		return err
 	}
+	c.unknown = unknown
+	return nil
+}
+
+// captureUnknownKeys returns the members of the JSON object data whose keys are
+// not in modeled, or nil when there are none (#910).
+func captureUnknownKeys(data []byte, modeled map[string]struct{}) (map[string]json.RawMessage, error) {
+	var all map[string]json.RawMessage
+	if err := json.Unmarshal(data, &all); err != nil {
+		return nil, err
+	}
 	for key := range all {
-		if _, modeled := modeledConfigKeys[key]; modeled {
+		if _, ok := modeled[key]; ok {
 			delete(all, key)
 		}
 	}
 	if len(all) == 0 {
-		all = nil
+		return nil, nil
 	}
-	c.unknown = all
-
-	return nil
+	return all, nil
 }
 
 // MarshalJSON writes the modeled fields followed by any keys captured at decode
@@ -116,7 +124,13 @@ func (c *Config) MarshalJSON() ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	if len(c.unknown) == 0 {
+	return spliceUnknownKeys(encoded, c.unknown)
+}
+
+// spliceUnknownKeys appends unknown's members to encoded, a compact JSON
+// object, leaving encoded's own members in place (#910).
+func spliceUnknownKeys(encoded []byte, unknown map[string]json.RawMessage) ([]byte, error) {
+	if len(unknown) == 0 {
 		return encoded, nil
 	}
 	// Splicing assumes an object; a struct always encodes to one. Checked so a
@@ -129,8 +143,8 @@ func (c *Config) MarshalJSON() ([]byte, error) {
 	// Sorted for determinism. The order these keys had in the file is not
 	// recoverable from encoding/json without a token-level decoder, and nothing
 	// depends on it.
-	keys := make([]string, 0, len(c.unknown))
-	for key := range c.unknown {
+	keys := make([]string, 0, len(unknown))
+	for key := range unknown {
 		keys = append(keys, key)
 	}
 	sort.Strings(keys)
@@ -147,11 +161,37 @@ func (c *Config) MarshalJSON() ([]byte, error) {
 		}
 		buf.Write(encodedKey)
 		buf.WriteByte(':')
-		buf.Write(c.unknown[key])
+		buf.Write(unknown[key])
 	}
 	buf.WriteByte('}')
 
 	return buf.Bytes(), nil
+}
+
+// MergeUnownedKeys returns encoded, a compact JSON object written from writer,
+// with every top-level key of previous that writer does not model appended
+// unchanged. A writer that rebuilds .gh-pmu.json from its own struct — init —
+// uses it so keys it does not own survive the rewrite (#936). Ownership comes
+// from writer's JSON tags, so a key writer omitted on purpose (an omitempty
+// field left empty) is not resurrected from previous. An empty or unparseable
+// previous adds nothing.
+func MergeUnownedKeys(encoded, previous []byte, writer any) ([]byte, error) {
+	var old map[string]json.RawMessage
+	if len(previous) == 0 || json.Unmarshal(previous, &old) != nil {
+		return encoded, nil
+	}
+	t := reflect.TypeOf(writer)
+	for t.Kind() == reflect.Pointer {
+		t = t.Elem()
+	}
+	owned := jsonObjectKeys(t)
+	unowned := map[string]json.RawMessage{}
+	for key, value := range old {
+		if _, ok := owned[key]; !ok {
+			unowned[key] = value
+		}
+	}
+	return spliceUnknownKeys(encoded, unowned)
 }
 
 // Project contains GitHub project configuration
@@ -178,6 +218,41 @@ type Defaults struct {
 type Field struct {
 	Field  string            `yaml:"field" json:"field"`
 	Values map[string]string `yaml:"values,omitempty" json:"values,omitempty"`
+	// IssueField overrides org issue field detection for this field (#932):
+	// an issue field ID (IFSS_…/IFD_…) pins it, "none" keeps it a project field.
+	IssueField string `yaml:"issue_field,omitempty" json:"issue_field,omitempty"`
+
+	// unknown holds keys this alias carried that Field does not model, so Save
+	// writes them back (#936), as Config.unknown does at the top level.
+	unknown map[string]json.RawMessage
+}
+
+var modeledFieldKeys = jsonObjectKeys(reflect.TypeOf(Field{}))
+
+// UnmarshalJSON decodes an alias and captures the keys Field does not model.
+func (f *Field) UnmarshalJSON(data []byte) error {
+	type alias Field
+	if err := json.Unmarshal(data, (*alias)(f)); err != nil {
+		return err
+	}
+	unknown, err := captureUnknownKeys(data, modeledFieldKeys)
+	if err != nil {
+		return err
+	}
+	f.unknown = unknown
+	return nil
+}
+
+// MarshalJSON writes the modeled keys followed by any captured at decode time.
+// A value receiver, because aliases live in a map and map values are not
+// addressable.
+func (f Field) MarshalJSON() ([]byte, error) {
+	type alias Field
+	encoded, err := json.Marshal(alias(f))
+	if err != nil {
+		return nil, err
+	}
+	return spliceUnknownKeys(encoded, f.unknown)
 }
 
 // Triage contains configuration for triage rules
@@ -216,6 +291,44 @@ type FieldMetadata struct {
 	ID       string           `yaml:"id" json:"id"`
 	DataType string           `yaml:"data_type" json:"data_type"`
 	Options  []OptionMetadata `yaml:"options,omitempty" json:"options,omitempty"`
+	// Kind is PROJECT_FIELD or ISSUE_FIELD (#932). Absent in caches written
+	// before org issue fields were detected.
+	Kind string `yaml:"kind,omitempty" json:"kind,omitempty"`
+	// IssueFieldID and IssueFieldDataType identify the org issue field behind
+	// an ISSUE_FIELD entry; Options then holds that issue field's options.
+	IssueFieldID       string `yaml:"issue_field_id,omitempty" json:"issue_field_id,omitempty"`
+	IssueFieldDataType string `yaml:"issue_field_data_type,omitempty" json:"issue_field_data_type,omitempty"`
+
+	// unknown holds keys this entry carried that FieldMetadata does not model,
+	// so Save writes them back (#936).
+	unknown map[string]json.RawMessage
+}
+
+var modeledFieldMetadataKeys = jsonObjectKeys(reflect.TypeOf(FieldMetadata{}))
+
+// UnmarshalJSON decodes a cached field and captures the keys FieldMetadata does
+// not model.
+func (m *FieldMetadata) UnmarshalJSON(data []byte) error {
+	type alias FieldMetadata
+	if err := json.Unmarshal(data, (*alias)(m)); err != nil {
+		return err
+	}
+	unknown, err := captureUnknownKeys(data, modeledFieldMetadataKeys)
+	if err != nil {
+		return err
+	}
+	m.unknown = unknown
+	return nil
+}
+
+// MarshalJSON writes the modeled keys followed by any captured at decode time.
+func (m FieldMetadata) MarshalJSON() ([]byte, error) {
+	type alias FieldMetadata
+	encoded, err := json.Marshal(alias(m))
+	if err != nil {
+		return nil, err
+	}
+	return spliceUnknownKeys(encoded, m.unknown)
 }
 
 // OptionMetadata contains cached field option info

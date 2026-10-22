@@ -160,6 +160,7 @@ type branchClient interface {
 // branchStartOptions holds the options for the branch start command
 type branchStartOptions struct {
 	branchName string
+	dryRun     bool
 }
 
 // branchAddOptions holds the options for the branch add command
@@ -175,7 +176,7 @@ type branchRemoveOptions struct {
 // branchCurrentOptions holds the options for the branch current command
 type branchCurrentOptions struct {
 	jsonFlag string // empty=text output, "*"=full JSON, "field,field"=selected fields
-	jsonSet  bool   // whether --json flag was provided (even without value)
+	jsonSet  bool   // whether --json was given a field list
 }
 
 // branchCloseOptions holds the options for the branch close command
@@ -244,6 +245,7 @@ Examples:
 	}
 
 	cmd.Flags().StringVar(&opts.branchName, "name", "", "Branch name to track (required)")
+	cmd.Flags().BoolVar(&opts.dryRun, "dry-run", false, "Check for an active branch, resolve the project and print what would be created, without creating the git branch or tracker")
 	_ = cmd.MarkFlagRequired("name")
 
 	return cmd
@@ -327,7 +329,22 @@ func newBranchCurrentCommand() *cobra.Command {
 		Use:   "current",
 		Short: "Show the active branch",
 		Long:  `Displays details about the currently active branch.`,
+		Example: `  # Show the active branch, its tracker and issue count
+  gh pmu branch current
+
+  # Tracker issue number only
+  gh pmu branch current --json=tracker
+
+  # Branch name and its issues as JSON
+  gh pmu branch current --json=name,issues`,
+		PreRunE: func(cmd *cobra.Command, args []string) error {
+			return validateBranchCurrentJSONFlag(cmd, opts)
+		},
 		RunE: func(cmd *cobra.Command, args []string) error {
+			// --json-fields needs no config or API access
+			if listFields, _ := cmd.Flags().GetBool("json-fields"); listFields {
+				return listAvailableFields(cmd, branchCurrentJSONFields)
+			}
 			cwd, err := os.Getwd()
 			if err != nil {
 				return fmt.Errorf("failed to get current directory: %w", err)
@@ -340,20 +357,47 @@ func newBranchCurrentCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			// Detect if --json was explicitly provided (even without a value)
-			if cmd.Flags().Changed("json") {
-				opts.jsonSet = true
-				if opts.jsonFlag == "" {
-					opts.jsonFlag = "*"
-				}
-			}
+			opts.jsonSet = opts.jsonFlag != ""
 			return runBranchCurrentWithDeps(cmd, opts, cfg, client)
 		},
 	}
 
-	cmd.Flags().StringVar(&opts.jsonFlag, "json", "", "Output as JSON. Optional field selection: --json=tracker,issues")
+	cmd.Flags().StringVar(&opts.jsonFlag, "json", "", "Output JSON with specified fields (comma-separated, e.g. tracker,issues). Use --json-fields to list available fields")
+	cmd.Flags().Bool("json-fields", false, "List available JSON fields")
 
 	return cmd
+}
+
+// branchCurrentJSONFields lists the fields `branch current --json` accepts
+var branchCurrentJSONFields = []string{"issues", "name", "tracker"}
+
+// validateBranchCurrentJSONFlag checks --json before any config load or API
+// call: the value is required and every field must be known, so a typo exits
+// non-zero rather than being silently dropped from the output (#926).
+func validateBranchCurrentJSONFlag(cmd *cobra.Command, opts *branchCurrentOptions) error {
+	if err := requireJSONValue(cmd); err != nil {
+		return err
+	}
+	if opts.jsonFlag == "" {
+		return nil
+	}
+	for _, f := range strings.Split(opts.jsonFlag, ",") {
+		field := strings.TrimSpace(f)
+		if field == "" {
+			continue
+		}
+		known := false
+		for _, available := range branchCurrentJSONFields {
+			if field == available {
+				known = true
+				break
+			}
+		}
+		if !known {
+			return fmt.Errorf("unknown field %q in --json=%s. Run 'gh pmu branch current --json-fields' to see available fields", field, opts.jsonFlag)
+		}
+	}
+	return nil
 }
 
 // newBranchCloseCommand creates the release close subcommand
@@ -466,6 +510,10 @@ func runBranchStartWithDeps(cmd *cobra.Command, opts *branchStartOptions, cfg *c
 		return fmt.Errorf("active branch exists: %s", activeBranch.Title)
 	}
 
+	if opts.dryRun {
+		return printBranchStartDryRun(cmd, opts, cfg, client, owner, repo)
+	}
+
 	// Create the git branch
 	err = client.GitCheckoutNewBranch(opts.branchName)
 	if err != nil {
@@ -527,6 +575,32 @@ func runBranchStartWithDeps(cmd *cobra.Command, opts *branchStartOptions, cfg *c
 	fmt.Fprintf(cmd.OutOrStdout(), "Started tracking: %s\n", title)
 	fmt.Fprintf(cmd.OutOrStdout(), "Tracker issue: #%d\n", issue.Number)
 
+	return nil
+}
+
+// printBranchStartDryRun resolves the project and reports the git branch,
+// tracker issue and status that branch start would create, writing nothing
+// (#929). The active-branch check has already run, as in a real start.
+func printBranchStartDryRun(cmd *cobra.Command, opts *branchStartOptions, cfg *config.Config, client branchClient, owner, repo string) error {
+	project, err := client.GetProject(cfg.Project.Owner, cfg.Project.Number)
+	if err != nil {
+		return fmt.Errorf("failed to get project: %w", err)
+	}
+	status := "(not set: no status field configured)"
+	if statusField, ok := cfg.Fields["status"]; ok {
+		status = statusField.Values["in_progress"]
+		if status == "" {
+			status = "In progress"
+		}
+	}
+
+	w := cmd.OutOrStdout()
+	fmt.Fprintln(w, "Dry run: no git branch or tracker issue will be created.")
+	fmt.Fprintf(w, "  Git branch: %s\n", opts.branchName)
+	fmt.Fprintf(w, "  Tracker:    Branch: %s (in %s/%s)\n", opts.branchName, owner, repo)
+	fmt.Fprintln(w, "  Labels:     branch")
+	fmt.Fprintf(w, "  Project:    %s (%s #%d)\n", project.Title, cfg.Project.Owner, cfg.Project.Number)
+	fmt.Fprintf(w, "  Status:     %s\n", status)
 	return nil
 }
 
@@ -943,6 +1017,9 @@ func runBranchCloseWithDeps(cmd *cobra.Command, opts *branchCloseOptions, cfg *c
 	if err != nil {
 		return err
 	}
+	// The close carries on past per-issue failures, then reports them (#938).
+	var closeFailures partialFailures
+	movedCount := 0
 
 	// Get open release issues
 	issues, err := client.GetOpenIssuesByLabel(owner, repo, "branch")
@@ -1099,13 +1176,17 @@ func runBranchCloseWithDeps(cmd *cobra.Command, opts *branchCloseOptions, cfg *c
 				itemID, err := client.GetProjectItemID(proj.ID, issue.ID)
 				if err != nil {
 					fmt.Fprintf(cmd.ErrOrStderr(), "  Warning: could not find project item for #%d: %v\n", issue.Number, err)
+					closeFailures.add(fmt.Sprintf("move #%d to backlog", issue.Number), err)
 					continue
 				}
+				moved := true
 
 				// Clear Branch field
 				if branchField, ok := cfg.Fields["branch"]; ok {
 					if err := client.SetProjectItemField(proj.ID, itemID, branchField.Field, ""); err != nil {
 						fmt.Fprintf(cmd.ErrOrStderr(), "  Warning: failed to clear branch field for #%d: %v\n", issue.Number, err)
+						closeFailures.add(fmt.Sprintf("clear branch field for #%d", issue.Number), err)
+						moved = false
 					}
 				}
 
@@ -1117,10 +1198,15 @@ func runBranchCloseWithDeps(cmd *cobra.Command, opts *branchCloseOptions, cfg *c
 					}
 					if err := client.SetProjectItemField(proj.ID, itemID, statusField.Field, backlogValue); err != nil {
 						fmt.Fprintf(cmd.ErrOrStderr(), "  Warning: failed to move #%d to backlog: %v\n", issue.Number, err)
+						closeFailures.add(fmt.Sprintf("move #%d to backlog", issue.Number), err)
+						moved = false
 					}
 				}
 
-				fmt.Fprintf(cmd.OutOrStdout(), "  #%d - %s\n", issue.Number, issue.Title)
+				if moved {
+					movedCount++
+					fmt.Fprintf(cmd.OutOrStdout(), "  #%d - %s\n", issue.Number, issue.Title)
+				}
 			}
 			fmt.Fprintln(cmd.OutOrStdout())
 		}
@@ -1132,6 +1218,7 @@ func runBranchCloseWithDeps(cmd *cobra.Command, opts *branchCloseOptions, cfg *c
 	for _, issue := range incompleteIssues {
 		if err := client.RemoveLabelFromIssue(owner, repo, issue.ID, "assigned"); err != nil {
 			fmt.Fprintf(cmd.ErrOrStderr(), "Warning: failed to remove 'assigned' label from #%d: %v\n", issue.Number, err)
+			closeFailures.add(fmt.Sprintf("remove 'assigned' label from #%d", issue.Number), err)
 		}
 	}
 
@@ -1153,13 +1240,13 @@ func runBranchCloseWithDeps(cmd *cobra.Command, opts *branchCloseOptions, cfg *c
 	// Output confirmation
 	fmt.Fprintf(cmd.OutOrStdout(), "✓ Branch closed: %s\n", releaseVersion)
 	if len(issuesToMove) > 0 {
-		fmt.Fprintf(cmd.OutOrStdout(), "✓ %d issue(s) moved to backlog (Branch cleared)\n", len(issuesToMove))
+		fmt.Fprintf(cmd.OutOrStdout(), "✓ %d issue(s) moved to backlog (Branch cleared)\n", movedCount)
 	}
 	if opts.tag {
 		fmt.Fprintf(cmd.OutOrStdout(), "✓ Tag created: %s\n", releaseVersion)
 	}
 
-	return nil
+	return closeFailures.err(fmt.Sprintf("closed branch %s", releaseVersion))
 }
 
 // newBranchReopenCommand creates the release reopen subcommand

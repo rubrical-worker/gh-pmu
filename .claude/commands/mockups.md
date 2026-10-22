@@ -1,7 +1,7 @@
 ---
-version: "v0.103.0"
-description: Create text-based or diagrammatic screen mockups (project)
-argument-hint: "[#NN] [--from-image <path>] [--serve [{Name}]] [--port <N>] [--open] [--showcase] [--apply-decisions]"
+version: "v0.110.0"
+description: Create text-based or diagrammatic screen mockups, using the IDPF framework.
+argument-hint: "[#NN] [--from-image <path>] [--serve [{Name}]] [--port <N>] [--open] [--showcase] [--apply-decisions] [--help]"
 copyright: "Rubrical Works (c) 2026"
 ---
 
@@ -10,7 +10,7 @@ copyright: "Rubrical Works (c) 2026"
 
 Creates text-based or diagrammatic screen mockups. Fully interactive via `AskUserQuestion`. Accepts optional issue reference (`#NN`) to pre-populate context from a bug, enhancement, proposal, or PRD.
 
-**Extension Points:** See `.claude/metadata/extension-points.json` or `/extensions list --command mockups`
+**Extension Points:** See `.claude/metadata/extension-points.json` or `/extensions --list --command mockups`
 
 ## Prerequisites
 
@@ -22,11 +22,14 @@ Creates text-based or diagrammatic screen mockups. Fully interactive via `AskUse
 |----------|----------|-------------|
 | `#NN` | No | Issue number (bug/enhancement/proposal/PRD). Reads body to pre-populate flow. |
 | `--from-image <path>` | No | AC21 — use reference image as visual baseline. Path validated by `validateScreenshotFile` (NFR-3 mime allowlist). Bypasses Q4. |
-| `--serve [{Name}]` | No | Start a backgrounded zero-dep static server (`.claude/scripts/shared/mockups-serve.js`, http+fs+path only) on `Mockups/` (bare) or `Mockups/{Name}/` (scoped). Spawn via `Bash` `run_in_background: true`; read listening URL from helper's single-line banner via `BashOutput`; report URL + shell ID. Can run standalone or after normal generation. |
+| `--serve [{Name}]` | No | Start a backgrounded static server (`.claude/scripts/shared/mockups-server.js` — wrapper over the declared runtime dep `http-server`, bundled in the framework root, adding banner, port fallback and loopback/path guard) on `Mockups/` (bare) or `Mockups/{Name}/` (scoped). Spawn via `Bash` `run_in_background: true`; read listening URL from helper's single-line banner via `BashOutput`; report URL + shell ID. Can run standalone or after normal generation. |
 | `--port <N>` / `-p <N>` | No | Pin port; default `3000`. Helper falls back to next free port on conflict; command reports the **actual** port. |
 | `--open` | No | Spawn platform default browser to the listening URL. `win32` → `start "" "<url>"`; `darwin` → `open "<url>"`; `linux` → `xdg-open "<url>"`. Launch failure warns, does not fail command. |
 | `--showcase` | No | Launch Living Style Guide showcase (#2429, Story 1.3). Mockups command bundles into showcase the same way `/design-system` does — categories sourced from screen catalog (UI Components, Iconography). Mutex with `--apply-decisions`. |
 | `--apply-decisions` | No | Apply pending decisions from `Design-System/showcase/decisions.json` without launching server (#2429, Story 1.4). Implicit resume on subsequent invocations: `applyMockups` in `.claude/scripts/shared/showcase-resume.js` appends rows to `Mockups/.showcase-applied.jsonl`. |
+| `--help` | No | Open this command's docs page. Takes precedence over every other argument and performs no action. |
+
+**`--help` takes precedence over every other argument and performs no action:** run `node .claude/scripts/shared/command-help.js mockups`, report its output, and STOP.
 
 ```
 /mockups                           # Fully interactive, no context
@@ -38,6 +41,7 @@ Creates text-based or diagrammatic screen mockups. Fully interactive via `AskUse
 /mockups --serve --port 8080 --open
 /mockups --showcase                # Launch Living Style Guide showcase
 /mockups --apply-decisions         # Apply pending showcase decisions, no server
+/mockups --help                    # Open this command's docs page, do nothing else
 ```
 
 ## Execution Instructions
@@ -314,10 +318,10 @@ Runs standalone or after Step 8. Steps:
 1. **Resolve target:** bare `--serve` → `Mockups/`; `--serve {Name}` → `Mockups/{Name}/`. Missing target → report "Target not found: {path}. Create mockups first." → STOP.
 2. **Port:** use `--port`/`-p` if given, else `3000`. Helper handles in-use fallback internally.
 
-   **Entry point (#2590):** reported URL is browsable without an `index.html` — helper serves a directory's `index.html` when present, else a generated listing. Do **not** pre-create an index, warn about a missing one, or hand the user a deep file path instead of the root URL: a mockup set has no index (Step 5 writes `README.md`), the exact case the listing covers. Hrefs are absolute, so `/{Name}` and `/{Name}/` behave identically.
+   **Entry point (#2590):** reported URL is browsable without an `index.html` — helper serves a directory's `index.html` when present, else http-server's listing. Do **not** pre-create an index, warn about a missing one, or hand the user a deep file path instead of the root URL: a mockup set has no index (Step 5 writes `README.md`), the exact case the listing covers. `/{Name}` redirects to `/{Name}/` and hrefs are relative, so links resolve from either form.
 3. **Spawn server** via `Bash` with `run_in_background: true`:
    ```bash
-   node .claude/scripts/shared/mockups-serve.js --root <target> --port <port>
+   node .claude/scripts/shared/mockups-server.js --root <target> --port <port>
    ```
    Capture shell ID.
 4. **Read banner via `BashOutput`** until line `Serving <root> at http://localhost:<N>/` appears — extract `<N>` (actual port, may differ on fallback).
@@ -357,7 +361,8 @@ Two parts, in order. The prune is **part of** this step, and this step is **numb
 | Schema file missing | "Shared schema not found at .claude/metadata/screen-spec-schema.json" → STOP |
 | `--serve`: requested port in use | Helper falls back to next free port; command reports actual port. Not an error. |
 | `--serve`: target `Mockups/` or `Mockups/{Name}/` missing | "Target not found: {path}. Create mockups first." → STOP |
-| `--serve`: served root has no `index.html` | Expected, not an error. Helper renders a listing; report the root URL unchanged. |
+| `--serve`: served root has no `index.html` | Expected, not an error. http-server renders a listing; report the root URL unchanged. |
+| `--serve`: helper exits `Cannot find module 'http-server'` | Framework root's runtime deps not installed. Report; point at the startup dependency row (`npm ci` in the framework root). Do not fall back to another server. |
 | `--serve`: path is neither file nor directory | Helper returns 404. Not a command failure; server keeps running. |
 | `--serve --open`: browser launch fails | Warn with launch exit code; leave server running; do NOT fail command |
 **End of /mockups Command**

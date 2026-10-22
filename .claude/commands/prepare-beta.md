@@ -1,21 +1,25 @@
 ---
-version: "v0.103.0"
-description: Tag beta from feature branch (no merge to main)
-argument-hint: "[--skip-coverage] [--dry-run] [--help]"
+version: "v0.110.0"
+description: Tag a beta from a feature branch without merging to main, using the IDPF framework.
+argument-hint: "[--skip-coverage] [--skip-review] [--dry-run] [--help]"
 copyright: "Rubrical Works (c) 2026"
 ---
 
 <!-- EXTENSIBLE -->
 # /prepare-beta
 Tag a beta from a feature branch without merging to main.
-**Extension Points:** `.claude/metadata/extension-points.json` or `/extensions list --command prepare-beta`
+**Extension Points:** `.claude/metadata/extension-points.json` or `/extensions --list --command prepare-beta`
 ---
 ## Arguments
 | Argument | Description |
 |----------|-------------|
 | `--skip-coverage` | Skip coverage gate |
-| `--dry-run` | Preview without changes |
-| `--help` | Show extension points |
+| `--skip-review` | Skip the branch diff review gate (Step 2.1); skip recorded in the Summary Checklist |
+| `--dry-run` | Preview without changes; the Step 2.1 review gate reports what it would review and runs no review |
+| `--help` | Open this command's docs page. Takes precedence over every other argument and performs no action. |
+
+**`--help` takes precedence over every other argument and performs no action:** run `node .claude/scripts/shared/command-help.js prepare-beta`, report its output, and STOP.
+
 ---
 ## Execution Instructions
 **REQUIRED:** `TaskCreate` one task per numbered phase/step and one per non-empty `USER-EXTENSION` block; skip commented-out extensions. Mark `in_progress` -> `completed`. **Post-Compaction:** re-read spec, `TaskList`, resume from first incomplete task.
@@ -129,6 +133,12 @@ The script outputs JSON: `{"success": true/false, "testsRun": N, "testsPassed": 
 E2E tests validate complete workflows against the test project.
 <!-- USER-EXTENSION-END: post-validation -->
 
+### Step 2.1: Branch Diff Review Gate
+Refuses a beta (a published tag users install) with an unreviewed change or an introduced high-severity finding. Runs before Phase 3 edits CHANGELOG and Phase 4 tags; the not-on-main Pre-Check already passed, so never on `main`.
+- `--skip-review` → report `Review gate skipped (--skip-review).` and continue, even with `--dry-run`; the reference below is not read.
+- Otherwise read `{frameworkPath}/Reference/code-review-execution.md` and execute its § Release Review Gate with `<command>` = `prepare-beta` — the whole gate (base, empty diff, `lastDiffReview` freshness, inline `/code-review --diff` on a missing/stale record, `--dry-run`, severity policy), shared with `/prepare-release`.
+- The file cannot be read → **STOP** with `Review gate could not read {frameworkPath}/Reference/code-review-execution.md; /prepare-beta stopped.` The gate never passes unread.
+
 **ASK USER:** Confirm validation passed before proceeding.
 ---
 ## Phase 3: Prepare
@@ -182,6 +192,11 @@ rm .release-authorized
 
 ### Step 4.2: Create Beta Tag
 **ASK USER:** Confirm ready to tag beta.
+**Once confirmed, announce the tag to every peer before creating it (#2960)** — a pushed `v*` tag cannot be undone:
+```bash
+node .claude/scripts/shared/announce.js --event beta-starting --branch "$(git branch --show-current)" --tag "$VERSION"
+```
+Script composes the text (never hand-compose); **forced broadcast** — every addressable peer, live `/overwatch` included, whatever `broadcast` says — honoring only the master switch (`enabled: false`, `IDPF_X_SESSION=off`, `discovery: false`). `announcement.shouldSend` true → `SendMessage` to every `announcement.recipients` entry with `announcement.text`, then close out with the envelope's `dispatchReport` (`--dispatch-result sent|failed --ledger-id <id>`). A failed `SendMessage` is reported and recorded `failed`; tagging proceeds. `shouldSend` false → report `announcement.notice` once, continue. **Advisory, never a gate:** nothing awaits delivery, no follow-up is sent.
 ```bash
 git tag -a $VERSION -m "Beta $VERSION"
 echo "$VERSION | gates passed | $(git rev-parse HEAD)" > .release-authorized
@@ -191,16 +206,23 @@ exit $rc
 ```
 **Note:** tags the feature branch. No merge to main.
 **Note:** beta tags are `v*` prereleases, so `.claude/hooks/pre-push` gates them exactly as release tags — the marker is required here too. The hook only tests existence and echoes contents verbatim, so this line becomes the beta audit record. Cleanup is unconditional — the exit code is captured **before** `rm -f` and propagated after, so a failed push cannot leave a marker that silently authorizes the next tag push.
-### Step 4.3: Wait for CI Workflow
-**Conditional:** `ls .github/workflows/*.yml .github/workflows/*.yaml 2>/dev/null` first. **No workflow files found:** skip the CI wait, reporting `No CI workflows detected — skipping CI wait.` **Workflow files exist:**
+### Step 4.3: Wait for CI on the Pushed Tag
+**Conditional:** wait only if some workflow triggers on a tag:
 ```bash
-node .claude/scripts/shared/wait-for-ci.js
+grep -lE '^[[:space:]]*tags:' .github/workflows/*.yml .github/workflows/*.yaml 2>/dev/null
 ```
-**If CI fails, STOP and report.**
+**If nothing matches:** skip, reporting `No tag-triggered workflows detected — skipping beta CI wait.` **If a tag-triggered workflow exists:** wait on the run the beta tag push created:
+```bash
+node .claude/scripts/shared/wait-for-ci.js --branch $VERSION --timeout 900
+```
+**If the run fails or times out, STOP and report** its URL and conclusion.
+**Scope to the TAG, not the checked-out branch (#2889, #2653):** a tag-triggered run carries the tag name as `headBranch`; the checked-out branch would match the Step 4.1 branch-push run instead. **`--branch` is not optional (#2464):** bare, the newest run repo-wide supplies the verdict — and this is the only CI check on the beta path. `--timeout 900` states the 15-minute budget explicitly (#2257) — `wait-for-ci.js`'s `MAX_CAP`, so the whole request is enforced; a larger one is clamped and reported (#3022).
 ### Step 4.4: Update Release Notes
 ```bash
 node .claude/scripts/shared/update-release-notes.js
 ```
+**Relay the envelope's `warnings` array verbatim (#2950).** Non-empty → GitHub's Latest is a prerelease-shaped tag published as a full release (a beta from before prerelease flagging, #2584); the warning names the one-time manual remedy. Advisory: the release succeeded, nothing was edited, re-flagging is this project's own call. Empty → no report.
+**Betas never become Latest on GitHub** — a prerelease cannot hold the Latest pointer, so a new beta missing from the Latest slot is expected on its own, not a failure.
 
 <!-- USER-EXTENSION-START: post-tag -->
 ### Monitor Beta Build
@@ -229,6 +251,7 @@ For the full release: merge the feature branch to main, run `/prepare-release`.
 - [ ] Commits analyzed
 - [ ] Beta version confirmed
 - [ ] Tests passing
+- [ ] Branch diff review passed (or `--skip-review`)
 - [ ] CHANGELOG updated with beta section
 
 <!-- USER-EXTENSION-START: checklist-before-tag -->

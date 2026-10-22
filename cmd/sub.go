@@ -207,6 +207,7 @@ type subCreateOptions struct {
 	inheritLabels    bool
 	inheritAssign    bool
 	inheritMilestone bool
+	dryRun           bool
 }
 
 func newSubCreateCommand() *cobra.Command {
@@ -249,11 +250,64 @@ Examples:
 	cmd.Flags().BoolVar(&opts.inheritLabels, "inherit-labels", false, "Inherit labels from parent (same repo only)")
 	cmd.Flags().BoolVar(&opts.inheritAssign, "inherit-assignees", false, "Inherit assignees from parent (same repo only)")
 	cmd.Flags().BoolVar(&opts.inheritMilestone, "inherit-milestone", true, "Inherit milestone from parent (same repo only)")
+	cmd.Flags().BoolVar(&opts.dryRun, "dry-run", false, "Resolve the parent, labels, assignees and milestone and print what would be created, without creating anything")
 
 	_ = cmd.MarkFlagRequired("parent")
 	_ = cmd.MarkFlagRequired("title")
 
 	return cmd
+}
+
+// subCreatePreview is what sub create would write, for --dry-run.
+type subCreatePreview struct {
+	target, parent, parentTitle, milestone string
+	labels, assignees                      []string
+}
+
+// printSubCreateDryRun reports the resolved parent, target repository, labels,
+// assignees, milestone and project without creating or linking anything (#929).
+// A --project that fails to resolve is an error here, unlike the real run's
+// warning: a dry run exists to surface exactly that before anything is written.
+func printSubCreateDryRun(cmd *cobra.Command, client *api.Client, cfg *config.Config, opts *subCreateOptions, p subCreatePreview) error {
+	project := "(none)"
+	if opts.project > 0 {
+		proj, err := client.GetProject(cfg.Project.Owner, opts.project)
+		if err != nil {
+			return fmt.Errorf("failed to find project %d: %w", opts.project, err)
+		}
+		project = fmt.Sprintf("%s (%s #%d)", proj.Title, cfg.Project.Owner, opts.project)
+	}
+	orNone := func(values []string) string {
+		if len(values) == 0 {
+			return "(none)"
+		}
+		return strings.Join(values, ", ")
+	}
+	body := "(empty)"
+	switch {
+	case opts.bodyFile == "-":
+		body = "standard input"
+	case opts.bodyFile != "":
+		body = "--body-file " + opts.bodyFile
+	case opts.body != "":
+		body = "--body"
+	}
+	milestone := p.milestone
+	if milestone == "" {
+		milestone = "(none)"
+	}
+
+	w := cmd.OutOrStdout()
+	fmt.Fprintln(w, "Dry run: no issue will be created or linked.")
+	fmt.Fprintf(w, "  Repository: %s\n", p.target)
+	fmt.Fprintf(w, "  Parent:     %s: %s\n", p.parent, p.parentTitle)
+	fmt.Fprintf(w, "  Title:      %s\n", opts.title)
+	fmt.Fprintf(w, "  Body:       %s\n", body)
+	fmt.Fprintf(w, "  Labels:     %s\n", orNone(p.labels))
+	fmt.Fprintf(w, "  Assignees:  %s\n", orNone(p.assignees))
+	fmt.Fprintf(w, "  Milestone:  %s\n", milestone)
+	fmt.Fprintf(w, "  Project:    %s\n", project)
+	return nil
 }
 
 func runSubCreate(cmd *cobra.Command, opts *subCreateOptions) error {
@@ -367,6 +421,17 @@ func runSubCreate(cmd *cobra.Command, opts *subCreateOptions) error {
 		return resolveErr
 	}
 
+	if opts.dryRun {
+		return printSubCreateDryRun(cmd, client, cfg, opts, subCreatePreview{
+			target:      targetOwner + "/" + targetRepo,
+			parent:      fmt.Sprintf("%s/%s#%d", parentOwner, parentRepo, parentNumber),
+			parentTitle: parentIssue.Title,
+			labels:      labels,
+			assignees:   assignees,
+			milestone:   milestone,
+		})
+	}
+
 	// Create the new issue in target repository with extended options
 	newIssue, err := client.CreateIssueWithOptions(targetOwner, targetRepo, opts.title, opts.body, labels, assignees, milestone)
 	if err != nil {
@@ -383,15 +448,19 @@ func runSubCreate(cmd *cobra.Command, opts *subCreateOptions) error {
 		return fmt.Errorf("issue #%d created but failed to link as sub-issue of #%d: %w", newIssue.Number, parentNumber, err)
 	}
 
-	// Add to project if specified
+	// Add to project if specified. The issue already exists, so a failure here is
+	// a partial success reported after the confirmation (#938).
+	var projectErr error
 	if opts.project > 0 {
 		project, err := client.GetProject(cfg.Project.Owner, opts.project)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Warning: failed to find project %d: %v\n", opts.project, err)
+			projectErr = err
 		} else {
 			_, err := client.AddIssueToProject(project.ID, newIssue.ID)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "Warning: failed to add issue to project: %v\n", err)
+				projectErr = err
 			}
 		}
 	}
@@ -418,11 +487,19 @@ func runSubCreate(cmd *cobra.Command, opts *subCreateOptions) error {
 	if milestone != "" {
 		fmt.Fprintf(w, "  Milestone: %s\n", milestone)
 	}
-	if opts.project > 0 {
+	if opts.project > 0 && projectErr == nil {
 		fmt.Fprintf(w, "  Project: #%d\n", opts.project)
 	}
 	fmt.Fprintf(w, "🔗 %s\n", newIssue.URL)
 
+	if projectErr != nil {
+		return &api.PartialSuccessError{
+			Resource: fmt.Sprintf("sub-issue #%d", newIssue.Number),
+			URL:      newIssue.URL,
+			Steps:    []string{fmt.Sprintf("add to project %d", opts.project)},
+			Err:      projectErr,
+		}
+	}
 	return nil
 }
 
@@ -600,12 +677,14 @@ func runSubList(cmd *cobra.Command, args []string, opts *subListOptions) error {
 		result.Children = filterSubIssuesByState(subIssues, opts.state)
 	}
 
-	// Get parent
+	// Get parent. A failed fetch is an error, as for children, not "no parent"
+	// (#939).
 	if opts.relation == "parent" || opts.relation == "siblings" || opts.relation == "all" {
 		parentIssue, err := client.GetParentIssue(issueOwner, issueRepo, issueNumber)
-		if err == nil && parentIssue != nil {
-			result.Parent = parentIssue
+		if err != nil {
+			return fmt.Errorf("failed to get parent issue: %w", err)
 		}
+		result.Parent = parentIssue
 	}
 
 	// Get siblings (other children of parent)
@@ -622,16 +701,17 @@ func runSubList(cmd *cobra.Command, args []string, opts *subListOptions) error {
 			}
 
 			siblings, err := client.GetSubIssues(parentOwner, parentRepo, result.Parent.Number)
-			if err == nil {
-				// Filter out the current issue from siblings
-				var filteredSiblings []api.SubIssue
-				for _, sib := range siblings {
-					if sib.Number != issueNumber {
-						filteredSiblings = append(filteredSiblings, sib)
-					}
-				}
-				result.Siblings = filterSubIssuesByState(filteredSiblings, opts.state)
+			if err != nil {
+				return fmt.Errorf("failed to get siblings: %w", err)
 			}
+			// Filter out the current issue from siblings
+			var filteredSiblings []api.SubIssue
+			for _, sib := range siblings {
+				if sib.Number != issueNumber {
+					filteredSiblings = append(filteredSiblings, sib)
+				}
+			}
+			result.Siblings = filterSubIssuesByState(filteredSiblings, opts.state)
 		}
 	}
 

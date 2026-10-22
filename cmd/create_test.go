@@ -27,6 +27,7 @@ type mockCreateClient struct {
 	lastAssignees []string
 	lastMilestone string
 	setFieldCalls []createSetFieldCall
+	createCalls   int
 
 	// Error injection
 	createIssueErr          error
@@ -58,6 +59,7 @@ func newMockCreateClient() *mockCreateClient {
 }
 
 func (m *mockCreateClient) CreateIssueWithOptions(owner, repo, title, body string, labels, assignees []string, milestone string) (*api.Issue, error) {
+	m.createCalls++
 	if m.createIssueErr != nil {
 		return nil, m.createIssueErr
 	}
@@ -1764,6 +1766,170 @@ func TestRunCreateWithDeps_GetProjectError(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "failed to get project") {
 		t.Errorf("expected 'failed to get project' error, got: %v", err)
+	}
+}
+
+// #929: every lookup create needs runs before the issue is created, on both the
+// flag path and the --from-file path, so a failed lookup writes nothing.
+func TestRunCreate_LookupFailureCreatesNothing(t *testing.T) {
+	dir := t.TempDir()
+	issueFile := filepath.Join(dir, "issue.yml")
+	if err := os.WriteFile(issueFile, []byte("title: From File\nbody: body\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	paths := map[string]func() *createOptions{
+		"flag path":      func() *createOptions { return &createOptions{title: "Test Issue", release: "current"} },
+		"from-file path": func() *createOptions { return &createOptions{fromFile: issueFile, release: "current"} },
+	}
+	failures := map[string]struct {
+		inject  func(m *mockCreateClient)
+		wantErr string
+	}{
+		"get project":        {func(m *mockCreateClient) { m.getProjectErr = errors.New("boom") }, "failed to get project"},
+		"get project fields": {func(m *mockCreateClient) { m.getProjectFieldsErr = errors.New("boom") }, "failed to get project fields"},
+		"branch lookup":      {func(m *mockCreateClient) { m.getOpenIssuesByLabelErr = errors.New("boom") }, "failed to get branch issues"},
+		"no active branch":   {func(m *mockCreateClient) { m.issuesByLabel = nil }, "no active branch found"},
+	}
+
+	for pathName, newOpts := range paths {
+		for failName, f := range failures {
+			t.Run(pathName+"/"+failName, func(t *testing.T) {
+				mock := newMockCreateClient()
+				f.inject(mock)
+				cfg := &config.Config{Project: config.Project{Owner: "test-org", Number: 1}}
+
+				err := runCreateWithDeps(newCreateCommand(), newOpts(), cfg, mock, "owner", "repo")
+				if err == nil || !strings.Contains(err.Error(), f.wantErr) {
+					t.Fatalf("expected error containing %q, got: %v", f.wantErr, err)
+				}
+				if mock.createCalls != 0 {
+					t.Errorf("expected no issue to be created when the %s lookup fails; CreateIssueWithOptions called %d time(s)", failName, mock.createCalls)
+				}
+			})
+		}
+	}
+}
+
+// #929: once the issue exists, a later failure is a partial success — the error
+// names the new issue, its URL and the failed step, and maps to exit 6 — so a
+// caller does not retry and file a duplicate. Covers both creation paths.
+func TestRunCreate_PostCreateFailureIsPartialSuccess(t *testing.T) {
+	dir := t.TempDir()
+	issueFile := filepath.Join(dir, "issue.yml")
+	if err := os.WriteFile(issueFile, []byte("title: From File\nbody: body\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	paths := map[string]func() *createOptions{
+		"flag path":      func() *createOptions { return &createOptions{title: "Test Issue", status: "todo", priority: "p1"} },
+		"from-file path": func() *createOptions { return &createOptions{fromFile: issueFile, status: "todo", priority: "p1"} },
+	}
+	failures := map[string]struct {
+		inject    func(m *mockCreateClient)
+		wantSteps []string
+	}{
+		"add to project": {func(m *mockCreateClient) { m.addIssueToProjectErr = errors.New("add failed") }, []string{"add to project"}},
+		"field updates":  {func(m *mockCreateClient) { m.setProjectItemFieldErr = errors.New("field failed") }, []string{"set status", "set priority"}},
+	}
+
+	for pathName, newOpts := range paths {
+		for failName, f := range failures {
+			t.Run(pathName+"/"+failName, func(t *testing.T) {
+				mock := newMockCreateClient()
+				f.inject(mock)
+				cfg := &config.Config{Project: config.Project{Owner: "test-org", Number: 1}}
+
+				err := runCreateWithDeps(newCreateCommand(), newOpts(), cfg, mock, "owner", "repo")
+				if err == nil {
+					t.Fatal("expected a partial-success error")
+				}
+				var partial *api.PartialSuccessError
+				if !errors.As(err, &partial) {
+					t.Fatalf("expected *api.PartialSuccessError (exit %d), got %T: %v", api.ExitCodePartialSuccess, err, err)
+				}
+				msg := err.Error()
+				for _, want := range append([]string{"issue #42", "https://github.com/owner/repo/issues/42"}, f.wantSteps...) {
+					if !strings.Contains(msg, want) {
+						t.Errorf("expected %q in error, got: %s", want, msg)
+					}
+				}
+			})
+		}
+	}
+}
+
+// #929: --dry-run resolves everything create would use and prints it, on both
+// creation paths, without creating the issue or writing any field.
+func TestRunCreate_DryRunWritesNothing(t *testing.T) {
+	dir := t.TempDir()
+	issueFile := filepath.Join(dir, "issue.yml")
+	if err := os.WriteFile(issueFile, []byte("title: From File\nbody: body\nlabels: [bug]\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	bodyFile := filepath.Join(dir, "body.md")
+	if err := os.WriteFile(bodyFile, []byte("Body from file"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	tests := map[string]struct {
+		opts *createOptions
+		want []string
+	}{
+		"flag path": {
+			opts: &createOptions{title: "Dry Issue", bodyFile: bodyFile, status: "todo", priority: "p1", release: "current", labels: []string{"enhancement"}, dryRun: true},
+			want: []string{"Dry run", "owner/repo", "Test Project", "Dry Issue", "--body-file " + bodyFile, "Todo", "P1", "v2.0.0", "enhancement"},
+		},
+		"from-file path": {
+			opts: &createOptions{fromFile: issueFile, dryRun: true},
+			want: []string{"Dry run", "owner/repo", "Test Project", "From File", "--from-file " + issueFile, "bug"},
+		},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			mock := newMockCreateClient()
+			mock.issuesByLabel = []api.Issue{{Number: 9, Title: "Branch: release/v2.0.0", Labels: []api.Label{{Name: "branch"}, {Name: "active"}}}}
+			cfg := &config.Config{
+				Project: config.Project{Owner: "test-org", Number: 1},
+				Fields: map[string]config.Field{
+					"status":   {Field: "Status", Values: map[string]string{"todo": "Todo"}},
+					"priority": {Field: "Priority", Values: map[string]string{"p1": "P1"}},
+				},
+			}
+			cmd := newCreateCommand()
+			buf := new(bytes.Buffer)
+			cmd.SetOut(buf)
+
+			if err := runCreateWithDeps(cmd, tt.opts, cfg, mock, "owner", "repo"); err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if mock.createCalls != 0 || len(mock.setFieldCalls) != 0 {
+				t.Errorf("dry run wrote: %d create call(s), %d field write(s)", mock.createCalls, len(mock.setFieldCalls))
+			}
+			for _, w := range tt.want {
+				if !strings.Contains(buf.String(), w) {
+					t.Errorf("expected %q in dry-run output, got:\n%s", w, buf.String())
+				}
+			}
+		})
+	}
+}
+
+func TestCreateCommand_HasDryRunFlag(t *testing.T) {
+	if newCreateCommand().Flags().Lookup("dry-run") == nil {
+		t.Fatal("Expected create to define --dry-run")
+	}
+}
+
+// #929: total failure — nothing was created — stays a plain error (exit 1).
+func TestRunCreateWithDeps_CreateFailureIsNotPartialSuccess(t *testing.T) {
+	mock := newMockCreateClient()
+	mock.createIssueErr = errors.New("API error")
+	cfg := &config.Config{Project: config.Project{Owner: "test-org", Number: 1}}
+
+	err := runCreateWithDeps(newCreateCommand(), &createOptions{title: "Test Issue"}, cfg, mock, "owner", "repo")
+	if err == nil || api.IsPartialSuccess(err) {
+		t.Fatalf("expected a plain error when creation itself fails, got: %v", err)
 	}
 }
 

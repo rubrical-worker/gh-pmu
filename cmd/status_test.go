@@ -419,6 +419,26 @@ func TestRunStatusUpdate_RefreshesConfigAliases(t *testing.T) {
 	}
 }
 
+// An issue-backed Status cached with its kind but not its issue field ID is an
+// entry its write cannot use; the cache must carry the whole classification
+// (#933).
+func TestRefreshStatusConfig_IssueBackedStatusRecordsIssueField(t *testing.T) {
+	cfg := &config.Config{}
+	field := &api.ProjectField{
+		ID: "PVTSSF_status", Name: "Status", DataType: "SINGLE_SELECT",
+		IssueField: &api.IssueFieldInfo{ID: "IFSS_status", DataType: "SINGLE_SELECT"},
+	}
+	refreshStatusConfig(cfg, field, []api.FieldOption{{ID: "IFSSO_backlog", Name: "Backlog"}}, statusPlan{})
+
+	if cfg.Metadata == nil || len(cfg.Metadata.Fields) != 1 {
+		t.Fatalf("expected one Status metadata entry, got %+v", cfg.Metadata)
+	}
+	meta := cfg.Metadata.Fields[0]
+	if meta.Kind != api.FieldKindIssueField || meta.IssueFieldID != "IFSS_status" || meta.IssueFieldDataType != "SINGLE_SELECT" {
+		t.Errorf("Status metadata = %+v, want ISSUE_FIELD with IFSS_status / SINGLE_SELECT", meta)
+	}
+}
+
 func TestRunStatusUpdate_CachedFieldRefuses(t *testing.T) {
 	client := &mockStatusClient{fields: []api.ProjectField{{ID: "F", Name: "Status", DataType: "SINGLE_SELECT", FromCache: true,
 		Options: []api.FieldOption{{ID: "bl", Name: "Backlog"}}}}}

@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -376,18 +377,7 @@ func runInitExistingProject(cmd *cobra.Command, opts *initOptions) error {
 		ProjectID: project.ID,
 	}
 	for _, f := range projectFields {
-		fm := FieldMetadata{
-			ID:       f.ID,
-			Name:     f.Name,
-			DataType: f.DataType,
-		}
-		for _, opt := range f.Options {
-			fm.Options = append(fm.Options, OptionMetadata{
-				ID:   opt.ID,
-				Name: opt.Name,
-			})
-		}
-		metadata.Fields = append(metadata.Fields, fm)
+		metadata.Fields = append(metadata.Fields, fieldMetadataFromProjectField(f))
 	}
 
 	// Create config
@@ -513,8 +503,9 @@ type DefaultsConfig struct {
 
 // FieldMapping represents a field alias mapping.
 type FieldMapping struct {
-	Field  string            `yaml:"field" json:"field"`
-	Values map[string]string `yaml:"values" json:"values"`
+	Field      string            `yaml:"field" json:"field"`
+	Values     map[string]string `yaml:"values" json:"values"`
+	IssueField string            `yaml:"issue_field,omitempty" json:"issue_field,omitempty"`
 }
 
 // ProjectMetadata holds cached project information from GitHub API.
@@ -529,6 +520,50 @@ type FieldMetadata struct {
 	Name     string
 	DataType string
 	Options  []OptionMetadata
+	// Kind, IssueFieldID and IssueFieldDataType record whether the field is an
+	// org issue field and which one (#932).
+	Kind               string
+	IssueFieldID       string
+	IssueFieldDataType string
+}
+
+// fieldMetadataFromProjectField converts a discovered field into the metadata
+// cached in .gh-pmu.json, including its org issue field classification. A field
+// fetched without classification keeps no kind, so the cache guard refuses it
+// rather than reading it as a project field (#933).
+func fieldMetadataFromProjectField(f api.ProjectField) FieldMetadata {
+	fm := FieldMetadata{ID: f.ID, Name: f.Name, DataType: f.DataType, Kind: f.Kind()}
+	if f.Unclassified {
+		fm.Kind = ""
+	}
+	if f.IssueField != nil {
+		fm.IssueFieldID = f.IssueField.ID
+		fm.IssueFieldDataType = f.IssueField.DataType
+	}
+	for _, opt := range f.Options {
+		fm.Options = append(fm.Options, OptionMetadata{ID: opt.ID, Name: opt.Name})
+	}
+	return fm
+}
+
+// configFieldMetadata converts a field into a config metadata entry carrying
+// the same classification fieldMetadataFromProjectField records, with options
+// supplied by the caller. Commands that update .gh-pmu.json after init use it
+// so they never cache a partial classification (#933).
+func configFieldMetadata(f api.ProjectField, options []api.FieldOption) config.FieldMetadata {
+	fm := fieldMetadataFromProjectField(f)
+	meta := config.FieldMetadata{
+		Name:               fm.Name,
+		ID:                 fm.ID,
+		DataType:           fm.DataType,
+		Kind:               fm.Kind,
+		IssueFieldID:       fm.IssueFieldID,
+		IssueFieldDataType: fm.IssueFieldDataType,
+	}
+	for _, opt := range options {
+		meta.Options = append(meta.Options, config.OptionMetadata{Name: opt.Name, ID: opt.ID})
+	}
+	return meta
 }
 
 // OptionMetadata holds option information for single-select fields.
@@ -550,10 +585,13 @@ type MetadataProject struct {
 
 // MetadataField represents a field in the metadata section.
 type MetadataField struct {
-	Name     string                `yaml:"name" json:"name"`
-	ID       string                `yaml:"id" json:"id"`
-	DataType string                `yaml:"data_type" json:"data_type"`
-	Options  []MetadataFieldOption `yaml:"options,omitempty" json:"options,omitempty"`
+	Name               string                `yaml:"name" json:"name"`
+	ID                 string                `yaml:"id" json:"id"`
+	DataType           string                `yaml:"data_type" json:"data_type"`
+	Options            []MetadataFieldOption `yaml:"options,omitempty" json:"options,omitempty"`
+	Kind               string                `yaml:"kind,omitempty" json:"kind,omitempty"`
+	IssueFieldID       string                `yaml:"issue_field_id,omitempty" json:"issue_field_id,omitempty"`
+	IssueFieldDataType string                `yaml:"issue_field_data_type,omitempty" json:"issue_field_data_type,omitempty"`
 }
 
 // MetadataFieldOption represents a field option.
@@ -673,9 +711,12 @@ func writeConfigWithMetadata(dir string, cfg *InitConfig, metadata *ProjectMetad
 	var metadataFields []MetadataField
 	for _, f := range metadata.Fields {
 		mf := MetadataField{
-			Name:     f.Name,
-			ID:       f.ID,
-			DataType: f.DataType,
+			Name:               f.Name,
+			ID:                 f.ID,
+			DataType:           f.DataType,
+			Kind:               f.Kind,
+			IssueFieldID:       f.IssueFieldID,
+			IssueFieldDataType: f.IssueFieldDataType,
 		}
 		for _, opt := range f.Options {
 			mf.Options = append(mf.Options, MetadataFieldOption{
@@ -698,6 +739,20 @@ func writeConfigWithMetadata(dir string, cfg *InitConfig, metadata *ProjectMetad
 		}
 		if prev, ok := existingCfg.Fields["branch"]; ok && prev.Field != "" {
 			fieldMappings["branch"] = FieldMapping{Field: prev.Field}
+		}
+		// Keep user-set issue field overrides (#932) across re-init. An
+		// override on an alias init does not regenerate keeps its whole alias:
+		// the override means nothing without it (#936).
+		for alias, prev := range existingCfg.Fields {
+			if prev.IssueField == "" {
+				continue
+			}
+			if m, ok := fieldMappings[alias]; ok {
+				m.IssueField = prev.IssueField
+				fieldMappings[alias] = m
+				continue
+			}
+			fieldMappings[alias] = FieldMapping{Field: prev.Field, Values: prev.Values, IssueField: prev.IssueField}
 		}
 	}
 
@@ -733,11 +788,21 @@ func writeConfigWithMetadata(dir string, cfg *InitConfig, metadata *ProjectMetad
 		},
 	}
 
-	jsonData, err := json.MarshalIndent(configFile, "", "  ")
+	compact, err := json.Marshal(configFile)
 	if err != nil {
 		return fmt.Errorf("failed to marshal JSON config: %w", err)
 	}
-	jsonData = append(jsonData, '\n')
+	// Re-init rebuilds the file from configFile; keys it does not own, such as
+	// configIntegrity, are carried over from the existing file (#936).
+	previous, _ := os.ReadFile(existingJSONPath)
+	if compact, err = config.MergeUnownedKeys(compact, previous, configFile); err != nil {
+		return fmt.Errorf("failed to marshal JSON config: %w", err)
+	}
+	var indented bytes.Buffer
+	if err := json.Indent(&indented, compact, "", "  "); err != nil {
+		return fmt.Errorf("failed to marshal JSON config: %w", err)
+	}
+	jsonData := append(indented.Bytes(), '\n')
 	jsonPath := filepath.Join(dir, config.ConfigFileName)
 	if err := os.WriteFile(jsonPath, jsonData, 0600); err != nil {
 		return fmt.Errorf("failed to write config file: %w", err)

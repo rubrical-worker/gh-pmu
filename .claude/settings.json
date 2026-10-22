@@ -6,8 +6,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node .claude/hooks/workflow-trigger.js",
-            "timeout": 10000
+            "command": "node \"${CLAUDE_PROJECT_DIR}/.claude/hooks/workflow-trigger.js\"",
+            "timeout": 10
           }
         ]
       }
@@ -18,8 +18,18 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node .claude/hooks/block-cd.js",
-            "timeout": 5000
+            "command": "node \"${CLAUDE_PROJECT_DIR}/.claude/hooks/shell-safety-hook.js\"",
+            "timeout": 5
+          }
+        ]
+      },
+      {
+        "matcher": "Bash|PowerShell",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PROJECT_DIR}/.claude/hooks/block-cd.js\"",
+            "timeout": 5
           }
         ]
       }
@@ -30,8 +40,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node .claude/hooks/startup-hook.js",
-            "timeout": 60000
+            "command": "node \"${CLAUDE_PROJECT_DIR}/.claude/hooks/startup-hook.js\"",
+            "timeout": 60
           }
         ]
       },
@@ -40,8 +50,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node .claude/hooks/clear-hook.js",
-            "timeout": 5000
+            "command": "node \"${CLAUDE_PROJECT_DIR}/.claude/hooks/clear-hook.js\"",
+            "timeout": 5
           }
         ]
       },
@@ -50,8 +60,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node .claude/hooks/resume-hook.js",
-            "timeout": 5000
+            "command": "node \"${CLAUDE_PROJECT_DIR}/.claude/hooks/resume-hook.js\"",
+            "timeout": 5
           }
         ]
       },
@@ -60,11 +70,42 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node .claude/hooks/compact-hook.js",
-            "timeout": 5000
+            "command": "node \"${CLAUDE_PROJECT_DIR}/.claude/hooks/compact-hook.js\"",
+            "timeout": 5
           }
         ]
       }
+    ],
+    "WorktreeCreate": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PROJECT_DIR}/.claude/hooks/worktree-create-hook.js\"",
+            "timeout": 120
+          }
+        ]
+      }
+    ],
+    "WorktreeRemove": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PROJECT_DIR}/.claude/hooks/worktree-remove-hook.js\"",
+            "timeout": 120
+          }
+        ]
+      }
+    ]
+  },
+  "permissions": {
+    "deny": [
+      "Edit(/.claude/settings.json)",
+      "Bash(git worktree remove *)",
+      "PowerShell(git worktree remove *)"
     ]
   }
 }

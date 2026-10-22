@@ -1043,6 +1043,94 @@ func TestListCommand_HasJSONFlag(t *testing.T) {
 	}
 }
 
+// parseJSONFlagCommand parses args into cmd's flags and runs its PreRunE, the
+// point where --json is validated before any config load or API call (#926).
+// It never calls RunE, so these tests stay offline.
+func parseJSONFlagCommand(t *testing.T, cmd *cobra.Command, args []string) error {
+	t.Helper()
+	if err := cmd.ParseFlags(args); err != nil {
+		return err
+	}
+	if err := cmd.ValidateArgs(cmd.Flags().Args()); err != nil {
+		return err
+	}
+	if cmd.PreRunE == nil {
+		t.Fatalf("%s has no PreRunE; --json is not validated before the command runs", cmd.Name())
+	}
+	return cmd.PreRunE(cmd, cmd.Flags().Args())
+}
+
+func TestListCommand_JSONValueIsRequired(t *testing.T) {
+	flag := newListCommand().Flags().Lookup("json")
+	if flag.NoOptDefVal != "" {
+		t.Errorf("--json NoOptDefVal = %q, want none: an optional value makes `--json status` drop the field (#926)", flag.NoOptDefVal)
+	}
+	if err := newListCommand().ParseFlags([]string{"--json"}); err == nil {
+		t.Error("Expected bare --json to be rejected; field listing moved to --json-fields")
+	}
+}
+
+func TestListCommand_JSONSpaceFormMatchesEqualsForm(t *testing.T) {
+	spaced := newListCommand()
+	if err := parseJSONFlagCommand(t, spaced, []string{"--json", "number,title"}); err != nil {
+		t.Fatalf("--json number,title: unexpected error: %v", err)
+	}
+	equals := newListCommand()
+	if err := parseJSONFlagCommand(t, equals, []string{"--json=number,title"}); err != nil {
+		t.Fatalf("--json=number,title: unexpected error: %v", err)
+	}
+	a, _ := spaced.Flags().GetString("json")
+	b, _ := equals.Flags().GetString("json")
+	if a != b || a != "number,title" {
+		t.Errorf("space form parsed %q, equals form parsed %q; want both \"number,title\"", a, b)
+	}
+}
+
+func TestListCommand_JSONSpaceFormUnknownFieldExitsNonZero(t *testing.T) {
+	err := parseJSONFlagCommand(t, newListCommand(), []string{"--json", "status", "--limit", "1"})
+	if err == nil {
+		t.Fatal("Expected `list --json status` to fail: status is not a list --json field")
+	}
+	if !strings.Contains(err.Error(), "--json=status") {
+		t.Errorf("Expected error to name --json=status, got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "--json-fields") {
+		t.Errorf("Expected error to point at --json-fields, got: %v", err)
+	}
+}
+
+func TestListCommand_EmptyJSONValueRejected(t *testing.T) {
+	err := parseJSONFlagCommand(t, newListCommand(), []string{"--json="})
+	if err == nil {
+		t.Fatal("Expected --json= with no fields to be rejected rather than silently printing the table")
+	}
+	if !strings.Contains(err.Error(), "--json-fields") {
+		t.Errorf("Expected error to point at --json-fields, got: %v", err)
+	}
+}
+
+func TestListCommand_RejectsStrayPositional(t *testing.T) {
+	if err := parseJSONFlagCommand(t, newListCommand(), []string{"status"}); err == nil {
+		t.Error("Expected a stray positional argument to be rejected")
+	}
+}
+
+func TestListCommand_JSONFieldsListsFields(t *testing.T) {
+	cmd := newListCommand()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetErr(buf)
+	cmd.SetArgs([]string{"--json-fields"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("list --json-fields: unexpected error: %v", err)
+	}
+	for _, field := range listCommandJSONFields {
+		if !strings.Contains(buf.String(), field) {
+			t.Errorf("Expected --json-fields output to include %q, got:\n%s", field, buf.String())
+		}
+	}
+}
+
 func TestListCommand_HasSubIssuesFlag(t *testing.T) {
 	cmd := NewRootCommand()
 	listCmd, _, err := cmd.Find([]string{"list"})

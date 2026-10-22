@@ -25,15 +25,26 @@ concurrency:
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/') }}
 
 jobs:
+  # One scan per target GOOS (#930). What differs by platform is which files
+  # compile, not the runner OS, and securego/gosec is a Docker container action
+  # that only runs on Linux runners anyway — so the matrix sets GOOS for the
+  # scan rather than the runner. Each upload gets its own SARIF category, or
+  # the three results would overwrite each other in code scanning.
   gosec:
-    name: Security Scan
+    name: Security Scan (${{ matrix.goos }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        goos: [linux, darwin, windows]
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
       - name: Run Gosec
         uses: securego/gosec@master
+        env:
+          GOOS: ${{ matrix.goos }}
         with:
           # G304 excluded: CLI tool reads user-supplied file paths by design
           # G204 excluded: remaining calls are git subprocess with hardcoded binary name
@@ -43,3 +54,4 @@ jobs:
         uses: github/codeql-action/upload-sarif@v3
         with:
           sarif_file: gosec-results.sarif
+          category: gosec-${{ matrix.goos }}

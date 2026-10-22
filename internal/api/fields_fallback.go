@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 	"sync"
 
 	"github.com/rubrical-works/gh-pmu/internal/config"
@@ -24,6 +25,11 @@ type cachedFieldShape struct {
 	ID       string
 	DataType string
 	Options  []cachedOptionShape
+	// Kind, IssueFieldID and IssueFieldDataType carry the org issue field
+	// classification (#932); Kind is empty in caches that predate it.
+	Kind               string
+	IssueFieldID       string
+	IssueFieldDataType string
 }
 
 type cachedOptionShape struct {
@@ -89,13 +95,49 @@ func defaultFieldsCacheLoader() ([]ProjectField, error) {
 
 	shapes := make([]cachedFieldShape, 0, len(cfg.Metadata.Fields))
 	for _, fm := range cfg.Metadata.Fields {
-		s := cachedFieldShape{Name: fm.Name, ID: fm.ID, DataType: fm.DataType}
+		s := cachedFieldShape{
+			Name: fm.Name, ID: fm.ID, DataType: fm.DataType,
+			Kind: fm.Kind, IssueFieldID: fm.IssueFieldID, IssueFieldDataType: fm.IssueFieldDataType,
+		}
 		for _, opt := range fm.Options {
 			s.Options = append(s.Options, cachedOptionShape{Name: opt.Name, ID: opt.ID})
 		}
 		shapes = append(shapes, s)
 	}
+	if err := checkCachedIssueFieldClassification(shapes); err != nil {
+		return nil, err
+	}
 	return projectFieldsFromMetadataShape(shapes), nil
+}
+
+// checkCachedIssueFieldClassification refuses a cache whose entries are not
+// classified (#932). A cache written before org issue fields were detected, or
+// by an init that could not classify a field, stores no kind, and proceeding on
+// it routes an issue-backed field to the project-field write. Any data type can
+// be issue-backed — the single-select-only check let a DATE field through
+// (#933) — so every entry without a kind is refused, as is an issue field entry
+// missing the issue field ID its write needs.
+func checkCachedIssueFieldClassification(shapes []cachedFieldShape) error {
+	var unclassified, incomplete []string
+	for _, s := range shapes {
+		switch {
+		case s.Kind == "":
+			unclassified = append(unclassified, fmt.Sprintf("%q", s.Name))
+		case s.Kind == FieldKindIssueField && s.IssueFieldID == "":
+			incomplete = append(incomplete, fmt.Sprintf("%q", s.Name))
+		}
+	}
+	var problems []string
+	if len(unclassified) > 0 {
+		problems = append(problems, fmt.Sprintf("field(s) %s have no recorded kind", strings.Join(unclassified, ", ")))
+	}
+	if len(incomplete) > 0 {
+		problems = append(problems, fmt.Sprintf("issue field(s) %s have no recorded issue field ID", strings.Join(incomplete, ", ")))
+	}
+	if len(problems) == 0 {
+		return nil
+	}
+	return fmt.Errorf("cached field metadata is not classified for organization issue fields (%s) — run 'gh pmu init' to refresh .gh-pmu.json", strings.Join(problems, "; "))
 }
 
 // projectFieldsFromMetadataShape is a pure converter from cached metadata
@@ -111,6 +153,9 @@ func projectFieldsFromMetadataShape(shapes []cachedFieldShape) []ProjectField {
 		pf := ProjectField{ID: s.ID, Name: s.Name, DataType: s.DataType}
 		for _, opt := range s.Options {
 			pf.Options = append(pf.Options, FieldOption{ID: opt.ID, Name: opt.Name})
+		}
+		if s.Kind == FieldKindIssueField {
+			pf.IssueField = &IssueFieldInfo{ID: s.IssueFieldID, DataType: s.IssueFieldDataType}
 		}
 		out = append(out, pf)
 	}
@@ -203,6 +248,13 @@ func refreshCachedFields(fetcher ProjectFieldByNameFetcher, projectID string, ca
 	refreshed := make([]ProjectField, 0, len(cached))
 	var successes, failures int
 	for _, f := range cached {
+		// The per-name lookup reads the project side only, which for an org
+		// issue field is an option-less projection; refreshing would discard
+		// the issue field classification, so keep the cached entry (#932).
+		if f.IssueField != nil {
+			refreshed = append(refreshed, f)
+			continue
+		}
 		fresh, err := fetcher(projectID, f.Name)
 		if err != nil || fresh == nil {
 			refreshed = append(refreshed, f)

@@ -1,14 +1,14 @@
 {
   "version": 1,
-  "lastRun": "2026-07-13",
+  "lastRun": "2026-10-22T22:41:58.319Z",
   "charter": {
-    "contentHash": "sha256:76b366bf93df508cec0b2b3dfa0fb8a5ea2cbb557ddaf5bea0598e475023350d"
+    "contentHash": "sha256:9549d1555ebb13b1e9092f835815b04fa9e1c873efe761d137fbafac882364f3"
   },
   "files": {
     "main.go": {
-      "contentHash": "sha256:f4b5115717dfac4dd9957731e5dee3dc0bb11231d78bd0461f8a9b594552b288",
+      "contentHash": "sha256:5f39e1adf83c384194576d292d638257cbb901cb144e11812187746fa0063ea9",
       "status": "approved",
-      "reviewedAt": "2026-07-13",
+      "reviewedAt": "2026-10-22",
       "findingCount": 0,
       "findings": [],
       "issueRefs": [],
@@ -18,9 +18,9 @@
       ]
     },
     "cmd/accept.go": {
-      "contentHash": "sha256:6af783f4de41a3c43cbd03b1d372f4a54977a06421f8a453de1339c7096497ed",
+      "contentHash": "sha256:9f325d6fb52388b243c0ca6a8d6cbb8138833e0ef6cdd14df85f6f6bbb664a0f",
       "status": "approved",
-      "reviewedAt": "2026-07-13",
+      "reviewedAt": "2026-10-22",
       "findingCount": 0,
       "findings": [],
       "issueRefs": [],
@@ -34,10 +34,10 @@
       ]
     },
     "cmd/board.go": {
-      "contentHash": "sha256:9b080150caa8a2838bfbb76da6ca7e5da121773a3958b8e8a11713d7b532dc90",
-      "status": "flagged",
-      "reviewedAt": "2026-07-13",
-      "findingCount": 4,
+      "contentHash": "sha256:cfa94f35e7ebe10f17396d188ff4a08bf584136a6b72694f7f6607929822ccea",
+      "status": "approved",
+      "reviewedAt": "2026-10-22",
+      "findingCount": 0,
       "findings": [],
       "issueRefs": [
         868
@@ -48,14 +48,34 @@
       ]
     },
     "cmd/branch.go": {
-      "contentHash": "sha256:48113c2af0c744c08f88173e92a2eb9a89605022203f7ac91844f55c67fa8730",
+      "contentHash": "sha256:a15bfb9b94fff791bde4a4cb51cc38811a3d3940570263f21735b90f9f358018",
       "status": "flagged",
-      "reviewedAt": "2026-07-13",
-      "findingCount": 6,
-      "findings": [],
+      "reviewedAt": "2026-10-22",
+      "findingCount": 2,
+      "findings": [
+        {
+          "file": "cmd/branch.go",
+          "startLine": 732,
+          "endLine": 743,
+          "category": "correctness",
+          "severity": "medium",
+          "description": "branch add fails after setting Branch when the issue already has a parent",
+          "tag": "pre-existing"
+        },
+        {
+          "file": "cmd/branch.go",
+          "startLine": 377,
+          "endLine": 401,
+          "category": "correctness",
+          "severity": "low",
+          "description": "branch current --json=, passes; '*' documented but rejected",
+          "tag": "introduced"
+        }
+      ],
       "issueRefs": [
         862,
-        871
+        871,
+        938
       ],
       "domains": [
         "security",
@@ -110,11 +130,22 @@
       ]
     },
     "cmd/create.go": {
-      "contentHash": "sha256:90abed2fef1816e7d2c3d9bddd26cbfa59051a05d70f61eb3fee8d66e1ccff3b",
+      "contentHash": "sha256:eec16f0072fdfe4158ea93f969dbc80c70c8bbdb1571e3074d4a78ad64d51d2c",
       "status": "flagged",
-      "reviewedAt": "2026-07-13",
-      "findingCount": 4,
-      "findings": [],
+      "reviewedAt": "2026-10-22",
+      "findingCount": 1,
+      "findings": [
+        {
+          "file": "cmd/create.go",
+          "startLine": 419,
+          "endLine": 422,
+          "category": "maintainability",
+          "severity": "low",
+          "description": "printCreatedIssue bypasses cmd.OutOrStdout",
+          "tag": "introduced",
+          "issue": null
+        }
+      ],
       "issueRefs": [
         863,
         864
@@ -139,12 +170,15 @@
       ]
     },
     "cmd/field.go": {
-      "contentHash": "sha256:81900baae420642d239f2ffa1bdad8c8c06600acb1f01f8d44b1ba3be7ae0007",
-      "status": "flagged",
-      "reviewedAt": "2026-07-13",
-      "findingCount": 2,
+      "contentHash": "sha256:de1793f142d75aa4e31ea444f2d34b7ab8b1ba87b621d48c57dbd25d570c35f6",
+      "status": "approved",
+      "reviewedAt": "2026-10-22",
+      "findingCount": 0,
       "findings": [],
-      "issueRefs": [],
+      "issueRefs": [
+        933,
+        938
+      ],
       "domains": [
         "security",
         "performance"
@@ -189,14 +223,44 @@
       ]
     },
     "cmd/init.go": {
-      "contentHash": "sha256:5de68f716ef3381c334cf4c1cbe59b027db73f7d224cf575c9a73f19aeb10a0a",
+      "contentHash": "sha256:38ac52b82f971e3519f677a8a253eaeb4473d18fe400804c1249b25198de676a",
       "status": "flagged",
-      "reviewedAt": "2026-07-13",
+      "reviewedAt": "2026-10-22",
       "findingCount": 3,
-      "findings": [],
+      "findings": [
+        {
+          "file": "cmd/init.go",
+          "startLine": 96,
+          "endLine": 233,
+          "category": "correctness",
+          "severity": "medium",
+          "description": "init --source-project can read another project's cached fields",
+          "tag": "pre-existing"
+        },
+        {
+          "file": "cmd/init.go",
+          "startLine": 130,
+          "endLine": 145,
+          "category": "correctness",
+          "severity": "medium",
+          "description": "init --yes from a subdirectory shadows the parent config",
+          "tag": "pre-existing"
+        },
+        {
+          "file": "cmd/init.go",
+          "startLine": 222,
+          "endLine": 238,
+          "category": "error-handling",
+          "severity": "low",
+          "description": "init --source-project omits the \"Created .gh-pmu.json\" line when it returns partial success after a refetch failure, though the config was written",
+          "tag": "pre-existing"
+        }
+      ],
       "issueRefs": [
         865,
-        874
+        874,
+        933,
+        936
       ],
       "domains": [
         "security",
@@ -204,12 +268,14 @@
       ]
     },
     "cmd/init_atomic.go": {
-      "contentHash": "sha256:c08d1cb2cb603ba8ed35ce91c8eec31d79c78bd0fa94e6054bbe73bfe9a58731",
+      "contentHash": "sha256:742d4567133148e686acc90ed2a3d4e5cbd08499f0a4a7eb8d089daf8d33de3a",
       "status": "approved",
-      "reviewedAt": "2026-07-13",
+      "reviewedAt": "2026-10-22",
       "findingCount": 0,
       "findings": [],
-      "issueRefs": [],
+      "issueRefs": [
+        938
+      ],
       "domains": []
     },
     "cmd/init_failure.go": {
@@ -269,11 +335,22 @@
       ]
     },
     "cmd/list.go": {
-      "contentHash": "sha256:444e45496f4c6824e3a2ae43f1818586557c3a4b18dc5b024d53188f38c60f26",
+      "contentHash": "sha256:c9e34e4d479b96283659b26b9e1fff5ea4cdd02e24553061be36480a980eaf47",
       "status": "flagged",
-      "reviewedAt": "2026-07-13",
-      "findingCount": 6,
-      "findings": [],
+      "reviewedAt": "2026-10-22",
+      "findingCount": 1,
+      "findings": [
+        {
+          "file": "cmd/list.go",
+          "startLine": 345,
+          "endLine": 359,
+          "category": "error-handling",
+          "severity": "low",
+          "description": "list --jq without --json silently ignored",
+          "tag": "pre-existing",
+          "issue": null
+        }
+      ],
       "issueRefs": [
         868,
         871
@@ -284,14 +361,35 @@
       ]
     },
     "cmd/move.go": {
-      "contentHash": "sha256:fc62cd2e849d2e104ebf75e21b0632145a2c7bb7099683c14ab4483e4f4256ac",
+      "contentHash": "sha256:9829b14d9b06c3b1e024a1720e990d389de25728f6b022aaddb76637d686bbed",
       "status": "flagged",
-      "reviewedAt": "2026-07-13",
-      "findingCount": 3,
-      "findings": [],
+      "reviewedAt": "2026-10-22",
+      "findingCount": 2,
+      "findings": [
+        {
+          "file": "cmd/move.go",
+          "startLine": 383,
+          "endLine": 397,
+          "category": "correctness",
+          "severity": "medium",
+          "description": "move --branch current picks the first tracker and keeps codename suffix",
+          "tag": "pre-existing"
+        },
+        {
+          "file": "cmd/move.go",
+          "startLine": 407,
+          "endLine": 476,
+          "category": "correctness",
+          "severity": "low",
+          "description": "move validationResults keyed by number collides across repos",
+          "tag": "introduced"
+        }
+      ],
       "issueRefs": [
         867,
-        871
+        871,
+        938,
+        939
       ],
       "domains": [
         "security",
@@ -299,10 +397,10 @@
       ]
     },
     "cmd/root.go": {
-      "contentHash": "sha256:1cb7a2e661cee3cba3b912c283a09e64cae4846b4accb3335b0684d1ef9518d8",
-      "status": "flagged",
-      "reviewedAt": "2026-07-13",
-      "findingCount": 1,
+      "contentHash": "sha256:4698d7245580a3d90d34379cb08406dca5e9e67a7ef6a1085e33f32be9c812bb",
+      "status": "approved",
+      "reviewedAt": "2026-10-22",
+      "findingCount": 0,
       "findings": [],
       "issueRefs": [
         831
@@ -331,15 +429,27 @@
       ]
     },
     "cmd/sub.go": {
-      "contentHash": "sha256:9d3471533c6b717812e533d02f162d2b6f56915cf918a700764c6792f5fe7469",
+      "contentHash": "sha256:3031293bf250d37cb123a43b1761dd5ee37362286bee3209b2f572e19ce52e84",
       "status": "flagged",
-      "reviewedAt": "2026-07-13",
-      "findingCount": 6,
-      "findings": [],
+      "reviewedAt": "2026-10-22",
+      "findingCount": 1,
+      "findings": [
+        {
+          "file": "cmd/sub.go",
+          "startLine": 718,
+          "endLine": 726,
+          "category": "correctness",
+          "severity": "medium",
+          "description": "sub list --limit computes summary from the truncated slice",
+          "tag": "pre-existing"
+        }
+      ],
       "issueRefs": [
         867,
         871,
-        873
+        873,
+        938,
+        939
       ],
       "domains": [
         "security",
@@ -375,14 +485,16 @@
       ]
     },
     "cmd/view.go": {
-      "contentHash": "sha256:4fe8b9afddc04757007f26b674b5dd2c152c17b1a8b8e70665ff233d0d5305e5",
-      "status": "flagged",
-      "reviewedAt": "2026-07-13",
-      "findingCount": 4,
+      "contentHash": "sha256:ab17bee1eec1aa5f74a56d8a8be187cc463ba3004611c43edf679491a28caa6d",
+      "status": "approved",
+      "reviewedAt": "2026-10-22",
+      "findingCount": 0,
       "findings": [],
       "issueRefs": [
         868,
-        873
+        873,
+        938,
+        939
       ],
       "domains": [
         "security",
@@ -390,10 +502,10 @@
       ]
     },
     "internal/api/client.go": {
-      "contentHash": "sha256:75793b297b650891ad9ca50f99b587117789ebeb45b0af22c30ee32d7a876710",
-      "status": "flagged",
-      "reviewedAt": "2026-07-13",
-      "findingCount": 2,
+      "contentHash": "sha256:dbc1cc3910dc1e0e60429763abdc486a0a6a8c91030677c29ee3019ff51ceb3f",
+      "status": "approved",
+      "reviewedAt": "2026-10-22",
+      "findingCount": 0,
       "findings": [],
       "issueRefs": [
         859
@@ -408,10 +520,10 @@
       ]
     },
     "internal/api/errors.go": {
-      "contentHash": "sha256:a114a7f799c05f5ae8dd3d0aca83ef31d4fc1e5a7d97e248dc6441252455e45f",
-      "status": "flagged",
-      "reviewedAt": "2026-07-13",
-      "findingCount": 1,
+      "contentHash": "sha256:2a9c13f94279ce1402f744f5740dbfcce7a06a0abdfb89ed57e697fe3e701b56",
+      "status": "approved",
+      "reviewedAt": "2026-10-22",
+      "findingCount": 0,
       "findings": [],
       "issueRefs": [],
       "domains": [
@@ -420,20 +532,33 @@
       ]
     },
     "internal/api/fields_fallback.go": {
-      "contentHash": "sha256:be5e078b48282cffa81f8bc6740d2c4a9bb319a2d16de2e9a3c06e10700dc702",
+      "contentHash": "sha256:b4987293ac5f03beaddf06d0bc77cb2833684afbeb6e0f4a112f7c5fbdc422fa",
       "status": "approved",
-      "reviewedAt": "2026-07-13",
+      "reviewedAt": "2026-10-22",
       "findingCount": 0,
       "findings": [],
-      "issueRefs": [],
+      "issueRefs": [
+        933
+      ],
       "domains": []
     },
     "internal/api/mutations.go": {
-      "contentHash": "sha256:21c6646e03c1625cc3a9c1f715ca4026025ea1439924a5f12454289255ec8211",
-      "status": "flagged",
-      "reviewedAt": "2026-07-13",
-      "findingCount": 8,
-      "findings": [],
+      "contentHash": "sha256:dac70d40a051f98699ef64650109baddebe2e0510f8c527df5ad90c92812f89f",
+      "status": "approved",
+      "reviewedAt": "2026-10-22",
+      "findingCount": 0,
+      "findings": [
+        {
+          "file": "internal/api/mutations.go",
+          "startLine": 1944,
+          "endLine": 1951,
+          "category": "maintainability",
+          "severity": "info",
+          "description": "Batch issue-field writes cost two round trips per update",
+          "tag": "introduced",
+          "issue": null
+        }
+      ],
       "issueRefs": [
         832,
         857,
@@ -451,11 +576,21 @@
       ]
     },
     "internal/api/queries.go": {
-      "contentHash": "sha256:c13209aefcff70346f611c7ff9262cc6622f3bee719a392c7038c40dac3ff886",
+      "contentHash": "sha256:8881534696d364e23336b12e3eb67c380d8f9f9ad3dff6dc077f734d6cf00270",
       "status": "flagged",
-      "reviewedAt": "2026-07-13",
-      "findingCount": 12,
-      "findings": [],
+      "reviewedAt": "2026-10-22",
+      "findingCount": 1,
+      "findings": [
+        {
+          "file": "internal/api/queries.go",
+          "startLine": 1179,
+          "endLine": 1183,
+          "category": "correctness",
+          "severity": "low",
+          "description": "Batch projectItems queries truncate without warning",
+          "tag": "pre-existing"
+        }
+      ],
       "issueRefs": [
         832,
         835,
@@ -463,7 +598,10 @@
         860,
         861,
         872,
-        874
+        874,
+        934,
+        935,
+        937
       ],
       "domains": [
         "api-design",
@@ -498,10 +636,10 @@
       "domains": []
     },
     "internal/api/types.go": {
-      "contentHash": "sha256:37d31093dc08f8816e5a6acad3eb1f268d084715281c5639c1d30a6eeacd07bb",
-      "status": "flagged",
-      "reviewedAt": "2026-07-13",
-      "findingCount": 1,
+      "contentHash": "sha256:2a5ead22397459bb272b13080096c397974d60f514d5e2b2538edb27471efea4",
+      "status": "approved",
+      "reviewedAt": "2026-10-22",
+      "findingCount": 0,
       "findings": [],
       "issueRefs": [],
       "domains": [
@@ -535,14 +673,25 @@
       ]
     },
     "internal/config/config.go": {
-      "contentHash": "sha256:b6710867b0aabe80ace4bb0fa1a3b26142d9c0a7b0a1d4d3966b1ed9c303575d",
+      "contentHash": "sha256:a863b439ce3d64e7c7fca6eb0b62b5a424afa4b2f43d593f20ed77350a9e3bc1",
       "status": "flagged",
-      "reviewedAt": "2026-07-13",
-      "findingCount": 5,
-      "findings": [],
+      "reviewedAt": "2026-10-22",
+      "findingCount": 1,
+      "findings": [
+        {
+          "file": "internal/config/config.go",
+          "startLine": 622,
+          "endLine": 633,
+          "category": "correctness",
+          "severity": "low",
+          "description": "AddFieldMetadata replaces an existing entry wholesale, so unknown keys preserved by #936 are dropped when status --update or field create rewrites that entry",
+          "tag": "pre-existing"
+        }
+      ],
       "issueRefs": [
         869,
-        874
+        874,
+        936
       ],
       "domains": [
         "api-design",
@@ -632,6 +781,300 @@
         "security",
         "performance"
       ]
+    },
+    "cmd/status.go": {
+      "contentHash": "sha256:970feb89f226e316c37b04690843c272d667386fd89fe8a552add6eb8a9b5da3",
+      "status": "approved",
+      "reviewedAt": "2026-10-22",
+      "findingCount": 0,
+      "findings": [],
+      "issueRefs": [
+        933
+      ]
+    },
+    "internal/api/fieldvalues.go": {
+      "contentHash": "sha256:5aac57c247f2d088e42a7ac9358d444ce1be45a25d8518c0bf3c0854eec91a80",
+      "status": "approved",
+      "reviewedAt": "2026-10-22",
+      "findingCount": 0,
+      "findings": [],
+      "issueRefs": [
+        934
+      ]
+    },
+    "internal/api/issue_fields.go": {
+      "contentHash": "sha256:00aa60ffe3f06a081388fda97a2c8055dea9a75bdd9a5a692e9d493cb2bb0820",
+      "status": "flagged",
+      "reviewedAt": "2026-10-22",
+      "findingCount": 1,
+      "findings": [
+        {
+          "file": "internal/api/issue_fields.go",
+          "startLine": 133,
+          "endLine": 139,
+          "category": "correctness",
+          "severity": "low",
+          "description": "Pairing to an unknown issue field silently skips name+type",
+          "tag": "introduced",
+          "issue": null
+        },
+        {
+          "file": "internal/api/issue_fields.go",
+          "startLine": 88,
+          "endLine": 108,
+          "category": "error-handling",
+          "severity": "info",
+          "description": "Denied issueFields fails every field command on org boards (by design, AC13)",
+          "tag": "introduced",
+          "issue": null
+        }
+      ],
+      "issueRefs": []
+    },
+    "cmd/partial_failures.go": {
+      "contentHash": "sha256:1b7824aef9c3a00eca53deed24306f77788e555bdf48218d215164eebd08dccf",
+      "status": "approved",
+      "reviewedAt": "2026-10-22",
+      "findingCount": 0,
+      "findings": [],
+      "issueRefs": []
     }
+  },
+  "filingQueue": [
+    {
+      "id": "q-be6ecdaf",
+      "status": "filed",
+      "queuedAt": "2026-10-22T18:43:32.437Z",
+      "entry": {
+        "type": "bug",
+        "title": "Org issue field cache classification has gaps (stale DATE fields, per-name init, status --update, field create)",
+        "priority": "p2",
+        "labels": [],
+        "source": {
+          "file": "internal/api/fields_fallback.go"
+        },
+        "fields": {
+          "description": "Code review of #932 found four places where the cached .gh-pmu.json field kind is wrong or incomplete, so the cached-metadata fallback can treat an org issue field as a project field. (1) checkCachedIssueFieldClassification (internal/api/fields_fallback.go:112-124) only refuses option-less single-selects with no kind; a pre-#932 cache entry for an issue-backed DATE field (e.g. Start date) passes. (2) init's per-name resolver fallback (cmd/init.go:318-336) never runs issue field classification, so fieldMetadataFromProjectField stamps kind PROJECT_FIELD on an issue-backed Priority, which also defeats the guard. (3) status --update (cmd/status.go:191-197) writes kind but not issue_field_id / issue_field_data_type. (4) field create (cmd/field.go:183-188) hard-codes PROJECT_FIELD.",
+          "version": "gh-pmu 1.6.0, pmu/next-release after #932",
+          "stepsToReproduce": "1. Keep a .gh-pmu.json written before #932 on an org board whose Start date is an org issue field.\n2. Make the ProjectV2 fields resolver fail (5xx) so the cache fallback engages.\n3. Set Start date on an issue.",
+          "expectedBehavior": "An unclassified or incomplete cache entry is refused with 'gh pmu init' as the remedy, and never routed to the project-field mutation.",
+          "actualBehavior": "The DATE entry passes the guard, loads with IssueField nil, and the write goes to updateProjectV2ItemFieldValue on the project projection.",
+          "inScope": "Cache guard for every unclassified (kind absent) entry; init per-name fallback leaving kind unset (or classifying); status --update and field create writing complete kind data.",
+          "outOfScope": "Live discovery and correlation rules.",
+          "acceptanceCriteria": [
+            "A cached entry with no kind of any data type is refused by the fallback with an error naming 'gh pmu init' (unit test with a pre-#932 DATE fixture)",
+            "init's per-name fallback does not record kind PROJECT_FIELD for fields it could not classify (unit test)",
+            "status --update records issue_field_id and issue_field_data_type when Status is issue-backed (unit test)",
+            "field create records the created field's actual classification or leaves kind unset (unit test)"
+          ],
+          "proposedFix": "Treat kind == \"\" as unclassified for every data type in checkCachedIssueFieldClassification; have the per-name init path write an empty kind; build status/field-create metadata through fieldMetadataFromProjectField."
+        }
+      },
+      "issue": 933,
+      "filedAt": "2026-10-22T18:43:38.838Z"
+    },
+    {
+      "id": "q-313160d4",
+      "status": "filed",
+      "queuedAt": "2026-10-22T18:43:32.437Z",
+      "entry": {
+        "type": "bug",
+        "title": "Org issue field reads drop TEXT/NUMBER/MULTI_SELECT values and the board can truncate Priority",
+        "priority": "p2",
+        "labels": [],
+        "source": {
+          "file": "internal/api/fieldvalues.go"
+        },
+        "fields": {
+          "description": "The ProjectV2ItemIssueFieldValue read selections (internal/api/fieldvalues.go typed and raw) select only IssueFieldSingleSelectValue.name and IssueFieldDateValue.value, so text, number and multi-select issue field values decode to an empty string and are dropped, while discovery still classifies those fields. Separately the board query uses fieldValues(first: 10) (internal/api/queries.go:1360-1409) with no pageInfo, so an org Priority value can fall outside the first 10 values and the board shows it empty.",
+          "version": "gh-pmu 1.6.0, pmu/next-release after #932",
+          "stepsToReproduce": "1. On an org board, set a TEXT org issue field (Notes) on an issue, or populate 11+ field values on an item.\n2. Run gh pmu view N, or gh pmu board.",
+          "expectedBehavior": "Every issue field value is shown, or its absence is reported; board Priority matches view.",
+          "actualBehavior": "Notes is missing from view; board shows an empty Priority while view shows P1.",
+          "inScope": "Read selections for all issue field value types; board fieldValues limit and truncation detection.",
+          "outOfScope": "Writing TEXT/NUMBER/MULTI_SELECT issue fields.",
+          "acceptanceCriteria": [
+            "view/list/board surface TEXT, NUMBER and MULTI_SELECT issue field values (unit tests with mocked ProjectV2ItemIssueFieldValue responses)",
+            "The board query fetches at least as many field values as the other item queries and warns when values were truncated (unit test)"
+          ],
+          "proposedFix": "Add IssueFieldTextValue, IssueFieldNumberValue and IssueFieldMultiSelectValue fragments to both selections and decode them; raise the board limit to 20 and select pageInfo.hasNextPage."
+        }
+      },
+      "issue": 934,
+      "filedAt": "2026-10-22T18:43:44.946Z"
+    },
+    {
+      "id": "q-e05a7929",
+      "status": "filed",
+      "queuedAt": "2026-10-22T18:43:32.437Z",
+      "entry": {
+        "type": "enhancement",
+        "title": "Gate the issue field value fragment on schema support",
+        "priority": "p2",
+        "labels": [],
+        "source": {
+          "file": "internal/api/queries.go"
+        },
+        "fields": {
+          "description": "Since #932 every project item and field-value query includes '... on ProjectV2ItemIssueFieldValue' (typed via typedFieldValueNode and raw via rawIssueFieldValueSelection), for user-owned projects too. A GraphQL server whose schema lacks that type rejects the whole document, so view, list and board stop working there.",
+          "motivation": "The charter lists resilience to upstream GraphQL schema rollouts. Issue field discovery is already gated on org ownership; the read path is not, so a GitHub Enterprise Server host without the issue fields rollout loses all reads.",
+          "proposedSolution": "Include the fragment only when supported: gate on org ownership plus a one-time capability probe, or on a validation error naming ProjectV2ItemIssueFieldValue retry once without it and warn.",
+          "inScope": "Typed and raw item/field-value queries in internal/api/queries.go and fieldvalues.go.",
+          "outOfScope": "Issue field writes and discovery.",
+          "acceptanceCriteria": [
+            "When the server rejects ProjectV2ItemIssueFieldValue, view/list/board still return project field values and print one warning (unit test with a mocked validation error)",
+            "github.com behaviour is unchanged: issue field values are still read (existing #932 read tests pass)",
+            "Modified GraphQL documents pass offline schema validation"
+          ]
+        }
+      },
+      "issue": 935,
+      "filedAt": "2026-10-22T18:43:51.654Z"
+    },
+    {
+      "id": "q-d4233949",
+      "status": "filed",
+      "queuedAt": "2026-10-22T18:43:32.437Z",
+      "entry": {
+        "type": "bug",
+        "title": "Re-init and Config.Save drop config keys (issue_field overrides, configIntegrity, nested keys)",
+        "priority": "p2",
+        "labels": [],
+        "source": {
+          "file": "cmd/init.go"
+        },
+        "fields": {
+          "description": "writeConfigWithMetadata (cmd/init.go:707-767) rebuilds .gh-pmu.json from a fixed struct: it keeps issue_field overrides only for aliases it regenerates (status, priority, branch; cmd/init.go:717-723) and drops unmodeled top-level keys such as configIntegrity. Config.Save (internal/config/config.go:30-98) preserves unknown keys only at top level, so keys inside fields.<alias> or metadata.fields[] written by a newer build are lost when an older build saves.",
+          "version": "gh-pmu 1.6.0, pmu/next-release",
+          "stepsToReproduce": "1. Add \"configIntegrity\": \"strict\" and fields.severity = {field: Severity, issue_field: none} to .gh-pmu.json.\n2. Run gh pmu init --project N --repo o/r --yes.",
+          "expectedBehavior": "Both keys survive re-init.",
+          "actualBehavior": "configIntegrity and the severity alias with its override are removed.",
+          "inScope": "Re-init key preservation; nested unknown-key preservation in Config.Save.",
+          "outOfScope": "Changing which aliases init generates.",
+          "acceptanceCriteria": [
+            "Re-init preserves every existing fields.<alias> issue_field override (unit test)",
+            "Re-init preserves unmodeled top-level keys such as configIntegrity (unit test)",
+            "Config.Save preserves unknown keys inside fields.<alias> and metadata.fields[] entries, or the limitation is documented and warned about (unit test)"
+          ],
+          "proposedFix": "Load the existing file through config.Config and merge regenerated sections into it; extend unknown-key capture to the nested structs."
+        }
+      },
+      "issue": 936,
+      "filedAt": "2026-10-22T18:43:57.160Z"
+    },
+    {
+      "id": "q-6c434d84",
+      "status": "filed",
+      "queuedAt": "2026-10-22T18:43:32.437Z",
+      "entry": {
+        "type": "bug",
+        "title": "Raw batch GraphQL parsers ignore the errors array and report failures as empty or not found",
+        "priority": "p1",
+        "labels": [],
+        "source": {
+          "file": "internal/api/queries.go"
+        },
+        "fields": {
+          "description": "The raw GraphQL path (DoRawBody) only fails on non-200 status, so GitHub's HTTP 200 {errors: [...]} responses reach the parsers. getProjectFieldsForIssuesBatch (internal/api/queries.go:1983-2024) has no errors field and returns an empty map with a nil error; parseParentIssueBatchResponse (3073-3095) decodes errors but never reads them; parseIssuesBatchResponse (2930-2953) ignores errors whose path has fewer than 2 segments and reports every issue as 'not found'.",
+          "version": "gh-pmu 1.6.0, pmu/next-release",
+          "stepsToReproduce": "1. Run gh pmu list / board / view 1 2 3 while rate-limited, or with a token lacking repo read.\n2. The server returns 200 with an errors array.",
+          "expectedBehavior": "The command fails non-zero with GitHub's error message.",
+          "actualBehavior": "Issues show no field values, no parent, or 'issue #N not found', and the command exits 0.",
+          "inScope": "getProjectFieldsForIssuesBatch, parseParentIssueBatchResponse, parseIssuesBatchResponse.",
+          "outOfScope": "Typed shurcooL queries (they already surface errors).",
+          "acceptanceCriteria": [
+            "Each of the three parsers returns an error carrying GitHub's message when the response has a top-level or document-level errors entry (unit test per parser with a mocked 200 errors response)",
+            "Per-alias errors keep their current per-issue handling (existing tests pass)"
+          ],
+          "proposedFix": "Decode errors in every raw response struct; return document-level and short-path errors as a top-level error, matching parseSubIssueCountsResponse."
+        }
+      },
+      "issue": 937,
+      "filedAt": "2026-10-22T18:44:04.835Z"
+    },
+    {
+      "id": "q-6e9a2a4f",
+      "status": "filed",
+      "queuedAt": "2026-10-22T18:43:32.437Z",
+      "entry": {
+        "type": "bug",
+        "title": "Partial failures exit 0 in branch close, view, field create, recursive move, sub create and init",
+        "priority": "p1",
+        "labels": [],
+        "source": {
+          "file": "cmd/branch.go"
+        },
+        "fields": {
+          "description": "The charter requires a command that partly fails to exit non-zero. These paths print warnings and return nil: branch close moving incomplete issues (cmd/branch.go:1171-1236, also reports len(issuesToMove) as moved); multi-issue view (cmd/view.go:345-369, only errors when all fail); field create when the config update fails (cmd/field.go:176-205); recursive move when sub-issue enrichment fails (cmd/move.go:304-334, counted as skipped) or a subtree cannot be listed (cmd/move.go:772-793); sub create when adding to --project fails (cmd/sub.go:451-488); init when the post-setup field refetch fails (cmd/init_atomic.go:86-100, writes empty metadata).",
+          "version": "gh-pmu 1.6.0, pmu/next-release",
+          "stepsToReproduce": "1. Run gh pmu view 42 999999.\n2. Or gh pmu branch close --yes while one field write fails.",
+          "expectedBehavior": "Non-zero exit (partial-success exit code) naming what failed; reported counts reflect what actually happened.",
+          "actualBehavior": "Exit 0 with only stderr warnings; branch close reports every issue moved.",
+          "inScope": "The seven paths listed.",
+          "outOfScope": "Changing which operations are attempted.",
+          "acceptanceCriteria": [
+            "Each listed path returns a non-nil error (or api.PartialSuccessError) when any part failed (unit test per path)",
+            "branch close reports the number of issues actually moved",
+            "init keeps the earlier fetched fields when the refetch fails instead of writing empty metadata"
+          ],
+          "proposedFix": "Track failures per path and return a partial-success error after completing the remaining work, following the create command's #929 pattern."
+        }
+      },
+      "issue": 938,
+      "filedAt": "2026-10-22T18:44:11.402Z"
+    },
+    {
+      "id": "q-7ba93003",
+      "status": "filed",
+      "queuedAt": "2026-10-22T18:43:32.437Z",
+      "entry": {
+        "type": "bug",
+        "title": "Discarded fetch errors read as empty results in move, view and sub list",
+        "priority": "p2",
+        "labels": [],
+        "source": {
+          "file": "cmd/move.go"
+        },
+        "fields": {
+          "description": "Several fetches discard their error, so a failed call looks like an empty answer: move discards the GetOpenIssuesByLabel error (cmd/move.go:404-411), which empties activeReleases and disables branch validation (fail-open); view discards GetSubIssues, GetParentIssue and GetIssueComments errors (cmd/view.go:461-481 and the multi path); sub list discards parent and sibling fetch errors (cmd/sub.go:668-701).",
+          "version": "gh-pmu 1.6.0, pmu/next-release",
+          "stepsToReproduce": "1. Cause a transient GraphQL error.\n2. Run gh pmu move 42 --status in_progress --branch release/v9.9.9, or gh pmu view 10 --json=subProgress, or gh pmu sub list 15 --relation parent.",
+          "expectedBehavior": "The fetch error is reported and the command exits non-zero.",
+          "actualBehavior": "Validation passes for a non-existent branch; view prints no sub-issues; sub list reports no parent; all exit 0.",
+          "inScope": "The three call sites listed.",
+          "outOfScope": "Retry policy.",
+          "acceptanceCriteria": [
+            "move fails the transition (non-zero) when the active-branch fetch fails (unit test)",
+            "view and sub list return an error when a requested sub-issue, parent, sibling or comment fetch fails (unit tests)"
+          ],
+          "proposedFix": "Propagate each error; distinguish 'fetch failed' from 'none exist'."
+        }
+      },
+      "issue": 939,
+      "filedAt": "2026-10-22T18:44:18.326Z"
+    }
+  ],
+  "lastDiffReview": {
+    "baseRef": "origin/main",
+    "baseSha": "ebf2a48127a9aff3cd548fb402443e348df230b0",
+    "headSha": "57ff494eb3da41d5d90c040ce4d462d9efbfd00b",
+    "reviewedAt": "2026-10-22T22:41:58.320Z",
+    "workingTreeIncluded": false,
+    "filesReviewed": 1,
+    "findings": {
+      "introduced": {
+        "high": 0,
+        "medium": 0,
+        "low": 4,
+        "info": 2
+      },
+      "preExisting": {
+        "high": 0,
+        "medium": 5,
+        "low": 4,
+        "info": 0
+      }
+    },
+    "issues": []
   }
 }

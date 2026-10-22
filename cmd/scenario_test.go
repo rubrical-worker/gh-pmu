@@ -199,10 +199,11 @@ func TestScenario_Create_CreatesIssueAndAppliesProjectFields(t *testing.T) {
 			"item": map[string]interface{}{"id": "item-new-1"},
 		},
 	}))
+	// Shape matches the mutation's selection set (clientMutationId). A field
+	// write that fails to decode is a partial success since #929, so this
+	// fixture must be what the client actually unmarshals.
 	handler.respondTo("UpdateProjectV2ItemFieldValue", gqlData(map[string]interface{}{
-		"updateProjectV2ItemFieldValue": map[string]interface{}{
-			"projectV2Item": map[string]interface{}{"id": "item-new-1"},
-		},
+		"updateProjectV2ItemFieldValue": map[string]interface{}{"clientMutationId": nil},
 	}))
 
 	_, cleanup := setupTestEnvironment(t, handler)

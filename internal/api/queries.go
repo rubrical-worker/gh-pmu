@@ -138,9 +138,10 @@ func (c *Client) GetProjectFields(projectID string) ([]ProjectField, error) {
 
 	var allFields []ProjectField
 	var cursor *string
+	var orgLogin string
 
 	for {
-		fields, pInfo, err := c.getProjectFieldsPage(projectID, cursor)
+		fields, pInfo, owner, err := c.getProjectFieldsPageWithOwner(projectID, cursor)
 		if err != nil {
 			if errors.Is(err, ErrFieldResolverUnavailable) && !fallbackOptions.NoCacheFallback {
 				cached, fallbackErr := loadCachedProjectFieldsOrError(err)
@@ -165,6 +166,9 @@ func (c *Client) GetProjectFields(projectID string) ([]ProjectField, error) {
 		}
 
 		allFields = append(allFields, fields...)
+		if owner != "" {
+			orgLogin = owner
+		}
 
 		if !pInfo.HasNextPage {
 			break
@@ -172,14 +176,32 @@ func (c *Client) GetProjectFields(projectID string) ([]ProjectField, error) {
 		cursor = &pInfo.EndCursor
 	}
 
+	// Only organization-owned projects can display org issue fields (#932);
+	// a user-owned project never issues the issueFields query.
+	if orgLogin != "" {
+		return c.classifyIssueFields(projectID, orgLogin, allFields)
+	}
 	return allFields, nil
 }
 
 // getProjectFieldsPage fetches a single page of project fields
 func (c *Client) getProjectFieldsPage(projectID string, cursor *string) ([]ProjectField, pageInfo, error) {
+	fields, pInfo, _, err := c.getProjectFieldsPageWithOwner(projectID, cursor)
+	return fields, pInfo, err
+}
+
+// getProjectFieldsPageWithOwner fetches a single page of project fields plus
+// the owning organization's login. orgLogin is empty for a user-owned project.
+func (c *Client) getProjectFieldsPageWithOwner(projectID string, cursor *string) (fields []ProjectField, pInfo pageInfo, orgLogin string, err error) {
 	var query struct {
 		Node struct {
 			ProjectV2 struct {
+				Owner struct {
+					TypeName     string `graphql:"__typename"`
+					Organization struct {
+						Login string
+					} `graphql:"... on Organization"`
+				}
 				Fields struct {
 					Nodes []struct {
 						TypeName string `graphql:"__typename"`
@@ -219,7 +241,7 @@ func (c *Client) getProjectFieldsPage(projectID string, cursor *string) ([]Proje
 		variables["cursor"] = graphql.String(*cursor)
 	}
 
-	err := c.gql.Query("GetProjectFields", &query, variables)
+	err = c.gql.Query("GetProjectFields", &query, variables)
 	if err != nil {
 		// When GitHub's ProjectV2.fields resolver is crashing (e.g., the
 		// 2026-05-14 timestamp-fields auto-rollout), wrap the original error
@@ -230,10 +252,13 @@ func (c *Client) getProjectFieldsPage(projectID string, cursor *string) ([]Proje
 		if IsFieldResolverUnavailable(err) {
 			err = errors.Join(ErrFieldResolverUnavailable, err)
 		}
-		return nil, pageInfo{}, fmt.Errorf("failed to get project fields: %w", err)
+		return nil, pageInfo{}, "", fmt.Errorf("failed to get project fields: %w", err)
 	}
 
-	var fields []ProjectField
+	if query.Node.ProjectV2.Owner.TypeName == "Organization" {
+		orgLogin = query.Node.ProjectV2.Owner.Organization.Login
+	}
+
 	for _, node := range query.Node.ProjectV2.Fields.Nodes {
 		field := ProjectField{}
 
@@ -265,7 +290,7 @@ func (c *Client) getProjectFieldsPage(projectID string, cursor *string) ([]Proje
 	return fields, pageInfo{
 		HasNextPage: query.Node.ProjectV2.Fields.PageInfo.HasNextPage,
 		EndCursor:   query.Node.ProjectV2.Fields.PageInfo.EndCursor,
-	}, nil
+	}, orgLogin, nil
 }
 
 // fetchProjectFieldByName resolves a single ProjectV2 field by name.
@@ -353,6 +378,8 @@ func (c *Client) FetchFieldsByNames(projectID string, names []string) (fields []
 			missing = append(missing, name)
 			continue
 		}
+		// No org issue field classification runs on this path (#933).
+		f.Unclassified = true
 		fields = append(fields, *f)
 	}
 	return fields, missing
@@ -452,6 +479,18 @@ func (c *Client) GetIssue(owner, repo string, number int) (*Issue, error) {
 // boards a truncation warning is emitted to stderr, since the configured
 // project's item could lie beyond the fetched page (#860).
 func (c *Client) GetIssueWithProjectFields(projectID, owner, repo string, number int) (*Issue, []FieldValue, error) {
+	if !c.issueFieldsUnsupported {
+		issue, fieldValues, err := getIssueWithProjectFieldsAs[typedFieldValueNode](c, projectID, owner, repo, number)
+		if !c.issueFieldsRejected(err) {
+			return issue, fieldValues, err
+		}
+	}
+	return getIssueWithProjectFieldsAs[projectFieldValueNode](c, projectID, owner, repo, number)
+}
+
+// getIssueWithProjectFieldsAs is GetIssueWithProjectFields with the field-value
+// node type chosen by the caller (#935).
+func getIssueWithProjectFieldsAs[N typedFieldValue](c *Client, projectID, owner, repo string, number int) (*Issue, []FieldValue, error) {
 	if err := validateOwnerRepo(owner, repo); err != nil {
 		return nil, nil, err
 	}
@@ -488,7 +527,7 @@ func (c *Client) GetIssueWithProjectFields(projectID, owner, repo string, number
 							ID string
 						} `graphql:"project"`
 						FieldValues struct {
-							Nodes []typedFieldValueNode
+							Nodes []N
 						} `graphql:"fieldValues(first: 20)"`
 					}
 					PageInfo struct {
@@ -825,6 +864,18 @@ type pageInfo struct {
 
 // getProjectItemsPage fetches a single page of project items
 func (c *Client) getProjectItemsPage(projectID string, cursor *string) ([]ProjectItem, pageInfo, error) {
+	if !c.issueFieldsUnsupported {
+		items, page, err := getProjectItemsPageAs[typedFieldValueNode](c, projectID, cursor)
+		if !c.issueFieldsRejected(err) {
+			return items, page, err
+		}
+	}
+	return getProjectItemsPageAs[projectFieldValueNode](c, projectID, cursor)
+}
+
+// getProjectItemsPageAs is getProjectItemsPage with the field-value node type
+// chosen by the caller (#935).
+func getProjectItemsPageAs[N typedFieldValue](c *Client, projectID string, cursor *string) ([]ProjectItem, pageInfo, error) {
 	var query struct {
 		Node struct {
 			ProjectV2 struct {
@@ -856,7 +907,7 @@ func (c *Client) getProjectItemsPage(projectID string, cursor *string) ([]Projec
 							} `graphql:"... on Issue"`
 						}
 						FieldValues struct {
-							Nodes []typedFieldValueNode
+							Nodes []N
 						} `graphql:"fieldValues(first: 20)"`
 					}
 					PageInfo struct {
@@ -977,6 +1028,18 @@ func (c *Client) GetProjectItemsMinimal(projectID string, filter *ProjectItemsFi
 
 // getMinimalProjectItemsPage fetches a single page of project items with minimal data
 func (c *Client) getMinimalProjectItemsPage(projectID string, cursor *string) ([]MinimalProjectItem, pageInfo, error) {
+	if !c.issueFieldsUnsupported {
+		items, page, err := getMinimalProjectItemsPageAs[typedFieldValueNode](c, projectID, cursor)
+		if !c.issueFieldsRejected(err) {
+			return items, page, err
+		}
+	}
+	return getMinimalProjectItemsPageAs[projectFieldValueNode](c, projectID, cursor)
+}
+
+// getMinimalProjectItemsPageAs is getMinimalProjectItemsPage with the
+// field-value node type chosen by the caller (#935).
+func getMinimalProjectItemsPageAs[N typedFieldValue](c *Client, projectID string, cursor *string) ([]MinimalProjectItem, pageInfo, error) {
 	var query struct {
 		Node struct {
 			ProjectV2 struct {
@@ -994,7 +1057,7 @@ func (c *Client) getMinimalProjectItemsPage(projectID string, cursor *string) ([
 							} `graphql:"... on Issue"`
 						}
 						FieldValues struct {
-							Nodes []typedFieldValueNode
+							Nodes []N
 						} `graphql:"fieldValues(first: 20)"`
 					}
 					PageInfo struct {
@@ -1128,6 +1191,7 @@ func (c *Client) GetProjectItemsByIssues(projectID string, refs []IssueRef) ([]P
 									text
 									field { ... on ProjectV2Field { name } }
 								}
+								`+c.issueFieldValueSelection()+`
 							}
 						}
 					}
@@ -1161,7 +1225,11 @@ func (c *Client) GetProjectItemsByIssues(projectID string, refs []IssueRef) ([]P
 	}
 
 	if len(response.Errors) > 0 {
-		return nil, fmt.Errorf("GraphQL errors: %s", response.Errors[0].Message)
+		err := fmt.Errorf("GraphQL errors: %s", response.Errors[0].Message)
+		if c.issueFieldsRejected(err) {
+			return c.GetProjectItemsByIssues(projectID, refs)
+		}
+		return nil, err
 	}
 
 	// Process results
@@ -1315,6 +1383,18 @@ func (c *Client) GetProjectItemsForBoard(projectID string, filter *BoardItemsFil
 
 // getBoardItemsPage fetches a single page of board items with minimal data
 func (c *Client) getBoardItemsPage(projectID string, cursor *string) ([]BoardItem, pageInfo, error) {
+	if !c.issueFieldsUnsupported {
+		items, page, err := getBoardItemsPageAs[typedFieldValueNode](c, projectID, cursor)
+		if !c.issueFieldsRejected(err) {
+			return items, page, err
+		}
+	}
+	return getBoardItemsPageAs[projectFieldValueNode](c, projectID, cursor)
+}
+
+// getBoardItemsPageAs is getBoardItemsPage with the field-value node type
+// chosen by the caller (#935).
+func getBoardItemsPageAs[N typedFieldValue](c *Client, projectID string, cursor *string) ([]BoardItem, pageInfo, error) {
 	var query struct {
 		Node struct {
 			ProjectV2 struct {
@@ -1331,19 +1411,14 @@ func (c *Client) getBoardItemsPage(projectID string, cursor *string) ([]BoardIte
 								}
 							} `graphql:"... on Issue"`
 						}
+						// 20 matches the other item queries; hasNextPage flags an
+						// item whose Status or Priority may lie past the page (#934).
 						FieldValues struct {
-							Nodes []struct {
-								TypeName                            string `graphql:"__typename"`
-								ProjectV2ItemFieldSingleSelectValue struct {
-									Name  string
-									Field struct {
-										ProjectV2SingleSelectField struct {
-											Name string
-										} `graphql:"... on ProjectV2SingleSelectField"`
-									}
-								} `graphql:"... on ProjectV2ItemFieldSingleSelectValue"`
+							Nodes    []N
+							PageInfo struct {
+								HasNextPage bool
 							}
-						} `graphql:"fieldValues(first: 10)"`
+						} `graphql:"fieldValues(first: 20)"`
 					}
 					PageInfo struct {
 						HasNextPage bool
@@ -1375,23 +1450,21 @@ func (c *Client) getBoardItemsPage(projectID string, cursor *string) ([]BoardIte
 		}
 
 		item := BoardItem{
-			Number:     node.Content.Issue.Number,
-			Title:      node.Content.Issue.Title,
-			State:      node.Content.Issue.State,
-			Repository: node.Content.Issue.Repository.NameWithOwner,
+			Number:               node.Content.Issue.Number,
+			Title:                node.Content.Issue.Title,
+			State:                node.Content.Issue.State,
+			Repository:           node.Content.Issue.Repository.NameWithOwner,
+			FieldValuesTruncated: node.FieldValues.PageInfo.HasNextPage,
 		}
 
-		// Extract Status and Priority from field values
-		for _, fv := range node.FieldValues.Nodes {
-			if fv.TypeName == "ProjectV2ItemFieldSingleSelectValue" {
-				fieldName := fv.ProjectV2ItemFieldSingleSelectValue.Field.ProjectV2SingleSelectField.Name
-				value := fv.ProjectV2ItemFieldSingleSelectValue.Name
-				switch fieldName {
-				case "Status":
-					item.Status = value
-				case "Priority":
-					item.Priority = value
-				}
+		// Extract Status and Priority from field values. Priority may be an
+		// org issue field (#932), so go through the shared decoder.
+		for _, fv := range appendTypedFieldValues(nil, node.FieldValues.Nodes) {
+			switch fv.Field {
+			case "Status":
+				item.Status = fv.Value
+			case "Priority":
+				item.Priority = fv.Value
 			}
 		}
 
@@ -1950,6 +2023,7 @@ func (c *Client) getProjectFieldsForIssuesBatch(projectID string, issueIDs []str
 									text
 									field { ... on ProjectV2Field { name } }
 								}
+								`+c.issueFieldValueSelection()+`
 							}
 						}
 					}
@@ -1981,10 +2055,19 @@ func (c *Client) getProjectFieldsForIssuesBatch(projectID string, issueIDs []str
 				} `json:"nodes"`
 			} `json:"projectItems"`
 		} `json:"data"`
+		Errors []rawGraphQLError `json:"errors"`
 	}
 
 	if err := json.Unmarshal(output, &response); err != nil {
 		return nil, fmt.Errorf("failed to parse batch project fields response: %w", err)
+	}
+	// Node aliases sit at the root ("n0"), so an alias-scoped error has the
+	// alias at path[0]; that issue is simply absent from the result.
+	if err := documentLevelError(response.Errors, 0); err != nil {
+		if c.issueFieldsRejected(err) {
+			return c.getProjectFieldsForIssuesBatch(projectID, issueIDs)
+		}
+		return nil, err
 	}
 
 	// Build result map
@@ -2867,6 +2950,7 @@ func (c *Client) GetIssuesWithProjectFieldsBatch(projectID, owner, repo string, 
 								text
 								field { ... on ProjectV2Field { name } }
 							}
+							`+c.issueFieldValueSelection()+`
 						}
 					}
 				}
@@ -2883,7 +2967,39 @@ func (c *Client) GetIssuesWithProjectFieldsBatch(projectID, owner, repo string, 
 		return nil, nil, nil, fmt.Errorf("failed to execute batch issues query: %w", err)
 	}
 
-	return parseIssuesBatchResponse(output, numbers, projectID, owner, repo)
+	issues, fieldValues, issueErrors, err = parseIssuesBatchResponse(output, numbers, projectID, owner, repo)
+	if c.issueFieldsRejected(err) {
+		return c.GetIssuesWithProjectFieldsBatch(projectID, owner, repo, numbers)
+	}
+	return issues, fieldValues, issueErrors, err
+}
+
+// rawGraphQLError is one entry of a raw GraphQL response's errors array.
+type rawGraphQLError struct {
+	Message string `json:"message"`
+	// Path segments may be strings (field/alias names) or integers (list
+	// indices) per the GraphQL spec, so decode as []interface{}; a numeric
+	// segment must not fail the whole response unmarshal and abort the
+	// batch (#861).
+	Path []interface{} `json:"path"`
+}
+
+// documentLevelError returns the first error not scoped to a batch alias, or
+// nil. aliasIndex is the path position of the alias: 1 for repository-scoped
+// batches ("repository", "i0"), 0 for root-level node batches ("n0"). The raw
+// transport fails only on non-200, so a rate limit or an under-scoped token
+// arrives here as HTTP 200 with an errors array; without this it reads as an
+// empty or not-found result (#937).
+func documentLevelError(errs []rawGraphQLError, aliasIndex int) error {
+	for _, e := range errs {
+		if len(e.Path) > aliasIndex {
+			if _, ok := e.Path[aliasIndex].(string); ok {
+				continue
+			}
+		}
+		return fmt.Errorf("GraphQL errors: %s", e.Message)
+	}
+	return nil
 }
 
 // parseIssuesBatchResponse parses the JSON response from a batch issues query.
@@ -2894,18 +3010,14 @@ func parseIssuesBatchResponse(data []byte, numbers []int, projectID, owner, repo
 		Data struct {
 			Repository map[string]json.RawMessage `json:"repository"`
 		} `json:"data"`
-		Errors []struct {
-			Message string `json:"message"`
-			// Path segments may be strings (field/alias names) or integers (list
-			// indices) per the GraphQL spec, so decode as []interface{}; a numeric
-			// segment must not fail the whole response unmarshal and abort the
-			// batch (#861).
-			Path []interface{} `json:"path"`
-		} `json:"errors"`
+		Errors []rawGraphQLError `json:"errors"`
 	}
 
 	if err := json.Unmarshal(data, &response); err != nil {
 		return nil, nil, nil, fmt.Errorf("failed to parse batch issues response: %w", err)
+	}
+	if err := documentLevelError(response.Errors, 1); err != nil {
+		return nil, nil, nil, err
 	}
 
 	issues := make(map[int]*Issue)
@@ -2913,7 +3025,7 @@ func parseIssuesBatchResponse(data []byte, numbers []int, projectID, owner, repo
 	issueErrors := make(map[int]error)
 
 	// Map GraphQL errors to specific aliases. The alias segment (path[1], e.g.
-	// "i0") is a string; ignore errors whose second segment is not a string.
+	// "i0") is a string; anything else was returned above as document-level.
 	aliasErrors := make(map[string]string)
 	for _, gqlErr := range response.Errors {
 		if len(gqlErr.Path) >= 2 {
@@ -3060,13 +3172,15 @@ func parseParentIssueBatchResponse(data []byte, numbers []int) (map[int]*Issue, 
 		Data struct {
 			Repository map[string]json.RawMessage `json:"repository"`
 		} `json:"data"`
-		Errors []struct {
-			Message string `json:"message"`
-		} `json:"errors"`
+		Errors []rawGraphQLError `json:"errors"`
 	}
 
 	if err := json.Unmarshal(data, &response); err != nil {
 		return nil, fmt.Errorf("failed to parse batch parent issue response: %w", err)
+	}
+	// Alias-scoped errors (a deleted issue) keep their per-issue nil parent.
+	if err := documentLevelError(response.Errors, 1); err != nil {
+		return nil, err
 	}
 
 	result := make(map[int]*Issue)

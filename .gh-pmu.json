@@ -1,10 +1,9 @@
 {
-  "version": "1.5.3",
+  "version": "1.6.0",
   "project": {
     "name": "gh-pmu",
     "number": 11,
-    "owner": "rubrical-worker",
-    "view": 1
+    "owner": "rubrical-worker"
   },
   "repositories": [
     "rubrical-worker/gh-pmu"
@@ -16,7 +15,8 @@
   },
   "fields": {
     "branch": {
-      "field": "Branch"
+      "field": "Branch",
+      "values": null
     },
     "priority": {
       "field": "Priority",
@@ -35,7 +35,9 @@
         "in_review": "In review",
         "notes": "Notes",
         "parking_lot": "Parking Lot",
-        "ready": "Ready"
+        "qa_required": "QA required",
+        "ready": "Ready",
+        "up_next": "Up next"
       }
     }
   },
@@ -79,6 +81,10 @@
             "id": "f75ad846"
           },
           {
+            "name": "Up next",
+            "id": "650cfa5b"
+          },
+          {
             "name": "Ready",
             "id": "61e4505c"
           },
@@ -89,6 +95,10 @@
           {
             "name": "In review",
             "id": "df73e18b"
+          },
+          {
+            "name": "QA required",
+            "id": "d72f459d"
           },
           {
             "name": "Notes",
@@ -209,6 +219,21 @@
         "name": "TestField",
         "id": "PVTF_lAHOAATLPs4BJeuXzg_f7-s",
         "data_type": "TEXT"
+      },
+      {
+        "name": "Created",
+        "id": "PVTF_lAHOAATLPs4BJeuXzhOn6nc",
+        "data_type": "CREATED"
+      },
+      {
+        "name": "Updated",
+        "id": "PVTF_lAHOAATLPs4BJeuXzhOn6nw",
+        "data_type": "UPDATED"
+      },
+      {
+        "name": "Closed",
+        "id": "PVTF_lAHOAATLPs4BJeuXzhOn6oM",
+        "data_type": "CLOSED"
       }
     ]
   }

@@ -111,7 +111,7 @@ func TestRunList_Integration_FilterByPriorityP2(t *testing.T) {
 func TestRunList_Integration_JSONOutput(t *testing.T) {
 	testutil.RequireTestEnv(t)
 
-	result := testutil.RunCommand(t, "list", "--json")
+	result := testutil.RunCommand(t, "list", "--json=number,title,state,url,repository,assignees,fieldValues")
 
 	testutil.AssertExitCode(t, result, 0)
 

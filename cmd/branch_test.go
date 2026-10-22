@@ -82,6 +82,7 @@ type mockBranchClient struct {
 	removeLabelCalls             []branchLabelCall
 	addSubIssueCalls             []subIssueLinkCall
 	removeSubIssueCalls          []subIssueLinkCall
+	gitCheckoutCalls             []string
 
 	// Error injection
 	createIssueErr             error
@@ -421,6 +422,7 @@ func (m *mockBranchClient) GitTag(tag, message string) error {
 }
 
 func (m *mockBranchClient) GitCheckoutNewBranch(branch string) error {
+	m.gitCheckoutCalls = append(m.gitCheckoutCalls, branch)
 	return nil
 }
 
@@ -544,6 +546,54 @@ func TestRunBranchStartWithDeps_CreatesTrackerIssue(t *testing.T) {
 	// Verify title matches expected pattern
 	if call.title != expectedTitle {
 		t.Errorf("Expected title '%s', got '%s'", expectedTitle, call.title)
+	}
+}
+
+// #929: --dry-run checks for an active branch and resolves the project, then
+// prints the plan without creating the git branch, the tracker or any field.
+func TestRunBranchStartWithDeps_DryRunWritesNothing(t *testing.T) {
+	mock := setupMockForBranch()
+	cfg := testBranchConfig()
+	cleanup := setupBranchTestDir(t, cfg)
+	defer cleanup()
+
+	cmd, buf := newTestBranchCmd()
+	opts := &branchStartOptions{branchName: "release/v1.2.0", dryRun: true}
+
+	if err := runBranchStartWithDeps(cmd, opts, cfg, mock); err != nil {
+		t.Fatalf("Expected no error, got: %v", err)
+	}
+	if len(mock.gitCheckoutCalls) != 0 || len(mock.createIssueCalls) != 0 ||
+		len(mock.addToProjectCalls) != 0 || len(mock.setFieldCalls) != 0 {
+		t.Errorf("dry run wrote: checkout=%v create=%d add=%d fields=%d",
+			mock.gitCheckoutCalls, len(mock.createIssueCalls), len(mock.addToProjectCalls), len(mock.setFieldCalls))
+	}
+	for _, want := range []string{"Dry run", "release/v1.2.0", "Branch: release/v1.2.0", "branch"} {
+		if !strings.Contains(buf.String(), want) {
+			t.Errorf("expected %q in dry-run output, got:\n%s", want, buf.String())
+		}
+	}
+}
+
+// #929: a dry run still refuses when a branch is already active — it checks
+// what the real run checks.
+func TestRunBranchStartWithDeps_DryRunStillRejectsActiveBranch(t *testing.T) {
+	mock := setupMockForBranch()
+	mock.openIssues = []api.Issue{{Number: 5, Title: "Branch: release/v1.1.0"}}
+	cfg := testBranchConfig()
+	cleanup := setupBranchTestDir(t, cfg)
+	defer cleanup()
+
+	cmd, _ := newTestBranchCmd()
+	err := runBranchStartWithDeps(cmd, &branchStartOptions{branchName: "release/v1.2.0", dryRun: true}, cfg, mock)
+	if err == nil || !strings.Contains(err.Error(), "active branch exists") {
+		t.Fatalf("expected 'active branch exists', got: %v", err)
+	}
+}
+
+func TestBranchStartCommand_HasDryRunFlag(t *testing.T) {
+	if newBranchStartCommand().Flags().Lookup("dry-run") == nil {
+		t.Fatal("Expected branch start to define --dry-run")
 	}
 }
 
@@ -2246,6 +2296,61 @@ func TestBranchCurrentCommand_HasJsonFlag(t *testing.T) {
 	}
 }
 
+func TestBranchCurrentCommand_JSONSpaceFormMatchesEqualsForm(t *testing.T) {
+	spaced := newBranchCurrentCommand()
+	if err := parseJSONFlagCommand(t, spaced, []string{"--json", "tracker"}); err != nil {
+		t.Fatalf("--json tracker: unexpected error: %v", err)
+	}
+	equals := newBranchCurrentCommand()
+	if err := parseJSONFlagCommand(t, equals, []string{"--json=tracker"}); err != nil {
+		t.Fatalf("--json=tracker: unexpected error: %v", err)
+	}
+	a, _ := spaced.Flags().GetString("json")
+	b, _ := equals.Flags().GetString("json")
+	if a != b || a != "tracker" {
+		t.Errorf("space form parsed %q, equals form parsed %q; want both \"tracker\"", a, b)
+	}
+}
+
+func TestBranchCurrentCommand_JSONValueIsRequired(t *testing.T) {
+	if err := newBranchCurrentCommand().ParseFlags([]string{"--json"}); err == nil {
+		t.Error("Expected bare --json to be rejected; use --json-fields to list fields")
+	}
+	err := parseJSONFlagCommand(t, newBranchCurrentCommand(), []string{"--json="})
+	if err == nil {
+		t.Fatal("Expected --json= with no fields to be rejected")
+	}
+	if !strings.Contains(err.Error(), "--json-fields") {
+		t.Errorf("Expected error to point at --json-fields, got: %v", err)
+	}
+}
+
+func TestBranchCurrentCommand_JSONUnknownFieldRejected(t *testing.T) {
+	err := parseJSONFlagCommand(t, newBranchCurrentCommand(), []string{"--json", "status"})
+	if err == nil {
+		t.Fatal("Expected an unknown --json field to be rejected rather than silently dropped")
+	}
+	if !strings.Contains(err.Error(), "--json=status") {
+		t.Errorf("Expected error to name --json=status, got: %v", err)
+	}
+}
+
+func TestBranchCurrentCommand_JSONFieldsListsFields(t *testing.T) {
+	cmd := newBranchCurrentCommand()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetErr(buf)
+	cmd.SetArgs([]string{"--json-fields"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("branch current --json-fields: unexpected error: %v", err)
+	}
+	for _, field := range []string{"issues", "name", "tracker"} {
+		if !strings.Contains(buf.String(), field) {
+			t.Errorf("Expected --json-fields output to include %q, got:\n%s", field, buf.String())
+		}
+	}
+}
+
 func TestBranchAddCommand_Structure(t *testing.T) {
 	cmd := NewRootCommand()
 	addCmd, _, err := cmd.Find([]string{"branch", "add"})
@@ -2517,11 +2622,19 @@ func TestRunBranchCloseWithDeps_FieldSetFailureWarns(t *testing.T) {
 	cmd, output := newTestBranchCmd()
 	opts := &branchCloseOptions{branchName: "v1.2.0", yes: true}
 
-	_ = runBranchCloseWithDeps(cmd, opts, cfg, mock)
+	err := runBranchCloseWithDeps(cmd, opts, cfg, mock)
 
 	out := output.String()
 	if !strings.Contains(out, "Warning") || !strings.Contains(out, "#42") {
 		t.Errorf("expected a stderr warning naming #42's failed field update, got: %s", out)
+	}
+	// #938: a close that could not move an issue is a partial success, and the
+	// issue must not be counted as moved.
+	if !api.IsPartialSuccess(err) {
+		t.Errorf("expected a partial-success error, got: %v", err)
+	}
+	if strings.Contains(out, "issue(s) moved to backlog") && !strings.Contains(out, "0 issue(s) moved to backlog") {
+		t.Errorf("#42's move failed and must not be reported as moved, got: %s", out)
 	}
 }
 
@@ -2750,7 +2863,7 @@ func TestRunBranchCloseWithDeps_GetProjectItemIDError_ContinuesWithWarning(t *te
 	cleanup := setupBranchTestDir(t, cfg)
 	defer cleanup()
 
-	cmd, _ := newTestBranchCmd()
+	cmd, out := newTestBranchCmd()
 	var stderr bytes.Buffer
 	cmd.SetErr(&stderr)
 	opts := &branchCloseOptions{branchName: "v1.2.0", yes: true}
@@ -2758,9 +2871,19 @@ func TestRunBranchCloseWithDeps_GetProjectItemIDError_ContinuesWithWarning(t *te
 	// ACT
 	err := runBranchCloseWithDeps(cmd, opts, cfg, mock)
 
-	// ASSERT: Should succeed overall
-	if err != nil {
-		t.Fatalf("Expected no error, got: %v", err)
+	// ASSERT: the close completes, but #41 was not moved — a partial success,
+	// not a clean exit (#938)
+	if !api.IsPartialSuccess(err) {
+		t.Fatalf("Expected a partial-success error, got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "#41") {
+		t.Errorf("partial-success error should name #41, got: %v", err)
+	}
+	if len(mock.closeIssueCalls) != 1 {
+		t.Error("the tracker should still be closed")
+	}
+	if !strings.Contains(out.String(), "1 issue(s) moved to backlog") {
+		t.Errorf("expected the moved count to be the 1 issue actually moved, got: %s", out.String())
 	}
 
 	// Verify warning was shown for issue 41
@@ -3678,10 +3801,14 @@ func TestBranchCloseWithDeps_LabelErrorIsNonBlocking(t *testing.T) {
 	cmd, _ := newTestBranchCmd()
 	opts := &branchCloseOptions{branchName: "v1.2.0", yes: true}
 
-	// Should succeed even when label removal fails
+	// Non-blocking: the close still completes when label removal fails, but the
+	// failure is reported as a partial success rather than a clean exit (#938).
 	err := runBranchCloseWithDeps(cmd, opts, cfg, mock)
-	if err != nil {
-		t.Fatalf("Label error should be non-blocking, got: %v", err)
+	if len(mock.closeIssueCalls) != 1 {
+		t.Fatalf("Label error should be non-blocking: the tracker must still be closed")
+	}
+	if !api.IsPartialSuccess(err) || !strings.Contains(err.Error(), "#41") {
+		t.Fatalf("expected a partial-success error naming #41's label removal, got: %v", err)
 	}
 }
 

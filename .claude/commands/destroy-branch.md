@@ -1,19 +1,23 @@
 ---
-version: "v0.103.0"
-description: Safely delete branch with confirmation (project)
-argument-hint: "[branch-name] [--force]"
+version: "v0.110.0"
+description: Safely delete a branch after confirmation, using the IDPF framework.
+argument-hint: "[branch-name] [--force] [--help]"
 copyright: "Rubrical Works (c) 2026"
 ---
 <!-- EXTENSIBLE -->
 # /destroy-branch
 Safely abandon and delete a branch. Destructive — requires explicit confirmation.
-**Extension Points:** `.claude/metadata/extension-points.json` or `/extensions list --command destroy-branch`
+**Extension Points:** `.claude/metadata/extension-points.json` or `/extensions --list --command destroy-branch`
 ---
 ## Arguments
 | Argument | Description |
 |----------|-------------|
 | `[branch-name]` | Branch to destroy (defaults to current) |
 | `--force` | Skip confirmation (dangerous) |
+| `--help` | Open this command's docs page. Takes precedence over every other argument and performs no action. |
+
+**`--help` takes precedence over every other argument and performs no action:** run `node .claude/scripts/shared/command-help.js destroy-branch`, report its output, and STOP.
+
 ---
 ## Pre-Checks
 ### Identify Target
@@ -32,10 +36,18 @@ fi
 git rev-parse --verify "$BRANCH" 2>/dev/null
 ```
 **FAIL if branch does not exist.**
+### Workstream Detection (Pre-Destroy)
+Before confirming, check workstream plan:
+1. **Read from disk:** `loadWorkstreamsMetadata('.workstreams.json')`. Not found → skip.
+2. **Check:** `preDestroyWorkstreamCheck(metadata, branchName)`. `isWorkstream: false` → skip.
+3. **Show expanded confirmation:**
+   - `orphanWarning`: epics losing workstream assignment
+   - `assignedEpics`: list with titles
+   - `activeSiblings`: other active streams
+4. **Proceed to Phase 1 confirmation** — informational, non-blocking
 ---
 
 <!-- USER-EXTENSION-START: pre-destroy -->
-<!-- Pre-destruction validation: check for unmerged commits, etc. -->
 <!-- USER-EXTENSION-END: pre-destroy -->
 
 ## Phase 1: Confirmation
@@ -57,8 +69,14 @@ ls -la Releases/*/$BRANCH/ 2>/dev/null || echo "No release artifacts found"
 **If mismatch, ABORT.**
 
 <!-- USER-EXTENSION-START: post-confirm -->
-<!-- Post-confirmation: actions after user confirms but before deletion -->
 <!-- USER-EXTENSION-END: post-confirm -->
+
+### Step 1.3: Announce the Destruction to Every Peer (#2960)
+Runs once destruction is confirmed — and on the `--force` path, where no confirmation is asked — before Phase 2. From Phase 2 on nothing can be undone, and a peer with `$BRANCH` checked out or committing to it needs to hear first:
+```bash
+node .claude/scripts/shared/announce.js --event branch-destroy-starting --branch "$BRANCH"
+```
+Append `--issue <N>` when a tracker exists. Script composes the text (never hand-compose); **forced broadcast** — every addressable peer, live `/overwatch` included, whatever `broadcast` says — honoring only the master switch (`enabled: false`, `IDPF_X_SESSION=off`, `discovery: false`). `announcement.shouldSend` true → `SendMessage` to every `announcement.recipients` entry with `announcement.text`, then close out with the envelope's `dispatchReport` (`--dispatch-result sent|failed --ledger-id <id>`). A failed `SendMessage` is reported and recorded `failed`; destruction proceeds. `shouldSend` false → report `announcement.notice` once, continue. **Advisory, never a gate:** nothing awaits delivery, no follow-up is sent.
 
 ---
 ## Phase 2: Close Tracker
@@ -115,7 +133,6 @@ git branch -D "$BRANCH"
 `-D` (force) — user confirmed abandoning unmerged work.
 
 <!-- USER-EXTENSION-START: post-destroy -->
-<!-- Post-destruction: notifications, audit logging -->
 <!-- USER-EXTENSION-END: post-destroy -->
 
 ### Workstream Metadata Update (Post-Destroy)

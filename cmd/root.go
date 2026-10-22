@@ -54,6 +54,10 @@ This extension combines and replaces:
 Use 'gh pmu <command> --help' for more information about a command.`,
 		Version: getVersion(),
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+			// Cobra parses flags and validates args before this hook, so usage
+			// errors still print the usage block; from here on, an error is a
+			// runtime failure and prints alone (#927).
+			cmd.Root().SilenceUsage = true
 			applyFallbackFlags(cmd)
 			refreshConfigVersion(cmd)
 			if err := checkAcceptance(cmd); err != nil {
