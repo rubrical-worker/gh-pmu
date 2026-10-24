@@ -1,5 +1,5 @@
 ---
-version: "v0.110.0"
+version: "v0.111.0"
 description: Create a bug issue from the IDPF framework's standard template.
 argument-hint: "<title> [--help]"
 copyright: "Rubrical Works (c) 2026"
