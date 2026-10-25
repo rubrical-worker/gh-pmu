@@ -16,6 +16,51 @@ go test -tags e2e ./test/e2e/ -v -count=1
 
 The `e2e` build tag is required — `go test ./...` does **not** include these tests.
 
+## Fixtures
+
+The suite runs against one or more **fixtures**, each a live GitHub owner with a test repository and a template project (#940). They are defined in `fixture_test.go`, the only file in this package that names an owner, a repository or a project number.
+
+| Fixture | Owner | Repository | Template project | Covers |
+|---------|-------|------------|------------------|--------|
+| `user` | `rubrical-worker` (user) | `rubrical-worker/gh-pmu-e2e-test` | #41 | Every generic workflow test |
+| `org` | `rubrical-works` (organization) | `rubrical-works/gh-pmu-e2e-test` | dedicated template, number recorded in `fixture_test.go` | Organization issue fields (#932): classification, the `issue_field` override, `move --priority` writes, org-scoped `init` |
+
+Select fixtures with `E2E_FIXTURE`:
+
+| Value | Runs |
+|-------|------|
+| unset or `user` | The user fixture only. This is the default, so ordinary runs and API volume are unchanged. Org tests report SKIP. |
+| `org` | The org fixture only. User tests report SKIP. |
+| `all` | Both |
+
+Any other value stops the run in `TestMain`.
+
+```bash
+E2E_FIXTURE=org go test -tags e2e ./test/e2e/ -v -count=1 -timeout 30m
+```
+
+**The org fixture is set up by hand, once.** Until its template project's number is recorded in `fixture_test.go` (`orgFixture.TemplateProject`), every org test skips and says so. To set it up:
+
+1. Create the repository `rubrical-works/gh-pmu-e2e-test`.
+2. Create a **dedicated** template project in `rubrical-works`, titled `gh-pmu-e2e-org-template`. Don't reuse an existing project such as #11: orphan cleanup deletes projects by title, and another project's uses are unknown. Give it:
+   - the native **Status** field;
+   - **Priority**, backed by the organization's Priority issue field;
+   - one ordinary (native) project field.
+
+   Keep it small. Org discovery adds a paginated `issueFields` query and samples up to 100 items.
+3. Record the project number in `orgFixture.TemplateProject`.
+
+Orphan cleanup (`E2E_CLEANUP=true`) runs for every fixture owner, selected or not. It deletes projects titled after the fixture's repository and never deletes the template. An owner whose template isn't recorded yet is skipped.
+
+### Token scopes
+
+| Fixture | Needs |
+|---------|-------|
+| `user` | `repo`, `project` |
+| `org` | `repo`, `project`, `read:org`, and write access to the organization's issue fields |
+
+Check with `gh auth status`. Add a missing scope with `gh auth refresh -s read:org,project`.
+
 ## What's Tested
 
 | Suite | Coverage |
