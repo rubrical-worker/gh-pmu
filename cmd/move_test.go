@@ -2937,6 +2937,20 @@ func TestRunMoveWithDeps_ForceWarningCountsOnlyNonMarkerLines(t *testing.T) {
 	}
 }
 
+// #948: a bare "- [ ]" counts in the --force warning like any other unchecked box.
+func TestRunMoveWithDeps_ForceWarningCountsEmptyBox(t *testing.T) {
+	mock, buf, cmd := gateMarkerMoveSetup("## AC\n- [ ] Manual check → QA: #2755\n- [ ]\n- [ ] Unfinished work")
+
+	err := runMoveWithDeps(cmd, []string{"42"}, &moveOptions{status: "done", force: true, yes: true}, gateMarkerMoveConfig(), mock)
+
+	if err != nil {
+		t.Fatalf("Unexpected error: %v", err)
+	}
+	if !strings.Contains(buf.String(), "#42 has 2 unchecked checkbox(es)") {
+		t.Errorf("Expected the empty box and the bare line counted, got: %s", buf.String())
+	}
+}
+
 func TestRunMoveWithDeps_ForceWithMarkerOnlyLinesHasNoForceWarning(t *testing.T) {
 	mock, buf, cmd := gateMarkerMoveSetup("## AC\n- [ ] Manual check → QA: #2755")
 

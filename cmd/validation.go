@@ -15,7 +15,10 @@ import (
 var (
 	checkedBoxRegex    = regexp.MustCompile(`(?m)^\s*[-*+] \[[xX]\]`)
 	uncheckedBoxRegex  = regexp.MustCompile(`(?m)^\s*[-*+] \[ \]`)
-	uncheckedItemRegex = regexp.MustCompile(`(?m)^\s*[-*+] \[ \] (.+)`)
+	// uncheckedItemRegex matches every line uncheckedBoxRegex matches, with
+	// the (possibly empty) text after the box, so a bare "- [ ]" is still an
+	// item and still blocks (#948).
+	uncheckedItemRegex = regexp.MustCompile(`(?m)^\s*[-*+] \[ \](.*)$`)
 )
 
 // ValidationError represents a validation failure with actionable message

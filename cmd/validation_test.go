@@ -210,6 +210,29 @@ func TestPartitionUncheckedItems(t *testing.T) {
 	}
 }
 
+// An unchecked box with no text after it still blocks, as it did before #923
+// (#948): the gate counts boxes, not boxes followed by text.
+func TestValidateStatusTransition_EmptyUncheckedBoxBlocks(t *testing.T) {
+	for name, body := range map[string]string{
+		"bare box at end of body": "## AC\n- [x] Built\n- [ ]",
+		"box with trailing space": "## AC\n- [x] Built\n- [ ] \n",
+		"box then tab":            "## AC\n- [x] Built\n- [ ]\tTab-separated item\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			cfg := &config.Config{Framework: "IDPF"}
+			ctx := &issueValidationContext{Number: 9, CurrentStatus: "in_progress", Body: body}
+
+			err := validateStatusTransition(cfg, ctx, "in_review", "", false)
+			if err == nil {
+				t.Fatal("Expected an empty unchecked box to block the move")
+			}
+			if !strings.Contains(err.Message, "Has 1 unchecked checkbox(es)") {
+				t.Errorf("Expected 1 blocking line, got: %s", err.Message)
+			}
+		})
+	}
+}
+
 func TestValidateStatusTransition_MarkerOnlyUncheckedPasses(t *testing.T) {
 	cfg := &config.Config{Framework: "IDPF", CheckboxGateMarkers: testGateMarkers}
 	ctx := &issueValidationContext{
