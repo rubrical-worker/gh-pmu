@@ -874,6 +874,82 @@ func TestConfig_Load_WithoutView_LeavesViewUnset(t *testing.T) {
 	}
 }
 
+func TestConfig_Load_CheckboxGateMarkers(t *testing.T) {
+	// ARRANGE (#923)
+	testDir := t.TempDir()
+	configPath := filepath.Join(testDir, ConfigFileName)
+	configContent := `{"project":{"owner":"o","number":1},"repositories":["o/r"],` +
+		`"checkboxGateMarkers":["→ QA: #N","→ GATE: review"]}`
+	if err := os.WriteFile(configPath, []byte(configContent), 0600); err != nil {
+		t.Fatalf("Failed to write test config: %v", err)
+	}
+
+	// ACT
+	cfg, err := Load(configPath)
+	if err != nil {
+		t.Fatalf("Expected no error, got: %v", err)
+	}
+
+	// ASSERT
+	want := []string{"→ QA: #N", "→ GATE: review"}
+	if len(cfg.CheckboxGateMarkers) != len(want) {
+		t.Fatalf("CheckboxGateMarkers = %v, want %v", cfg.CheckboxGateMarkers, want)
+	}
+	for i := range want {
+		if cfg.CheckboxGateMarkers[i] != want[i] {
+			t.Errorf("CheckboxGateMarkers[%d] = %q, want %q", i, cfg.CheckboxGateMarkers[i], want[i])
+		}
+	}
+}
+
+func TestConfig_Load_WithoutCheckboxGateMarkers_RecognizesNone(t *testing.T) {
+	// ARRANGE: absent means no marker is recognized (#923)
+	testDir := t.TempDir()
+	configPath := filepath.Join(testDir, ConfigFileName)
+	if err := os.WriteFile(configPath, []byte(`{"project":{"owner":"o","number":1},"repositories":["o/r"]}`), 0600); err != nil {
+		t.Fatalf("Failed to write test config: %v", err)
+	}
+
+	// ACT
+	cfg, err := Load(configPath)
+	if err != nil {
+		t.Fatalf("Expected no error, got: %v", err)
+	}
+
+	// ASSERT
+	if len(cfg.CheckboxGateMarkers) != 0 {
+		t.Errorf("CheckboxGateMarkers = %v, want none", cfg.CheckboxGateMarkers)
+	}
+}
+
+func TestConfig_Save_CheckboxGateMarkers_RoundTripOnce(t *testing.T) {
+	// ARRANGE: a modeled key must be written by the struct only, never also
+	// replayed from the unknown-key overflow (#910)
+	testDir := t.TempDir()
+	configPath := filepath.Join(testDir, ConfigFileName)
+	if err := os.WriteFile(configPath, []byte(`{"project":{"owner":"o","number":1},"repositories":["o/r"],"checkboxGateMarkers":["→ GATE: release"]}`), 0600); err != nil {
+		t.Fatalf("Failed to write test config: %v", err)
+	}
+	cfg, err := Load(configPath)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	// ACT
+	if err := cfg.Save(testDir); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	// ASSERT
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	if n := strings.Count(string(data), `"checkboxGateMarkers"`); n != 1 {
+		t.Errorf("checkboxGateMarkers written %d times, want 1:\n%s", n, data)
+	}
+}
+
 func TestConfig_HasResolvedView(t *testing.T) {
 	// A view number is a GitHub creation ordinal and is always >= 1, so anything
 	// at or below zero is "not resolved" rather than a usable value. Guarding here

@@ -27,6 +27,12 @@ type Config struct {
 	Acceptance   *Acceptance       `yaml:"acceptance,omitempty" json:"acceptance,omitempty"`
 	Metadata     *Metadata         `yaml:"metadata,omitempty" json:"metadata,omitempty"`
 
+	// CheckboxGateMarkers lists literal line endings that mark an unchecked
+	// checkbox as intentionally open — owned by another issue or a later phase
+	// — so `move` does not count it against the transition (#923). A trailing
+	// "#N" matches "#" followed by digits. Absent or empty recognizes none.
+	CheckboxGateMarkers []string `yaml:"checkboxGateMarkers,omitempty" json:"checkboxGateMarkers,omitempty"`
+
 	// unknown holds the top-level keys the file carried that this struct does
 	// not model, so Save can put them back rather than deleting them (#910).
 	// Unexported on purpose: encoding/json ignores it, so the overflow can never
