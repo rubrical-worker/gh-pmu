@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "lastRun": "2026-10-22T22:41:58.319Z",
+  "lastRun": "2026-10-25T23:24:04.071Z",
   "charter": {
     "contentHash": "sha256:9549d1555ebb13b1e9092f835815b04fa9e1c873efe761d137fbafac882364f3"
   },
@@ -130,25 +130,26 @@
       ]
     },
     "cmd/create.go": {
-      "contentHash": "sha256:eec16f0072fdfe4158ea93f969dbc80c70c8bbdb1571e3074d4a78ad64d51d2c",
+      "contentHash": "sha256:de7497ee291e674f8c612f440052157f97c849a6cd9dfc16ed65fcc038122cbe",
       "status": "flagged",
-      "reviewedAt": "2026-10-22",
+      "reviewedAt": "2026-10-25",
       "findingCount": 1,
       "findings": [
         {
           "file": "cmd/create.go",
-          "startLine": 419,
-          "endLine": 422,
-          "category": "maintainability",
+          "startLine": 381,
+          "endLine": 409,
+          "category": "correctness",
           "severity": "low",
-          "description": "printCreatedIssue bypasses cmd.OutOrStdout",
+          "description": "create --dry-run with --project prints status/priority the real run leaves unset",
           "tag": "introduced",
-          "issue": null
+          "issue": 950
         }
       ],
       "issueRefs": [
         863,
-        864
+        864,
+        950
       ],
       "domains": [
         "security",
@@ -361,35 +362,28 @@
       ]
     },
     "cmd/move.go": {
-      "contentHash": "sha256:9829b14d9b06c3b1e024a1720e990d389de25728f6b022aaddb76637d686bbed",
+      "contentHash": "sha256:c6949f6cd4c81385ce29f3f5e9253e25d33b027b7da90e1abfcff714de959f52",
       "status": "flagged",
-      "reviewedAt": "2026-10-22",
-      "findingCount": 2,
+      "reviewedAt": "2026-10-25",
+      "findingCount": 1,
       "findings": [
         {
           "file": "cmd/move.go",
-          "startLine": 383,
-          "endLine": 397,
-          "category": "correctness",
-          "severity": "medium",
-          "description": "move --branch current picks the first tracker and keeps codename suffix",
-          "tag": "pre-existing"
-        },
-        {
-          "file": "cmd/move.go",
-          "startLine": 407,
-          "endLine": 476,
+          "startLine": 466,
+          "endLine": 472,
           "category": "correctness",
           "severity": "low",
-          "description": "move validationResults keyed by number collides across repos",
-          "tag": "introduced"
+          "description": "move --dry-run prints gate waivers before the dry-run banner",
+          "tag": "introduced",
+          "issue": 951
         }
       ],
       "issueRefs": [
         867,
         871,
         938,
-        939
+        939,
+        951
       ],
       "domains": [
         "security",
@@ -429,21 +423,11 @@
       ]
     },
     "cmd/sub.go": {
-      "contentHash": "sha256:3031293bf250d37cb123a43b1761dd5ee37362286bee3209b2f572e19ce52e84",
-      "status": "flagged",
-      "reviewedAt": "2026-10-22",
-      "findingCount": 1,
-      "findings": [
-        {
-          "file": "cmd/sub.go",
-          "startLine": 718,
-          "endLine": 726,
-          "category": "correctness",
-          "severity": "medium",
-          "description": "sub list --limit computes summary from the truncated slice",
-          "tag": "pre-existing"
-        }
-      ],
+      "contentHash": "sha256:36ece25862b72d259d58218220db7fd928dc70d209de3b9777ceaa21ea4d9963",
+      "status": "approved",
+      "reviewedAt": "2026-10-25",
+      "findingCount": 0,
+      "findings": [],
       "issueRefs": [
         867,
         871,
@@ -471,13 +455,14 @@
       ]
     },
     "cmd/validation.go": {
-      "contentHash": "sha256:3fb33250ad37546df98113e826ec8d0d8df7e6fdb09e8226b3b506e0ed34f494",
-      "status": "flagged",
-      "reviewedAt": "2026-07-13",
-      "findingCount": 2,
+      "contentHash": "sha256:b6c655fa73cc054e9dc3ce98b98e9f088d08e3472f785f32395d40820ed80b05",
+      "status": "approved",
+      "reviewedAt": "2026-10-25",
+      "findingCount": 0,
       "findings": [],
       "issueRefs": [
-        866
+        866,
+        948
       ],
       "domains": [
         "security",
@@ -543,20 +528,20 @@
       "domains": []
     },
     "internal/api/mutations.go": {
-      "contentHash": "sha256:dac70d40a051f98699ef64650109baddebe2e0510f8c527df5ad90c92812f89f",
-      "status": "approved",
-      "reviewedAt": "2026-10-22",
-      "findingCount": 0,
+      "contentHash": "sha256:9689d6a8c71fc79b97159579d0f977cb5bae4e3720698067ea404e2fd6d8073a",
+      "status": "flagged",
+      "reviewedAt": "2026-10-25",
+      "findingCount": 1,
       "findings": [
         {
           "file": "internal/api/mutations.go",
-          "startLine": 1944,
-          "endLine": 1951,
-          "category": "maintainability",
-          "severity": "info",
-          "description": "Batch issue-field writes cost two round trips per update",
+          "startLine": 2389,
+          "endLine": 2396,
+          "category": "error-handling",
+          "severity": "low",
+          "description": "parseBatchAddSubIssuesResponse gives an alias another alias's error",
           "tag": "introduced",
-          "issue": null
+          "issue": 949
         }
       ],
       "issueRefs": [
@@ -564,7 +549,8 @@
         857,
         860,
         861,
-        872
+        872,
+        949
       ],
       "domains": [
         "api-design",
@@ -673,21 +659,11 @@
       ]
     },
     "internal/config/config.go": {
-      "contentHash": "sha256:a863b439ce3d64e7c7fca6eb0b62b5a424afa4b2f43d593f20ed77350a9e3bc1",
-      "status": "flagged",
-      "reviewedAt": "2026-10-22",
-      "findingCount": 1,
-      "findings": [
-        {
-          "file": "internal/config/config.go",
-          "startLine": 622,
-          "endLine": 633,
-          "category": "correctness",
-          "severity": "low",
-          "description": "AddFieldMetadata replaces an existing entry wholesale, so unknown keys preserved by #936 are dropped when status --update or field create rewrites that entry",
-          "tag": "pre-existing"
-        }
-      ],
+      "contentHash": "sha256:d1f2ccd9085a76353a366b0e6f13d85df683bd3ce98427fa73b38ef73e4f13aa",
+      "status": "approved",
+      "reviewedAt": "2026-10-25",
+      "findingCount": 0,
+      "findings": [],
       "issueRefs": [
         869,
         874,
@@ -838,6 +814,28 @@
       "findingCount": 0,
       "findings": [],
       "issueRefs": []
+    },
+    "internal/testutil/ratelimit/ratelimit.go": {
+      "contentHash": "sha256:79ce1b1b1920411791efe32840db99715a39808b866c5898bb625f8eac5019f8",
+      "status": "flagged",
+      "reviewedAt": "2026-10-25",
+      "findingCount": 1,
+      "findings": [
+        {
+          "file": "internal/testutil/ratelimit/ratelimit.go",
+          "startLine": 318,
+          "endLine": 327,
+          "category": "correctness",
+          "severity": "low",
+          "description": "backoff BaseDelay << attempt overflows for large retry counts",
+          "tag": "introduced",
+          "issue": 952
+        }
+      ],
+      "issueRefs": [
+        952
+      ],
+      "domains": []
     }
   },
   "filingQueue": [
@@ -1052,29 +1050,178 @@
       },
       "issue": 939,
       "filedAt": "2026-10-22T18:44:18.326Z"
+    },
+    {
+      "id": "q-64820d0d",
+      "status": "filed",
+      "queuedAt": "2026-10-25T23:19:01.949Z",
+      "entry": {
+        "type": "bug",
+        "title": "move: an empty unchecked box (`- [ ]` with no text) no longer blocks in_review/done",
+        "priority": "p2",
+        "source": {
+          "file": "cmd/validation.go"
+        },
+        "fields": {
+          "description": "Since #923, Rule 2 in `cmd/validation.go` (around line 99) decides which lines block with `partitionUncheckedItems`. That function is built on `uncheckedItemRegex` (`^\\s*[-*+] \\[ \\] (.+)`), which needs a space and at least one more character after the box. Before #923 the gate counted boxes with `uncheckedBoxRegex` (`^\\s*[-*+] \\[ \\]`), which needs no text. So a bare `- [ ]`, or `- [ ]` followed by a tab, is now counted as neither blocking nor waived. The `--force` warning in `cmd/move.go` (around lines 436-444) undercounts the same way. Found by the v1.8.0 release diff review.",
+          "version": "pmu/next-version, unreleased (regression from #923)",
+          "stepsToReproduce": "1. Make an issue body that contains the line `- [ ]` with nothing after the box.\n2. Leave `checkboxGateMarkers` unset.\n3. Run `gh pmu move <n> --status in_review`.",
+          "expectedBehavior": "The move is refused with `Has 1 unchecked checkbox(es)`, as it was before #923.",
+          "actualBehavior": "The move succeeds without `--force`.",
+          "inScope": "Rule 2 blocking count and the `--force` warning count in move",
+          "outOfScope": "Changing which gate-marker formats are recognized",
+          "acceptanceCriteria": [
+            "A body containing a bare `- [ ]` line blocks a move to in_review/done when no markers are configured (unit test in `cmd/validation_test.go`)",
+            "A bare `- [ ]` line counts as blocking in the `--force` warning (unit test in `cmd/move_test.go`)",
+            "Existing gate-marker tests still pass"
+          ],
+          "proposedFix": "In `partitionUncheckedItems`, match every line `uncheckedBoxRegex` matches and apply the marker test to its text, which may be empty. An empty item always counts as blocking."
+        }
+      },
+      "issue": 948,
+      "filedAt": "2026-10-25T23:19:07.169Z"
+    },
+    {
+      "id": "q-f89c7dc6",
+      "status": "filed",
+      "queuedAt": "2026-10-25T23:19:01.949Z",
+      "entry": {
+        "type": "enhancement",
+        "title": "BatchAddSubIssues: don't give a child another alias's error message",
+        "priority": "p2",
+        "source": {
+          "file": "internal/api/mutations.go"
+        },
+        "fields": {
+          "description": "In `parseBatchAddSubIssuesResponse` (`internal/api/mutations.go`, around line 2392), an alias with no data and no path-scoped error of its own gets `response.Errors[0].Message`. That message can belong to a sibling alias. In `addSubIssuesBatch`, a borrowed 'duplicate' or 'only have one parent' message sends the child down the `GetParentIssue` path. The child can then be reported as already linked, or as already having a parent, when its real failure was something else. Found by the v1.8.0 release diff review (low).",
+          "motivation": "Each child in a multi-child `sub add` should be reported with its own outcome.",
+          "proposedSolution": "Fall back to `Errors[0]` only when that error has no path, meaning it applies to the whole request. When every error is scoped to another alias, report 'no sub-issue returned'.",
+          "inScope": "Error attribution in parseBatchAddSubIssuesResponse",
+          "outOfScope": "Changing how the batch is chunked",
+          "acceptanceCriteria": [
+            "A unit test where one alias has a path-scoped error and another alias has neither data nor an error: the second alias reports 'no sub-issue returned', not the first alias's message",
+            "A request-level error with no path is still given to aliases that have no data"
+          ]
+        }
+      },
+      "issue": 949,
+      "filedAt": "2026-10-25T23:19:12.462Z"
+    },
+    {
+      "id": "q-2716421d",
+      "status": "filed",
+      "queuedAt": "2026-10-25T23:19:01.949Z",
+      "entry": {
+        "type": "bug",
+        "title": "create --dry-run with --project shows status/priority that the real run would leave unset",
+        "priority": "p2",
+        "source": {
+          "file": "cmd/create.go"
+        },
+        "fields": {
+          "description": "With a `--project` override, `setCreateFields` skips any status or priority whose field or option doesn't exist on the target board, and reports it as unset. `printCreateDryRun` (`cmd/create.go`, around lines 381-409) doesn't make that check, so it prints the locally resolved values, config defaults included, as if they will be written. Found by the v1.8.0 release diff review (low).",
+          "version": "pmu/next-version, unreleased (#924)",
+          "stepsToReproduce": "1. Pick a target project whose Priority field has no P2 option.\n2. Run `gh pmu create --title t --repo other/repo --project other/7 --dry-run` with the config default priority `p2`.",
+          "expectedBehavior": "The dry run says priority will be left unset on the target board.",
+          "actualBehavior": "The dry run prints `Priority: P2 (config default)`.",
+          "inScope": "printCreateDryRun when the project is overridden",
+          "outOfScope": "Behavior of a real (non-dry-run) create",
+          "acceptanceCriteria": [
+            "With an overridden project, the dry run prints `(will be left unset: <reason>)` for a status or priority the target board can't take (unit test)",
+            "Dry-run output without an override is unchanged"
+          ],
+          "proposedFix": "When `targets.overridden` is true, call `unresolvableOnProject` in `printCreateDryRun` and print the reason instead of the value."
+        }
+      },
+      "issue": 950,
+      "filedAt": "2026-10-25T23:19:17.763Z"
+    },
+    {
+      "id": "q-10a77a58",
+      "status": "filed",
+      "queuedAt": "2026-10-25T23:19:01.949Z",
+      "entry": {
+        "type": "bug",
+        "title": "move --dry-run prints gate waivers before the dry-run banner",
+        "priority": "p2",
+        "source": {
+          "file": "cmd/move.go"
+        },
+        "fields": {
+          "description": "The report of accepted gate lines (`cmd/move.go`, around lines 466-472) prints whenever `gateWaivers` is non-empty, in dry runs too. In a dry run it appears before the 'Dry run - no changes will be made' banner, which reads as if the move was accepted. The `--force` warning next to it is guarded by `!opts.dryRun`. Found by the v1.8.0 release diff review (low).",
+          "version": "pmu/next-version, unreleased (#923)",
+          "stepsToReproduce": "1. Configure `checkboxGateMarkers`.\n2. Make an issue with an unchecked AC line that ends in a marker.\n3. Run `gh pmu move <n> --status in_review --dry-run`.",
+          "expectedBehavior": "The waivers are shown as part of the dry-run output, after the banner.",
+          "actualBehavior": "The waivers print above the dry-run banner.",
+          "inScope": "Where move puts the waiver report in a dry run",
+          "outOfScope": "The waiver logic itself",
+          "acceptanceCriteria": [
+            "In a dry run, the waiver report comes after the dry-run banner (unit test on output order)",
+            "Waiver output in a real run is unchanged"
+          ],
+          "proposedFix": "Print the waivers after the banner in a dry run, or fold them into the per-issue validation results."
+        }
+      },
+      "issue": 951,
+      "filedAt": "2026-10-25T23:19:23.323Z"
+    },
+    {
+      "id": "q-ddf14368",
+      "status": "filed",
+      "queuedAt": "2026-10-25T23:19:01.949Z",
+      "entry": {
+        "type": "bug",
+        "title": "ratelimit backoff overflows for large retry counts, giving a zero or negative delay",
+        "priority": "p2",
+        "source": {
+          "file": "internal/testutil/ratelimit/ratelimit.go"
+        },
+        "fields": {
+          "description": "`Limiter.backoff` (`internal/testutil/ratelimit/ratelimit.go`, around line 321) computes `BaseDelay << attempt` with no bound on `attempt`. `E2E_MAX_RATE_LIMIT_RETRIES` can be set to any non-negative value. With the 5s default base, the shift overflows past about 30 retries, and the resulting negative Duration slips past the `MaxDelay` cap (`d > MaxDelay` is false). `MaxDelay=0` turns the cap off entirely. The result is retrying without waiting. This is test-support code only. Found by the v1.8.0 release diff review (low).",
+          "version": "pmu/next-version, unreleased (#920)",
+          "stepsToReproduce": "Set `E2E_MAX_RATE_LIMIT_RETRIES=40` and drive repeated rate-limited responses through `Limiter.Do`.",
+          "expectedBehavior": "Each delay is capped at MaxDelay and is never zero or negative.",
+          "actualBehavior": "Past about 30 retries the delay wraps to a negative or zero value.",
+          "inScope": "backoff computation and the MaxRetries validation in ConfigFromEnv",
+          "outOfScope": "The pacing between ordinary calls",
+          "acceptanceCriteria": [
+            "backoff never returns a value <= 0 for any attempt (unit test with attempt 64)",
+            "backoff is capped at MaxDelay whenever MaxDelay > 0"
+          ],
+          "proposedFix": "Stop doubling once the delay would pass MaxDelay, or treat d <= 0 as an overflow and clamp it. Alternatively, bound MaxRetries in ConfigFromEnv."
+        }
+      },
+      "issue": 952,
+      "filedAt": "2026-10-25T23:19:28.531Z"
     }
   ],
   "lastDiffReview": {
-    "baseRef": "origin/main",
-    "baseSha": "ebf2a48127a9aff3cd548fb402443e348df230b0",
-    "headSha": "57ff494eb3da41d5d90c040ce4d462d9efbfd00b",
-    "reviewedAt": "2026-10-22T22:41:58.320Z",
-    "workingTreeIncluded": false,
-    "filesReviewed": 1,
+    "baseRef": "main",
+    "baseSha": "2a72c60c0fbb670e4fc64612c87cc2c57a3a269d",
+    "headSha": "68e7c393807003782f5152df56cd7aa09da3fd1d",
+    "reviewedAt": "2026-10-25T23:24:04.071Z",
+    "workingTreeIncluded": true,
+    "filesReviewed": 7,
     "findings": {
       "introduced": {
         "high": 0,
         "medium": 0,
         "low": 4,
-        "info": 2
+        "info": 0
       },
       "preExisting": {
         "high": 0,
-        "medium": 5,
-        "low": 4,
+        "medium": 0,
+        "low": 0,
         "info": 0
       }
     },
-    "issues": []
+    "issues": [
+      948,
+      949,
+      950,
+      951,
+      952
+    ]
   }
 }
