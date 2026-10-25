@@ -49,16 +49,16 @@ var (
 		ProjectName:     "IDPF-gh-pmu-testing",
 	}
 
-	// orgFixture's repository and template project are created by hand (see
-	// test/e2e/README.md, "Fixtures"). Record the template's number here once
-	// it exists; until then every org test skips naming this file.
+	// orgFixture's repository is created by hand (see test/e2e/README.md,
+	// "Fixtures"). Its template is the org's existing Kanban Template
+	// project (#947); the tests only copy it, never write to it.
 	orgFixture = Fixture{
 		Name:            "org",
 		Owner:           "rubrical-works",
 		OwnerType:       "org",
 		Repo:            "rubrical-works/gh-pmu-e2e-test",
-		TemplateProject: 0,
-		ProjectName:     "gh-pmu-e2e-org-template",
+		TemplateProject: 2,
+		ProjectName:     "Kanban Template",
 	}
 
 	allFixtures = []Fixture{userFixture, orgFixture}

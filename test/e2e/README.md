@@ -42,13 +42,13 @@ E2E_FIXTURE=org go test -tags e2e ./test/e2e/ -v -count=1 -timeout 30m
 **The org fixture is set up by hand, once.** Until its template project's number is recorded in `fixture_test.go` (`orgFixture.TemplateProject`), every org test skips and says so. To set it up:
 
 1. Create the repository `rubrical-works/gh-pmu-e2e-test`.
-2. Create a **dedicated** template project in `rubrical-works`, titled `gh-pmu-e2e-org-template`. Don't reuse an existing project such as #11: orphan cleanup deletes projects by title, and another project's uses are unknown. Give it:
+2. The template is the org's existing **Kanban Template** project (#2). The tests only copy it with `init --source-project`, and orphan cleanup never matches it: it deletes by the repository's title and skips the template's number. The tests rely on it keeping:
    - the native **Status** field;
    - **Priority**, backed by the organization's Priority issue field;
-   - one ordinary (native) project field.
+   - one ordinary (native) project field (Size).
 
-   Keep it small. Org discovery adds a paginated `issueFields` query and samples up to 100 items.
-3. Record the project number in `orgFixture.TemplateProject`.
+   Keep it small. Org discovery adds a paginated `issueFields` query and samples up to 100 items. Renaming or removing those fields breaks the org tests.
+3. Its number is recorded in `orgFixture.TemplateProject`. Change it there if the template ever moves.
 
 Orphan cleanup (`E2E_CLEANUP=true`) runs for every fixture owner, selected or not. It deletes projects titled after the fixture's repository and never deletes the template. An owner whose template isn't recorded yet is skipped.
 
