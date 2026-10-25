@@ -157,6 +157,110 @@ func TestValidateStatusTransition_InProgressSpaceVariant(t *testing.T) {
 }
 
 // =============================================================================
+// #923: Configured gate markers
+// =============================================================================
+
+var testGateMarkers = []string{"→ QA: #N", "→ GATE: review", "→ GATE: release"}
+
+func TestMatchesGateMarker(t *testing.T) {
+	tests := []struct {
+		name string
+		line string
+		want bool
+	}{
+		{"QA with number", "Manual check passes → QA: #2755", true},
+		{"QA with trailing whitespace", "Manual check passes → QA: #2755  \r", true},
+		{"QA without number", "Manual check passes → QA: #", false},
+		{"QA with trailing text", "Manual check → QA: #2755 (later)", false},
+		{"QA with non-digit", "Manual check → QA: #abc", false},
+		{"GATE review", "Reviewer approves the wording → GATE: review", true},
+		{"GATE release", "Asset verified → GATE: release", true},
+		{"bare GATE", "Something → GATE:", false},
+		{"unconfigured token", "Something → GATE: later", false},
+		{"marker mid-line only", "→ GATE: review then more work", false},
+		{"no marker", "Implement the parser", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := matchesGateMarker(tt.line, testGateMarkers); got != tt.want {
+				t.Errorf("matchesGateMarker(%q) = %v, want %v", tt.line, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestMatchesGateMarker_EmptyEntryMatchesNothing(t *testing.T) {
+	// An empty entry would otherwise be a suffix of every line and waive all.
+	if matchesGateMarker("Unfinished work", []string{"", "   "}) {
+		t.Error("empty/whitespace markers must not match")
+	}
+}
+
+func TestPartitionUncheckedItems(t *testing.T) {
+	body := "## AC\n- [x] Done\n- [ ] Real work\n- [ ] Manual check → QA: #12\n* [ ] Approve → GATE: review\n" +
+		"```\n- [ ] example in code → GATE: review\n```\n"
+
+	blocking, waived := partitionUncheckedItems(body, testGateMarkers)
+
+	if len(blocking) != 1 || !strings.Contains(blocking[0], "Real work") {
+		t.Errorf("blocking = %v, want only 'Real work'", blocking)
+	}
+	if len(waived) != 2 {
+		t.Errorf("waived = %v, want the QA and GATE lines (code block excluded)", waived)
+	}
+}
+
+func TestValidateStatusTransition_MarkerOnlyUncheckedPasses(t *testing.T) {
+	cfg := &config.Config{Framework: "IDPF", CheckboxGateMarkers: testGateMarkers}
+	ctx := &issueValidationContext{
+		Number:        7,
+		CurrentStatus: "in_progress",
+		Body:          "## AC\n- [x] Built\n- [ ] Manual check → QA: #2755\n- [ ] Notes reviewed → GATE: review",
+	}
+
+	if err := validateStatusTransition(cfg, ctx, "in_review", "", false); err != nil {
+		t.Errorf("Expected marker-only unchecked lines to pass, got: %v", err)
+	}
+}
+
+func TestValidateStatusTransition_MixedUncheckedBlocksNamingBareLines(t *testing.T) {
+	cfg := &config.Config{Framework: "IDPF", CheckboxGateMarkers: testGateMarkers}
+	ctx := &issueValidationContext{
+		Number:        8,
+		CurrentStatus: "in_progress",
+		Body:          "## AC\n- [ ] Manual check → QA: #2755\n- [ ] Still to build\n- [ ] Odd token → GATE:",
+	}
+
+	err := validateStatusTransition(cfg, ctx, "in_review", "", false)
+	if err == nil {
+		t.Fatal("Expected mixed unchecked lines to block")
+	}
+	if !strings.Contains(err.Message, "Has 2 unchecked checkbox(es)") {
+		t.Errorf("Expected count of the 2 non-marker lines, got: %s", err.Message)
+	}
+	if !strings.Contains(err.Message, "Still to build") || !strings.Contains(err.Message, "Odd token") {
+		t.Errorf("Expected blocking lines named, got: %s", err.Message)
+	}
+	if strings.Contains(err.Message, "QA: #2755") {
+		t.Errorf("Marker line must not be listed as blocking, got: %s", err.Message)
+	}
+}
+
+func TestValidateStatusTransition_NoMarkersConfiguredUnchanged(t *testing.T) {
+	cfg := &config.Config{Framework: "IDPF"}
+	ctx := &issueValidationContext{
+		Number:        9,
+		CurrentStatus: "in_progress",
+		Body:          "## AC\n- [ ] Manual check → QA: #2755",
+	}
+
+	err := validateStatusTransition(cfg, ctx, "in_review", "", false)
+	if err == nil || !strings.Contains(err.Message, "Has 1 unchecked checkbox(es)") {
+		t.Errorf("Expected unconfigured default to block as before, got: %v", err)
+	}
+}
+
+// =============================================================================
 // REQ-367: Body Required for Review/Done
 // =============================================================================
 

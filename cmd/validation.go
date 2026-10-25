@@ -93,18 +93,16 @@ func validateStatusTransition(cfg *config.Config, ctx *issueValidationContext, t
 		}
 	}
 
-	// Rule 2: All checkboxes must be checked for in_review/done (bypassed by --force)
+	// Rule 2: All checkboxes must be checked for in_review/done (bypassed by --force).
+	// A line ending in a configured gate marker is unchecked by design and
+	// does not count (#923).
 	if targetStatusLower == "in_review" || targetStatusLower == "in review" || targetStatusLower == "done" {
-		unchecked := countUncheckedBoxes(ctx.Body)
-		if unchecked > 0 && !force {
-			uncheckedItems := getUncheckedItems(ctx.Body)
-			itemList := ""
-			if len(uncheckedItems) > 0 {
-				itemList = "\n" + strings.Join(uncheckedItems, "\n")
-			}
+		blocking, _ := partitionUncheckedItems(ctx.Body, cfg.CheckboxGateMarkers)
+		if len(blocking) > 0 && !force {
+			itemList := "\n" + strings.Join(blocking, "\n")
 			return &ValidationError{
 				IssueNumber: ctx.Number,
-				Message:     fmt.Sprintf("Has %d unchecked checkbox(es):%s", unchecked, itemList),
+				Message:     fmt.Sprintf("Has %d unchecked checkbox(es):%s", len(blocking), itemList),
 				Suggestion:  fmt.Sprintf("Complete these items before moving to %s, or use --force to bypass.\nClaude: Review GitHub-Workflow rules before using --force.", targetStatus),
 			}
 		}
@@ -434,16 +432,53 @@ func countCodeBlockCheckboxes(body string) int {
 // getUncheckedItems extracts the text of all unchecked checkbox items,
 // excluding checkboxes inside code blocks.
 func getUncheckedItems(body string) []string {
-	strippedBody := stripCodeBlocks(body)
-	matches := uncheckedItemRegex.FindAllStringSubmatch(strippedBody, -1)
+	items, _ := partitionUncheckedItems(body, nil)
+	return items
+}
 
-	var items []string
+// partitionUncheckedItems splits the unchecked checkbox items outside code
+// blocks into those that block a transition and those waived because they end
+// in a configured gate marker (#923). Both are formatted as getUncheckedItems
+// formats them. With no markers configured, every item blocks.
+func partitionUncheckedItems(body string, markers []string) (blocking, waived []string) {
+	matches := uncheckedItemRegex.FindAllStringSubmatch(stripCodeBlocks(body), -1)
 	for _, match := range matches {
-		if len(match) > 1 {
-			items = append(items, "  [ ] "+strings.TrimSpace(match[1]))
+		if len(match) < 2 {
+			continue
+		}
+		item := "  [ ] " + strings.TrimSpace(match[1])
+		if matchesGateMarker(match[1], markers) {
+			waived = append(waived, item)
+		} else {
+			blocking = append(blocking, item)
 		}
 	}
-	return items
+	return blocking, waived
+}
+
+// matchesGateMarker reports whether a checkbox line's text ends with one of
+// the configured markers, ignoring trailing whitespace. A marker ending in
+// "#N" matches "#" followed by one or more digits, so "→ QA: #N" recognizes
+// "→ QA: #2755". Empty entries match nothing, so a stray "" cannot waive
+// every line.
+func matchesGateMarker(line string, markers []string) bool {
+	line = strings.TrimRight(line, " \t\r")
+	for _, marker := range markers {
+		if strings.TrimSpace(marker) == "" {
+			continue
+		}
+		if prefix, ok := strings.CutSuffix(marker, "#N"); ok {
+			trimmed := strings.TrimRight(line, "0123456789")
+			if len(trimmed) < len(line) && strings.HasSuffix(trimmed, prefix+"#") {
+				return true
+			}
+			continue
+		}
+		if strings.HasSuffix(line, marker) {
+			return true
+		}
+	}
+	return false
 }
 
 // getFieldValueFromSlice extracts a field value from a slice of field values
