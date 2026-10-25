@@ -4,6 +4,7 @@ package e2e
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -11,15 +12,22 @@ import (
 	"testing"
 )
 
-// testConfig holds the configuration for E2E test project #41
-const testConfig = `{
+// fixtureConfig returns the .gh-pmu.json for a fixture's template project.
+// The user fixture's aliases are the ones its tests were written against.
+func fixtureConfig(f Fixture) string {
+	return fmt.Sprintf(testConfigTemplate, f.ProjectName, f.TemplateProject, f.Owner, f.Repo)
+}
+
+// testConfigTemplate is filled in by fixtureConfig: project name, number,
+// owner, repository.
+const testConfigTemplate = `{
   "project": {
-    "name": "IDPF-gh-pmu-testing",
-    "number": 41,
-    "owner": "rubrical-worker"
+    "name": %q,
+    "number": %d,
+    "owner": %q
   },
   "framework": "IDPF-Agile",
-  "repositories": ["rubrical-worker/gh-pmu-e2e-test"],
+  "repositories": [%q],
   "defaults": {
     "priority": "p2",
     "status": "backlog"
@@ -48,18 +56,20 @@ type TestConfig struct {
 }
 
 // setupTestConfig creates a temporary directory with a .gh-pmu.json file
-// configured for test project #41. The directory is automatically cleaned up
-// when the test completes. Also initializes a git repository for tests that
-// require git operations (like branch commands).
+// configured for the user fixture's template project, skipping the test when
+// the user fixture is not selected (#940). The directory is automatically
+// cleaned up when the test completes. Also initializes a git repository for
+// tests that require git operations (like branch commands).
 func setupTestConfig(t *testing.T) *TestConfig {
 	t.Helper()
+	f := requireFixture(t, userFixture)
 
 	// Create temp directory - automatically cleaned up by t.TempDir()
 	tmpDir := t.TempDir()
 
 	// Write config file
 	configPath := filepath.Join(tmpDir, ".gh-pmu.json")
-	err := os.WriteFile(configPath, []byte(testConfig), 0644)
+	err := os.WriteFile(configPath, []byte(fixtureConfig(f)), 0644)
 	if err != nil {
 		t.Fatalf("Failed to write test config: %v", err)
 	}

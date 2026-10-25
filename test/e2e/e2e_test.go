@@ -47,6 +47,13 @@ func TestMain(m *testing.M) {
 	}
 	limiter = ratelimit.New(rlCfg, ratelimit.RealClock{})
 
+	// Select fixtures (#940): user by default, so today's runs are unchanged.
+	selectedFixtures, err = parseFixtureSelection(os.Getenv(envFixture))
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Invalid fixture selection: %v\n", err)
+		os.Exit(1)
+	}
+
 	// Build binary with coverage instrumentation
 	binPath, err := buildBinary(projectRoot)
 	if err != nil {

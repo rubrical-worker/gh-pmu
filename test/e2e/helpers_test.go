@@ -210,7 +210,7 @@ func waitForProjectSync(t *testing.T, cfg *TestConfig, maxRetries int, args []st
 func deleteTestIssue(t *testing.T, issueNum int) {
 	t.Helper()
 
-	repo := "rubrical-worker/gh-pmu-e2e-test"
+	repo := userFixture.Repo
 
 	// Close the issue first
 	stdout, stderr, err := runGH("issue", "close",
@@ -235,7 +235,7 @@ func deleteTestIssue(t *testing.T, issueNum int) {
 func getIssueLabels(t *testing.T, issueNum int) []string {
 	t.Helper()
 
-	repo := "rubrical-worker/gh-pmu-e2e-test"
+	repo := userFixture.Repo
 	output, _, err := runGH("issue", "view",
 		"--repo", repo,
 		strconv.Itoa(issueNum),
@@ -281,17 +281,24 @@ func extractProjectNumber(t *testing.T, output string) int {
 	return 0
 }
 
-// deleteTestProject deletes a GitHub project created during testing.
+// deleteTestProject deletes a project the user fixture's tests created.
 func deleteTestProject(t *testing.T, projectNumber int) {
 	t.Helper()
+	deleteFixtureProject(t, userFixture, projectNumber)
+}
 
-	if projectNumber <= 0 {
+// deleteFixtureProject deletes a project a test created under f's owner. It
+// never deletes the fixture's template project.
+func deleteFixtureProject(t *testing.T, f Fixture, projectNumber int) {
+	t.Helper()
+
+	if projectNumber <= 0 || projectNumber == f.TemplateProject {
 		return
 	}
 
 	stdout, stderr, err := runGH("project", "delete",
 		strconv.Itoa(projectNumber),
-		"--owner", "rubrical-worker",
+		"--owner", f.Owner,
 	)
 	if err != nil {
 		t.Logf("Warning: failed to delete test project #%d: %v\nOutput: %s%s", projectNumber, err, stdout, stderr)
