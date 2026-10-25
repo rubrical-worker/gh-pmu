@@ -41,7 +41,9 @@ func runPMU(t *testing.T, workDir string, args ...string) *CommandResult {
 		cmd.Stdout = &stdout
 		cmd.Stderr = &stderr
 		runErr := cmd.Run()
-		return stdout.String() + stderr.String(), runErr
+		// Classify stderr only: stdout can echo issue text that merely
+		// mentions a rate limit.
+		return stderr.String(), runErr
 	})
 	if errors.Is(o.Err, ratelimit.ErrCircuitOpen) {
 		t.Fatalf("gh pmu %s not run: %v", strings.Join(args, " "), o.Err)
