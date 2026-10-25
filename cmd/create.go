@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	ghapi "github.com/cli/go-gh/v2/pkg/api"
@@ -40,6 +41,7 @@ type createOptions struct {
 	assignees []string
 	milestone string
 	repo      string
+	project   string // --project owner/number (or bare number under the local owner); overrides the configured project (#924)
 	fromFile  string
 	dryRun    bool
 
@@ -86,6 +88,7 @@ any specified field values (status, priority) are set.`,
 	cmd.Flags().StringArrayVarP(&opts.assignees, "assignee", "a", nil, "Assign users (can be specified multiple times)")
 	cmd.Flags().StringVarP(&opts.milestone, "milestone", "m", "", "Set milestone (title or number)")
 	cmd.Flags().StringVarP(&opts.repo, "repo", "R", "", "Target repository (owner/repo format)")
+	cmd.Flags().StringVar(&opts.project, "project", "", "Project to add the issue to (owner/number), overriding the configured one; required when --repo names a repository not listed in .gh-pmu.json")
 	cmd.Flags().StringVarP(&opts.fromFile, "from-file", "f", "", "Create issue from YAML/JSON file")
 	cmd.Flags().BoolVar(&opts.dryRun, "dry-run", false, "Resolve the repository, project and fields and print what would be created, without creating anything")
 
@@ -238,6 +241,12 @@ func runCreate(cmd *cobra.Command, opts *createOptions) error {
 
 // runCreateWithDeps is the testable implementation of runCreate
 func runCreateWithDeps(cmd *cobra.Command, opts *createOptions, cfg *config.Config, client createClient, owner, repo string) error {
+	// Decide which board the issue lands on before anything else, so a refusal
+	// creates nothing (#924).
+	if err := checkCreateProjectTarget(cfg, opts.project, opts.repo, owner, repo); err != nil {
+		return err
+	}
+
 	// Handle --from-file
 	if opts.fromFile != "" {
 		return runCreateFromFileWithDeps(cmd, opts, cfg, client, owner, repo)
@@ -307,7 +316,7 @@ func runCreateWithDeps(cmd *cobra.Command, opts *createOptions, cfg *config.Conf
 
 	// Resolve everything create reads from the API before writing anything, so
 	// a failed lookup leaves no issue behind (#929).
-	targets, err := resolveCreateTargets(client, cfg, owner, repo, opts.release)
+	targets, err := resolveCreateTargets(client, cfg, opts.project, owner, repo, opts.release)
 	if err != nil {
 		return err
 	}
@@ -387,7 +396,7 @@ func printCreateDryRun(cmd *cobra.Command, cfg *config.Config, targets *createTa
 
 	fmt.Fprintln(w, "Dry run: no issue will be created.")
 	fmt.Fprintf(w, "  Repository: %s\n", p.repo)
-	fmt.Fprintf(w, "  Project:    %s (%s #%d)\n", targets.project.Title, cfg.Project.Owner, cfg.Project.Number)
+	fmt.Fprintf(w, "  Project:    %s (%s #%d)\n", targets.project.Title, targets.projectOwner, targets.projectNumber)
 	fmt.Fprintf(w, "  Title:      %s\n", p.title)
 	fmt.Fprintf(w, "  Body:       %s\n", p.bodySource)
 	fmt.Fprintf(w, "  Labels:     %s\n", orNone(p.labels))
@@ -492,7 +501,7 @@ func runCreateFromFileWithDeps(cmd *cobra.Command, opts *createOptions, cfg *con
 	// Resolve everything create reads from the API before writing anything, so
 	// a failed lookup leaves no issue behind (#929). --branch/--release is
 	// honored in from-file mode too.
-	targets, err := resolveCreateTargets(client, cfg, owner, repo, opts.release)
+	targets, err := resolveCreateTargets(client, cfg, opts.project, owner, repo, opts.release)
 	if err != nil {
 		return err
 	}
@@ -588,18 +597,72 @@ func resolveCreateBranchValue(client createClient, owner, repo, branchFlag strin
 // createTargets is everything create reads from the API before it writes.
 type createTargets struct {
 	project         *api.Project
+	projectOwner    string // owner of the selected project (configured, or --project)
+	projectNumber   int
+	overridden      bool // true when --project selected the project (#924)
 	branchFieldName string
 	branchValue     string // resolved --branch value; "" when not set
+}
+
+// parseProjectRef parses a --project value: "owner/number", or a bare number
+// meaning a project of defaultOwner (#924).
+func parseProjectRef(ref, defaultOwner string) (string, int, error) {
+	ref = strings.TrimSpace(ref)
+	owner, numStr := defaultOwner, ref
+	if o, n, ok := strings.Cut(ref, "/"); ok {
+		owner, numStr = o, n
+	}
+	number, err := strconv.Atoi(numStr)
+	if owner == "" || err != nil || number <= 0 || strings.Contains(numStr, "/") {
+		return "", 0, fmt.Errorf("invalid --project %q: expected owner/number (e.g. my-org/7)", ref)
+	}
+	return owner, number, nil
+}
+
+// isConfiguredRepo reports whether owner/repo is listed in the config's
+// repositories (case-insensitive, as GitHub treats names).
+func isConfiguredRepo(cfg *config.Config, owner, repo string) bool {
+	for _, r := range cfg.Repositories {
+		if strings.EqualFold(r, owner+"/"+repo) {
+			return true
+		}
+	}
+	return false
+}
+
+// checkCreateProjectTarget refuses a --repo naming a repository the config does
+// not list unless --project names the board. Without it, the issue would be
+// added to the local project — the wrong board, silently (#924). It also
+// validates a supplied --project before anything is created. repoFlag is the
+// raw --repo value; without it the repository came from the config itself.
+func checkCreateProjectTarget(cfg *config.Config, projectRef, repoFlag, owner, repo string) error {
+	if projectRef != "" {
+		_, _, err := parseProjectRef(projectRef, cfg.Project.Owner)
+		return err
+	}
+	if repoFlag != "" && !isConfiguredRepo(cfg, owner, repo) {
+		return fmt.Errorf("%s/%s is not listed in .gh-pmu.json repositories; pass --project <owner/number> to choose the project it is added to (refusing to add it to the local project %s #%d)",
+			owner, repo, cfg.Project.Owner, cfg.Project.Number)
+	}
+	return nil
 }
 
 // resolveCreateTargets performs every lookup create depends on — the project,
 // its fields and the --branch current tracker — none of which depend on the new
 // issue. Running them before CreateIssueWithOptions leaves add-to-project and
-// the field writes as the only post-create failure points (#929).
-func resolveCreateTargets(client createClient, cfg *config.Config, owner, repo, branchFlag string) (*createTargets, error) {
-	project, err := client.GetProject(cfg.Project.Owner, cfg.Project.Number)
+// the field writes as the only post-create failure points (#929). projectRef
+// is the --project value; "" selects the configured project.
+func resolveCreateTargets(client createClient, cfg *config.Config, projectRef, owner, repo, branchFlag string) (*createTargets, error) {
+	projectOwner, projectNumber := cfg.Project.Owner, cfg.Project.Number
+	if projectRef != "" {
+		var err error
+		if projectOwner, projectNumber, err = parseProjectRef(projectRef, cfg.Project.Owner); err != nil {
+			return nil, err
+		}
+	}
+	project, err := client.GetProject(projectOwner, projectNumber)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get project: %w", err)
+		return nil, fmt.Errorf("failed to get project %s #%d: %w", projectOwner, projectNumber, err)
 	}
 	projectFields, err := client.GetProjectFields(project.ID)
 	if err != nil {
@@ -611,6 +674,9 @@ func resolveCreateTargets(client createClient, cfg *config.Config, owner, repo, 
 	}
 	return &createTargets{
 		project:         project,
+		projectOwner:    projectOwner,
+		projectNumber:   projectNumber,
+		overridden:      projectRef != "",
 		branchFieldName: ResolveBranchFieldName(projectFields),
 		branchValue:     branchValue,
 	}, nil
