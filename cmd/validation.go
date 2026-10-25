@@ -13,8 +13,8 @@ import (
 // GitHub renders task-list items using any of the -, *, + bullet markers and
 // treats [x] and [X] as checked; these patterns match all of those forms.
 var (
-	checkedBoxRegex    = regexp.MustCompile(`(?m)^\s*[-*+] \[[xX]\]`)
-	uncheckedBoxRegex  = regexp.MustCompile(`(?m)^\s*[-*+] \[ \]`)
+	checkedBoxRegex   = regexp.MustCompile(`(?m)^\s*[-*+] \[[xX]\]`)
+	uncheckedBoxRegex = regexp.MustCompile(`(?m)^\s*[-*+] \[ \]`)
 	// uncheckedItemRegex matches every line uncheckedBoxRegex matches, with
 	// the (possibly empty) text after the box, so a bare "- [ ]" is still an
 	// item and still blocks (#948).
