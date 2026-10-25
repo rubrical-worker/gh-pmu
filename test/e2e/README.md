@@ -23,7 +23,7 @@ The suite runs against one or more **fixtures**, each a live GitHub owner with a
 | Fixture | Owner | Repository | Template project | Covers |
 |---------|-------|------------|------------------|--------|
 | `user` | `rubrical-worker` (user) | `rubrical-worker/gh-pmu-e2e-test` | #41 | Every generic workflow test |
-| `org` | `rubrical-works` (organization) | `rubrical-works/gh-pmu-e2e-test` | dedicated template, number recorded in `fixture_test.go` | Organization issue fields (#932): classification, the `issue_field` override, `move --priority` writes, org-scoped `init` |
+| `org` | `rubrical-works` (organization) | `rubrical-works/gh-pmu-e2e-test-org` | dedicated template `gh-pmu-e2e-test-org` (#16), number recorded in `fixture_test.go` | Organization issue fields (#932): classification, the `issue_field` override, `move --priority` writes, org-scoped `init` |
 
 Select fixtures with `E2E_FIXTURE`:
 
@@ -41,14 +41,16 @@ E2E_FIXTURE=org go test -tags e2e ./test/e2e/ -v -count=1 -timeout 30m
 
 **The org fixture is set up by hand, once.** Until its template project's number is recorded in `fixture_test.go` (`orgFixture.TemplateProject`), every org test skips and says so. To set it up:
 
-1. Create the repository `rubrical-works/gh-pmu-e2e-test`.
-2. The template is the org's existing **Kanban Template** project (#2). The tests only copy it with `init --source-project`, and orphan cleanup never matches it: it deletes by the repository's title and skips the template's number. The tests rely on it keeping:
+1. Create the org-owned repository `rubrical-works/gh-pmu-e2e-test-org`.
+2. The template is the dedicated project **gh-pmu-e2e-test-org** (#16). The tests only copy it with `init --source-project`. Orphan cleanup deletes projects titled after the repository, so it would match this one too; the template's number is what excludes it. The tests rely on it keeping:
    - the native **Status** field;
    - **Priority**, backed by the organization's Priority issue field;
    - one ordinary (native) project field (Size).
 
    Keep it small. Org discovery adds a paginated `issueFields` query and samples up to 100 items. Renaming or removing those fields breaks the org tests.
 3. Its number is recorded in `orgFixture.TemplateProject`. Change it there if the template ever moves.
+
+The repository must be **org-owned**. `rubrical-works/gh-pmu-e2e-test` resolves only because GitHub redirects the old account name to the user repo `rubrical-worker/gh-pmu-e2e-test`; org issue fields don't apply to issues there. Check with `gh api repos/<owner>/<repo> --jq .owner.type`, which must print `Organization`.
 
 Orphan cleanup (`E2E_CLEANUP=true`) runs for every fixture owner, selected or not. It deletes projects titled after the fixture's repository and never deletes the template. An owner whose template isn't recorded yet is skipped.
 
