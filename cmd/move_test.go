@@ -2838,6 +2838,118 @@ func TestRunMoveWithDeps_ForceShowsUncheckedItemsInWarning(t *testing.T) {
 	}
 }
 
+// #923: unchecked lines ending in a configured gate marker are waived and reported.
+
+func addMoveTestIssue(mock *mockMoveClient, number int, body string) {
+	issue := &api.Issue{
+		ID:         fmt.Sprintf("issue-%d", number),
+		Number:     number,
+		Title:      fmt.Sprintf("Issue %d", number),
+		Body:       body,
+		Repository: api.Repository{Owner: "testowner", Name: "testrepo"},
+	}
+	mock.issues[fmt.Sprintf("testowner/testrepo#%d", number)] = issue
+	mock.projectItems = append(mock.projectItems, api.ProjectItem{ID: fmt.Sprintf("item-%d", number), Issue: issue})
+}
+
+func gateMarkerMoveSetup(body string) (*mockMoveClient, *bytes.Buffer, *cobra.Command) {
+	mock := setupMockWithIssueAndBody(42, "Test Issue", body, "item-42")
+	mock.openIssuesByLabel["branch"] = []api.Issue{
+		{ID: "BRANCH_1", Number: 100, Title: "Branch: release/v1.0.0", State: "OPEN"},
+	}
+	cmd := &cobra.Command{}
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetErr(buf)
+	return mock, buf, cmd
+}
+
+func gateMarkerMoveConfig() *config.Config {
+	cfg := testIDPFMoveConfig()
+	cfg.CheckboxGateMarkers = []string{"→ QA: #N", "→ GATE: review", "→ GATE: release"}
+	return cfg
+}
+
+func TestRunMoveWithDeps_MarkerOnlyUncheckedMovesWithoutForceAndReports(t *testing.T) {
+	body := "## AC\n- [x] Built\n- [ ] Manual check → QA: #2755\n- [ ] Asset verified → GATE: release"
+	mock, buf, cmd := gateMarkerMoveSetup(body)
+
+	err := runMoveWithDeps(cmd, []string{"42"}, &moveOptions{status: "done"}, gateMarkerMoveConfig(), mock)
+
+	if err != nil {
+		t.Fatalf("Expected marker-only issue to move without --force, got: %v", err)
+	}
+	output := buf.String()
+	if !strings.Contains(output, "#42: 2 unchecked AC line(s) accepted as gates") {
+		t.Errorf("Expected waiver report, got output: %s", output)
+	}
+	if !strings.Contains(output, "Manual check → QA: #2755") || !strings.Contains(output, "Asset verified → GATE: release") {
+		t.Errorf("Expected accepted lines printed, got output: %s", output)
+	}
+}
+
+func TestRunMoveWithDeps_MultiIssueMarkerOnlyMovesWithoutForce(t *testing.T) {
+	mock, buf, cmd := gateMarkerMoveSetup("## AC\n- [ ] Manual check → QA: #11")
+	addMoveTestIssue(mock, 43, "## AC\n- [x] Done\n- [ ] Approve → GATE: review")
+
+	err := runMoveWithDeps(cmd, []string{"42", "43"}, &moveOptions{status: "done", yes: true}, gateMarkerMoveConfig(), mock)
+
+	if err != nil {
+		t.Fatalf("Expected multi-issue marker-only move to pass, got: %v", err)
+	}
+	output := buf.String()
+	for _, want := range []string{"#42: 1 unchecked AC line(s) accepted as gates", "#43: 1 unchecked AC line(s) accepted as gates"} {
+		if !strings.Contains(output, want) {
+			t.Errorf("Expected %q in output: %s", want, output)
+		}
+	}
+}
+
+func TestRunMoveWithDeps_MultiIssueBlocksOnlyIssueWithBareLines(t *testing.T) {
+	mock, _, cmd := gateMarkerMoveSetup("## AC\n- [ ] Manual check → QA: #11")
+	addMoveTestIssue(mock, 43, "## AC\n- [ ] Unfinished work")
+
+	err := runMoveWithDeps(cmd, []string{"42", "43"}, &moveOptions{status: "done", yes: true}, gateMarkerMoveConfig(), mock)
+
+	if err == nil {
+		t.Fatal("Expected a block for the issue with a non-marker unchecked line")
+	}
+	if strings.Contains(err.Error(), "Issue #42") {
+		t.Errorf("Marker-only #42 must not be reported as failing: %v", err)
+	}
+	if !strings.Contains(err.Error(), "43") {
+		t.Errorf("Expected #43 named, got: %v", err)
+	}
+}
+
+func TestRunMoveWithDeps_ForceWarningCountsOnlyNonMarkerLines(t *testing.T) {
+	body := "## AC\n- [ ] Manual check → QA: #2755\n- [ ] Unfinished work"
+	mock, buf, cmd := gateMarkerMoveSetup(body)
+
+	err := runMoveWithDeps(cmd, []string{"42"}, &moveOptions{status: "done", force: true, yes: true}, gateMarkerMoveConfig(), mock)
+
+	if err != nil {
+		t.Fatalf("Unexpected error: %v", err)
+	}
+	output := buf.String()
+	if !strings.Contains(output, "#42 has 1 unchecked checkbox(es)") {
+		t.Errorf("Expected --force warning to count only the non-marker line, got: %s", output)
+	}
+}
+
+func TestRunMoveWithDeps_ForceWithMarkerOnlyLinesHasNoForceWarning(t *testing.T) {
+	mock, buf, cmd := gateMarkerMoveSetup("## AC\n- [ ] Manual check → QA: #2755")
+
+	err := runMoveWithDeps(cmd, []string{"42"}, &moveOptions{status: "done", force: true, yes: true}, gateMarkerMoveConfig(), mock)
+
+	if err != nil {
+		t.Fatalf("Unexpected error: %v", err)
+	}
+	if strings.Contains(buf.String(), "Warning: --force bypasses checkbox validation") {
+		t.Errorf("--force bypassed nothing, so no force warning expected: %s", buf.String())
+	}
+}
+
 // AC-648-5: Given --force dry-run, Then no changes are made but validation passes
 func TestRunMoveWithDeps_ForceDryRunNoChanges(t *testing.T) {
 	// ARRANGE - Issue with unchecked checkboxes

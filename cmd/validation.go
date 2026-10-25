@@ -96,7 +96,7 @@ func validateStatusTransition(cfg *config.Config, ctx *issueValidationContext, t
 	// Rule 2: All checkboxes must be checked for in_review/done (bypassed by --force).
 	// A line ending in a configured gate marker is unchecked by design and
 	// does not count (#923).
-	if targetStatusLower == "in_review" || targetStatusLower == "in review" || targetStatusLower == "done" {
+	if checksCheckboxes(targetStatus) {
 		blocking, _ := partitionUncheckedItems(ctx.Body, cfg.CheckboxGateMarkers)
 		if len(blocking) > 0 && !force {
 			itemList := "\n" + strings.Join(blocking, "\n")
@@ -454,6 +454,23 @@ func partitionUncheckedItems(body string, markers []string) (blocking, waived []
 		}
 	}
 	return blocking, waived
+}
+
+// checksCheckboxes reports whether a target status is one whose transition
+// validates checkboxes (in_review and done).
+func checksCheckboxes(targetStatus string) bool {
+	s := strings.ToLower(targetStatus)
+	return s == "in_review" || s == "in review" || s == "done"
+}
+
+// trimItemPrefixes strips the "  [ ] " prefix partitionUncheckedItems adds, for
+// reports that list items under their own heading.
+func trimItemPrefixes(items []string) []string {
+	out := make([]string, len(items))
+	for i, item := range items {
+		out[i] = strings.TrimPrefix(item, "  [ ] ")
+	}
+	return out
 }
 
 // matchesGateMarker reports whether a checkbox line's text ends with one of
