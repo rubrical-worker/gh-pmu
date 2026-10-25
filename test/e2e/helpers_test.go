@@ -4,6 +4,7 @@ package e2e
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"os/exec"
 	"regexp"
@@ -11,6 +12,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/rubrical-works/gh-pmu/internal/testutil/ratelimit"
 )
 
 // CommandResult holds the result of running a command
@@ -22,18 +25,32 @@ type CommandResult struct {
 
 // runPMU executes the local binary with the given arguments.
 // The command runs in the specified working directory (typically a temp dir with config).
-// Returns stdout on success, or logs stderr and fails the test on error.
+// Returns the result for the caller to assert on; a command failure is logged, not fatal.
+//
+// Every call is paced through limiter (#920). The binary already retries rate
+// limits itself (#710/#849), so a rate limit seen here is not retried again:
+// the test fails naming rate limiting, and a secondary limit trips the
+// breaker so the rest of the suite sends no further traffic.
 func runPMU(t *testing.T, workDir string, args ...string) *CommandResult {
 	t.Helper()
 
-	cmd := exec.Command(binaryPath, args...)
-	cmd.Dir = workDir
-
 	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-
-	err := cmd.Run()
+	o := limiter.Do(ratelimit.IsMutating(args), false, func() (string, error) {
+		cmd := exec.Command(binaryPath, args...)
+		cmd.Dir = workDir
+		cmd.Stdout = &stdout
+		cmd.Stderr = &stderr
+		runErr := cmd.Run()
+		return stdout.String() + stderr.String(), runErr
+	})
+	if errors.Is(o.Err, ratelimit.ErrCircuitOpen) {
+		t.Fatalf("gh pmu %s not run: %v", strings.Join(args, " "), o.Err)
+	}
+	var rlErr *ratelimit.RateLimitError
+	if errors.As(o.Err, &rlErr) {
+		t.Fatalf("gh pmu %s: %v", strings.Join(args, " "), rlErr)
+	}
+	err := o.Err
 
 	result := &CommandResult{
 		Stdout:   stdout.String(),
@@ -54,6 +71,25 @@ func runPMU(t *testing.T, workDir string, args ...string) *CommandResult {
 	}
 
 	return result
+}
+
+// runGH runs a gh CLI command through limiter, the same pacing point runPMU
+// uses (#920). Unlike gh pmu, gh has no rate-limit retry of its own, so a
+// rate-limited attempt is retried here with bounded backoff. Returns stdout,
+// stderr, and an error that is a *ratelimit.RateLimitError when retries ran
+// out, wraps ratelimit.ErrCircuitOpen when the breaker blocked the call, and
+// is the command's own error otherwise.
+func runGH(args ...string) (stdout, stderr []byte, err error) {
+	o := limiter.Do(ratelimit.IsMutating(args), true, func() (string, error) {
+		var out, errOut bytes.Buffer
+		cmd := exec.Command("gh", args...)
+		cmd.Stdout = &out
+		cmd.Stderr = &errOut
+		runErr := cmd.Run()
+		stdout, stderr = out.Bytes(), errOut.Bytes()
+		return errOut.String(), runErr
+	})
+	return stdout, stderr, o.Err
 }
 
 // assertContains checks that the output contains the expected substring.
@@ -175,23 +211,21 @@ func deleteTestIssue(t *testing.T, issueNum int) {
 	repo := "rubrical-worker/gh-pmu-e2e-test"
 
 	// Close the issue first
-	closeCmd := exec.Command("gh", "issue", "close",
+	stdout, stderr, err := runGH("issue", "close",
 		"--repo", repo,
 		strconv.Itoa(issueNum),
 		"--reason", "not planned",
 	)
-	output, err := closeCmd.CombinedOutput()
 	if err != nil {
-		t.Logf("Warning: failed to close test issue #%d: %v\nOutput: %s", issueNum, err, output)
+		t.Logf("Warning: failed to close test issue #%d: %v\nOutput: %s%s", issueNum, err, stdout, stderr)
 	}
 
 	// Try to delete (requires admin permissions)
-	deleteCmd := exec.Command("gh", "issue", "delete",
+	_, _, _ = runGH("issue", "delete",
 		"--repo", repo,
 		strconv.Itoa(issueNum),
 		"--yes",
-	)
-	_ = deleteCmd.Run() // Ignore errors - deletion may not be available
+	) // Ignore errors - deletion may not be available
 }
 
 // getIssueLabels retrieves labels for an issue using gh CLI.
@@ -200,13 +234,12 @@ func getIssueLabels(t *testing.T, issueNum int) []string {
 	t.Helper()
 
 	repo := "rubrical-worker/gh-pmu-e2e-test"
-	cmd := exec.Command("gh", "issue", "view",
+	output, _, err := runGH("issue", "view",
 		"--repo", repo,
 		strconv.Itoa(issueNum),
 		"--json", "labels",
 		"--jq", ".labels[].name",
 	)
-	output, err := cmd.Output()
 	if err != nil {
 		t.Fatalf("Failed to get labels for issue #%d: %v", issueNum, err)
 	}
@@ -254,12 +287,12 @@ func deleteTestProject(t *testing.T, projectNumber int) {
 		return
 	}
 
-	cmd := exec.Command("gh", "project", "delete",
+	stdout, stderr, err := runGH("project", "delete",
 		strconv.Itoa(projectNumber),
 		"--owner", "rubrical-worker",
 	)
-	if output, err := cmd.CombinedOutput(); err != nil {
-		t.Logf("Warning: failed to delete test project #%d: %v\nOutput: %s", projectNumber, err, output)
+	if err != nil {
+		t.Logf("Warning: failed to delete test project #%d: %v\nOutput: %s%s", projectNumber, err, stdout, stderr)
 	} else {
 		t.Logf("Deleted test project #%d", projectNumber)
 	}

@@ -12,6 +12,8 @@ import (
 	"path/filepath"
 	"runtime"
 	"testing"
+
+	"github.com/rubrical-works/gh-pmu/internal/testutil/ratelimit"
 )
 
 var (
@@ -20,6 +22,10 @@ var (
 
 	// projectRoot holds the path to the project root directory
 	projectRoot string
+
+	// limiter is the single pacing point for every live API call the suite
+	// makes: runPMU and runGH both go through it (#920).
+	limiter *ratelimit.Limiter
 )
 
 // TestMain builds the binary with coverage instrumentation before running tests.
@@ -31,6 +37,15 @@ func TestMain(m *testing.M) {
 		os.Exit(1)
 	}
 	projectRoot = root
+
+	// Pace and guard every live API call (#920). An invalid override is an
+	// error, not a silent fallback to the defaults.
+	rlCfg, err := ratelimit.ConfigFromEnv(os.Getenv)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Invalid rate-limit configuration: %v\n", err)
+		os.Exit(1)
+	}
+	limiter = ratelimit.New(rlCfg, ratelimit.RealClock{})
 
 	// Build binary with coverage instrumentation
 	binPath, err := buildBinary(projectRoot)

@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"os/exec"
 	"strconv"
 	"strings"
 	"testing"
@@ -57,15 +56,13 @@ func findE2EIssues(t *testing.T) []e2eIssue {
 	t.Helper()
 
 	// Use gh issue list to find [E2E] issues
-	cmd := exec.Command("gh", "issue", "list",
+	output, _, err := runGH("issue", "list",
 		"--repo", testRepo,
 		"--search", "[E2E] in:title",
 		"--state", "all",
 		"--limit", "100",
 		"--json", "number,title",
 	)
-
-	output, err := cmd.Output()
 	if err != nil {
 		t.Logf("Warning: failed to list E2E issues: %v", err)
 		return nil
@@ -95,25 +92,22 @@ func closeAndDeleteIssue(t *testing.T, number int, title string) {
 	t.Logf("Removing issue #%d: %s", number, title)
 
 	// Close the issue
-	closeCmd := exec.Command("gh", "issue", "close",
+	if stdout, stderr, err := runGH("issue", "close",
 		"--repo", testRepo,
 		strconv.Itoa(number),
 		"--reason", "not planned",
-	)
-	if output, err := closeCmd.CombinedOutput(); err != nil {
-		t.Logf("  Warning: failed to close #%d: %v\n  Output: %s", number, err, output)
+	); err != nil {
+		t.Logf("  Warning: failed to close #%d: %v\n  Output: %s%s", number, err, stdout, stderr)
 	}
 
 	// Delete the issue (requires admin permissions)
-	deleteCmd := exec.Command("gh", "issue", "delete",
+	if _, _, err := runGH("issue", "delete",
 		"--repo", testRepo,
 		strconv.Itoa(number),
 		"--yes",
-	)
-	if output, err := deleteCmd.CombinedOutput(); err != nil {
+	); err != nil {
 		// Log but don't fail - deletion may not be available
 		t.Logf("  Note: could not delete #%d (may require admin): %v", number, err)
-		_ = output // suppress unused warning
 	} else {
 		t.Logf("  Deleted issue #%d", number)
 	}
@@ -131,12 +125,11 @@ type e2eProject struct {
 func cleanupOrphanedProjects(t *testing.T) {
 	t.Helper()
 
-	cmd := exec.Command("gh", "project", "list",
+	output, _, err := runGH("project", "list",
 		"--owner", "rubrical-worker",
 		"--format", "json",
 		"--limit", "100",
 	)
-	output, err := cmd.Output()
 	if err != nil {
 		t.Logf("Warning: failed to list projects: %v", err)
 		return
@@ -165,12 +158,11 @@ func cleanupOrphanedProjects(t *testing.T) {
 	t.Logf("Found %d orphaned test projects to clean up", len(orphans))
 	for _, p := range orphans {
 		t.Logf("Deleting orphaned project #%d: %s", p.Number, p.Title)
-		delCmd := exec.Command("gh", "project", "delete",
+		if stdout, stderr, err := runGH("project", "delete",
 			strconv.Itoa(p.Number),
 			"--owner", "rubrical-worker",
-		)
-		if delOutput, err := delCmd.CombinedOutput(); err != nil {
-			t.Logf("  Warning: failed to delete project #%d: %v\n  Output: %s", p.Number, err, delOutput)
+		); err != nil {
+			t.Logf("  Warning: failed to delete project #%d: %v\n  Output: %s%s", p.Number, err, stdout, stderr)
 		} else {
 			t.Logf("  Deleted project #%d", p.Number)
 		}
@@ -187,12 +179,11 @@ func runCleanupAfterTest(t *testing.T, issueNum int) {
 	}
 
 	// Get issue title for logging
-	cmd := exec.Command("gh", "issue", "view",
+	output, _, _ := runGH("issue", "view",
 		"--repo", testRepo,
 		strconv.Itoa(issueNum),
 		"--json", "title",
 	)
-	output, _ := cmd.Output()
 
 	var result struct {
 		Title string `json:"title"`
