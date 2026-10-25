@@ -3590,6 +3590,115 @@ func TestParseBatchAddResponse_MissingItemWithoutAliasError(t *testing.T) {
 	}
 }
 
+// #945: batched addSubIssue.
+
+func TestBuildBatchAddSubIssuesRequest_Structure(t *testing.T) {
+	mutation, body, err := buildBatchAddSubIssuesRequest("I_parent", []string{"I_a", "I_b"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	for _, want := range []string{
+		"mutation BatchAddSubIssues(",
+		"$input0: AddSubIssueInput!",
+		"$input1: AddSubIssueInput!",
+		"a0: addSubIssue(input: $input0) { subIssue { id } }",
+		"a1: addSubIssue(input: $input1) { subIssue { id } }",
+	} {
+		if !strings.Contains(mutation, want) {
+			t.Errorf("mutation missing %q:\n%s", want, mutation)
+		}
+	}
+	var parsed struct {
+		Query     string                       `json:"query"`
+		Variables map[string]map[string]string `json:"variables"`
+	}
+	if err := json.Unmarshal([]byte(body), &parsed); err != nil {
+		t.Fatalf("body is not JSON: %v", err)
+	}
+	if got := parsed.Variables["input1"]; got["issueId"] != "I_parent" || got["subIssueId"] != "I_b" {
+		t.Errorf("input1 = %v, want issueId I_parent, subIssueId I_b", got)
+	}
+}
+
+func TestBuildBatchAddSubIssuesRequest_EmptyAndInvalid(t *testing.T) {
+	mutation, body, err := buildBatchAddSubIssuesRequest("I_parent", nil)
+	if err != nil || mutation != "" || body != "" {
+		t.Errorf("empty input should build nothing, got %q %q %v", mutation, body, err)
+	}
+	if _, _, err := buildBatchAddSubIssuesRequest("I_parent", []string{"I_ok", "bad id"}); err == nil {
+		t.Error("expected child node ID validation error")
+	}
+	if _, _, err := buildBatchAddSubIssuesRequest("bad parent", []string{"I_ok"}); err == nil {
+		t.Error("expected parent node ID validation error")
+	}
+}
+
+func TestParseBatchAddSubIssuesResponse_PerAliasErrors(t *testing.T) {
+	output := []byte(`{
+		"data": {"a0": {"subIssue": {"id": "I_a"}}, "a1": null},
+		"errors": [{"message": "Issue may not contain duplicate sub-issues", "path": ["a1"]}]
+	}`)
+	results, err := parseBatchAddSubIssuesResponse(output, []string{"I_a", "I_b"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !results[0].Success || results[0].ChildID != "I_a" {
+		t.Errorf("a0 = %+v, want success", results[0])
+	}
+	if results[1].Success || !strings.Contains(results[1].Error, "duplicate") || results[1].ChildID != "I_b" {
+		t.Errorf("a1 = %+v, want failure attributed to its alias", results[1])
+	}
+
+	results, err = parseBatchAddSubIssuesResponse([]byte(`{"data": {}}`), []string{"I_a"})
+	if err != nil || results[0].Success || results[0].Error == "" {
+		t.Errorf("no subIssue returned must be a failure with a reason, got %+v err=%v", results[0], err)
+	}
+	if _, err := parseBatchAddSubIssuesResponse([]byte(`not json`), []string{"I_a"}); err == nil {
+		t.Error("expected parse error for invalid JSON")
+	}
+}
+
+func TestBatchAddSubIssues_OneRequestPer50AndWholeChunkFailure(t *testing.T) {
+	childIDs := make([]string, 51)
+	firstData := make([]string, 50)
+	for i := range childIDs {
+		childIDs[i] = fmt.Sprintf("I_%d", i)
+	}
+	for i := range firstData {
+		firstData[i] = fmt.Sprintf(`"a%d": {"subIssue": {"id": "I_%d"}}`, i, i)
+	}
+	raw := &sequencedRawGraphQL{
+		responses: [][]byte{[]byte(`{"data": {` + strings.Join(firstData, ",") + `}}`), nil},
+		errs:      []error{nil, errors.New("HTTP 502")},
+	}
+	client := &Client{rawGQL: raw}
+
+	results, err := client.BatchAddSubIssues("I_parent", childIDs)
+	if err != nil {
+		t.Fatalf("a failed chunk is reported per child, not as an error: %v", err)
+	}
+	if len(raw.bodies) != 2 {
+		t.Fatalf("51 children should take 2 requests, got %d", len(raw.bodies))
+	}
+	for i := 0; i < 50; i++ {
+		if !results[i].Success {
+			t.Fatalf("result %d = %+v, want success", i, results[i])
+		}
+	}
+	if last := results[50]; last.Success || last.ChildID != "I_50" || !strings.Contains(last.Error, "HTTP 502") {
+		t.Errorf("child in the failed chunk = %+v, want failure carrying the request error", last)
+	}
+}
+
+func TestBatchAddSubIssues_Empty(t *testing.T) {
+	raw := &sequencedRawGraphQL{}
+	client := &Client{rawGQL: raw}
+	results, err := client.BatchAddSubIssues("I_parent", nil)
+	if err != nil || len(results) != 0 || len(raw.bodies) != 0 {
+		t.Errorf("empty input should send nothing, got results=%v err=%v requests=%d", results, err, len(raw.bodies))
+	}
+}
+
 // sequencedRawGraphQL answers DoRawBody calls from a queue and records bodies.
 type sequencedRawGraphQL struct {
 	responses [][]byte
