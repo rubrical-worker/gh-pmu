@@ -3,7 +3,9 @@ package cmd
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"os"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -302,6 +304,129 @@ func TestSubCreate_CrossRepoWithoutProjectDoesNotRefuse(t *testing.T) {
 	_, out, err := subCreateDryRunWithProject(t, "--repo", "other-org/elsewhere")
 	if err != nil {
 		t.Fatalf("sub create must not refuse a cross-repo child without --project: %v\n%s", err, out)
+	}
+}
+
+// #945: sub add accepts several children and links them in one request.
+
+func batchSubIssueResponse(failures map[int]string, n int) map[string]interface{} {
+	data := map[string]interface{}{}
+	var errs []interface{}
+	for i := 0; i < n; i++ {
+		alias := fmt.Sprintf("a%d", i)
+		if msg, failed := failures[i]; failed {
+			data[alias] = nil
+			errs = append(errs, map[string]interface{}{"message": msg, "path": []interface{}{alias}})
+			continue
+		}
+		data[alias] = map[string]interface{}{"subIssue": map[string]interface{}{"id": fmt.Sprintf("child-%d", i)}}
+	}
+	resp := map[string]interface{}{"data": data}
+	if len(errs) > 0 {
+		resp["errors"] = errs
+	}
+	return resp
+}
+
+func parentIssueFixture(number int) map[string]interface{} {
+	return gqlData(map[string]interface{}{
+		"repository": map[string]interface{}{"issue": map[string]interface{}{"parent": map[string]interface{}{
+			"id": "issue-" + strconv.Itoa(number), "number": number, "title": "Some parent", "state": "OPEN",
+			"url": "https://github.com/test-org/test-repo/issues/" + strconv.Itoa(number),
+		}}},
+	})
+}
+
+func runSubAddScenario(t *testing.T, handler *mockGraphQLHandler, args ...string) (string, error) {
+	t.Helper()
+	_, cleanup := setupTestEnvironment(t, handler)
+	t.Cleanup(cleanup)
+	cmd := newSubAddCommand()
+	var buf bytes.Buffer
+	cmd.SetOut(&buf)
+	cmd.SetErr(&buf)
+	err := runSubAdd(cmd, args, &subAddOptions{})
+	return buf.String(), err
+}
+
+func TestSubAdd_MultiChildLinksAllInOneMutation(t *testing.T) {
+	handler := newMockGraphQLHandler()
+	handler.respondToFunc("GetIssue", issueByNumberFixture(map[int]string{10: "Parent epic", 15: "Child A", 16: "Child B", 17: "Child C"}))
+	handler.respondTo("BatchAddSubIssues", batchSubIssueResponse(nil, 3))
+
+	out, err := runSubAddScenario(t, handler, "10", "15", "16", "17")
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v\n%s", err, out)
+	}
+	if n := len(handler.requestsFor("BatchAddSubIssues")); n != 1 {
+		t.Errorf("BatchAddSubIssues requests = %d, want 1 for 3 children", n)
+	}
+	if n := len(handler.requestsFor("AddSubIssue")); n != 0 {
+		t.Errorf("multi-child add sent %d single AddSubIssue mutations", n)
+	}
+	for _, want := range []string{"✓ #15: Child A", "✓ #16: Child B", "✓ #17: Child C", "Summary: 3 linked, 0 already linked, 0 failed"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("expected %q in output:\n%s", want, out)
+		}
+	}
+}
+
+func TestSubAdd_MultiChildAlreadyLinkedToThisParentIsNotAFailure(t *testing.T) {
+	handler := newMockGraphQLHandler()
+	handler.respondToFunc("GetIssue", issueByNumberFixture(map[int]string{10: "Parent epic", 15: "Child A", 16: "Child B"}))
+	handler.respondTo("BatchAddSubIssues", batchSubIssueResponse(map[int]string{1: "Issue may not contain duplicate sub-issues"}, 2))
+	handler.respondTo("GetParentIssue", parentIssueFixture(10))
+
+	out, err := runSubAddScenario(t, handler, "10", "15", "16")
+
+	if err != nil {
+		t.Fatalf("already linked to this parent must not fail the command: %v\n%s", err, out)
+	}
+	for _, want := range []string{"✓ #15: Child A", "✓ #16: already linked", "Summary: 1 linked, 1 already linked, 0 failed"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("expected %q in output:\n%s", want, out)
+		}
+	}
+}
+
+func TestSubAdd_MultiChildOtherParentFailsNonZero(t *testing.T) {
+	handler := newMockGraphQLHandler()
+	handler.respondToFunc("GetIssue", issueByNumberFixture(map[int]string{10: "Parent epic", 15: "Child A", 16: "Child B"}))
+	handler.respondTo("BatchAddSubIssues", batchSubIssueResponse(map[int]string{0: "Issue may only have one parent"}, 2))
+	handler.respondTo("GetParentIssue", parentIssueFixture(99))
+
+	out, err := runSubAddScenario(t, handler, "10", "15", "16")
+
+	if err == nil {
+		t.Fatalf("a child with a different parent must exit non-zero:\n%s", out)
+	}
+	for _, want := range []string{"✗ #15: already has a parent (#99)", "✓ #16: Child B", "Summary: 1 linked, 0 already linked, 1 failed"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("expected %q in output:\n%s", want, out)
+		}
+	}
+}
+
+func TestSubAdd_MultiChildUnresolvableChildReportedOthersLinked(t *testing.T) {
+	handler := newMockGraphQLHandler()
+	handler.respondToFunc("GetIssue", issueByNumberFixture(map[int]string{10: "Parent epic", 15: "Child A"}))
+	handler.respondTo("BatchAddSubIssues", batchSubIssueResponse(nil, 1))
+
+	out, err := runSubAddScenario(t, handler, "10", "15", "999")
+
+	if err == nil {
+		t.Fatalf("an unresolvable child must exit non-zero:\n%s", out)
+	}
+	if !strings.Contains(out, "✓ #15: Child A") || !strings.Contains(out, "✗ #999:") {
+		t.Errorf("expected #15 linked and #999 reported failed:\n%s", out)
+	}
+	reqs := handler.requestsFor("BatchAddSubIssues")
+	if len(reqs) != 1 {
+		t.Fatalf("BatchAddSubIssues requests = %d, want 1", len(reqs))
+	}
+	if strings.Contains(reqs[0].Query, "input1") {
+		t.Errorf("the unresolvable child must not be sent: %s", reqs[0].Query)
 	}
 }
 

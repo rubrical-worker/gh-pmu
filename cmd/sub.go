@@ -102,10 +102,17 @@ func runSubAdd(cmd *cobra.Command, args []string, opts *subAddOptions) error {
 		return fmt.Errorf("invalid parent issue: %w", err)
 	}
 
-	// Parse child issue reference
-	childOwner, childRepo, childNumber, err := parseIssueReference(args[1])
-	if err != nil {
-		return fmt.Errorf("invalid child issue: %w", err)
+	// Parse child issue references (args[1:])
+	children := make([]subAddChild, 0, len(args)-1)
+	for _, arg := range args[1:] {
+		o, r, n, err := parseIssueReference(arg)
+		if err != nil {
+			if len(args) == 2 {
+				return fmt.Errorf("invalid child issue: %w", err)
+			}
+			return fmt.Errorf("invalid child issue %s: %w", arg, err)
+		}
+		children = append(children, subAddChild{owner: o, repo: r, number: n})
 	}
 
 	// Determine default repository (--repo flag takes precedence over config).
@@ -133,12 +140,14 @@ func runSubAdd(cmd *cobra.Command, args []string, opts *subAddOptions) error {
 		parentRepo = defaultRepo
 	}
 
-	if childOwner == "" || childRepo == "" {
-		if defaultOwner == "" || defaultRepo == "" {
-			return fmt.Errorf("no repository specified and none configured (use --repo or configure in .gh-pmu.json)")
+	for i := range children {
+		if children[i].owner == "" || children[i].repo == "" {
+			if defaultOwner == "" || defaultRepo == "" {
+				return fmt.Errorf("no repository specified and none configured (use --repo or configure in .gh-pmu.json)")
+			}
+			children[i].owner = defaultOwner
+			children[i].repo = defaultRepo
 		}
-		childOwner = defaultOwner
-		childRepo = defaultRepo
 	}
 
 	// Create API client
@@ -155,6 +164,11 @@ func runSubAdd(cmd *cobra.Command, args []string, opts *subAddOptions) error {
 	if err := requireResolvedIssue(parentIssue, parentNumber); err != nil {
 		return err
 	}
+
+	if len(children) > 1 {
+		return addSubIssuesBatch(cmd, client, parentIssue, parentNumber, children)
+	}
+	childOwner, childRepo, childNumber := children[0].owner, children[0].repo, children[0].number
 
 	// Validate child issue exists
 	childIssue, err := client.GetIssue(childOwner, childRepo, childNumber)
@@ -192,6 +206,115 @@ func runSubAdd(cmd *cobra.Command, args []string, opts *subAddOptions) error {
 	}
 
 	return nil
+}
+
+// subAddChild is one child reference given to sub add.
+type subAddChild struct {
+	owner  string
+	repo   string
+	number int
+}
+
+// subAddClient is the API surface the multi-child path needs.
+type subAddClient interface {
+	GetIssue(owner, repo string, number int) (*api.Issue, error)
+	GetParentIssue(owner, repo string, number int) (*api.Issue, error)
+	BatchAddSubIssues(parentID string, childIDs []string) ([]api.BatchSubIssueResult, error)
+}
+
+// isAlreadyParentedError reports whether a link failure is GitHub refusing a
+// child that already has a parent ("duplicate" sub-issue, or "only have one
+// parent"). Which parent it has is not in the message.
+func isAlreadyParentedError(msg string) bool {
+	msg = strings.ToLower(msg)
+	return strings.Contains(msg, "duplicate") || strings.Contains(msg, "only have one parent")
+}
+
+// addSubIssuesBatch links several children to one parent in a single
+// aliased request per 50 children (#945), then reports one line per child in
+// sub remove's batch format and a summary. A child already linked to this
+// parent is reported as such and is not a failure; a child with a different
+// parent, an unresolvable child, or any other error is, and makes the command
+// exit non-zero. The other children are linked either way.
+func addSubIssuesBatch(cmd *cobra.Command, client subAddClient, parentIssue *api.Issue, parentNumber int, children []subAddChild) error {
+	lines := make([]string, len(children))
+	var linked, already, failed int
+
+	// Resolve every child first; one that cannot be resolved is reported and
+	// never sent.
+	var sendIdx []int
+	var sendIDs []string
+	titles := make([]string, len(children))
+	for i, c := range children {
+		issue, err := client.GetIssue(c.owner, c.repo, c.number)
+		if err != nil {
+			failed++
+			lines[i] = fmt.Sprintf("✗ #%d: failed to get issue: %v", c.number, err)
+			continue
+		}
+		if err := requireResolvedIssue(issue, c.number); err != nil {
+			failed++
+			lines[i] = fmt.Sprintf("✗ #%d: %v", c.number, err)
+			continue
+		}
+		titles[i] = issue.Title
+		sendIdx = append(sendIdx, i)
+		sendIDs = append(sendIDs, issue.ID)
+	}
+
+	if len(sendIDs) > 0 {
+		results, err := client.BatchAddSubIssues(parentIssue.ID, sendIDs)
+		if err != nil {
+			return fmt.Errorf("failed to add sub-issue links: %w", err)
+		}
+		for j, r := range results {
+			i := sendIdx[j]
+			c := children[i]
+			switch {
+			case r.Success:
+				linked++
+				lines[i] = fmt.Sprintf("✓ #%d: %s", c.number, titles[i])
+			case isAlreadyParentedError(r.Error):
+				// The message does not say which parent; ask, so a re-run that
+				// meets its own earlier links is not reported as a failure.
+				current, perr := client.GetParentIssue(c.owner, c.repo, c.number)
+				switch {
+				case perr == nil && current != nil && current.ID == parentIssue.ID:
+					already++
+					lines[i] = fmt.Sprintf("✓ #%d: already linked", c.number)
+				case perr == nil && current != nil:
+					failed++
+					lines[i] = fmt.Sprintf("✗ #%d: already has a parent (#%d)", c.number, current.Number)
+				default:
+					failed++
+					lines[i] = fmt.Sprintf("✗ #%d: already has a parent", c.number)
+				}
+			default:
+				failed++
+				lines[i] = fmt.Sprintf("✗ #%d: %s", c.number, r.Error)
+			}
+		}
+	}
+
+	w := cmd.OutOrStdout()
+	fmt.Fprintf(w, "Linking sub-issues to parent #%d: %s\n\n", parentNumber, parentIssue.Title)
+	for _, l := range lines {
+		fmt.Fprintln(w, "  "+l)
+	}
+	fmt.Fprintf(w, "\nSummary: %d linked, %d already linked, %d failed\n", linked, already, failed)
+
+	return subAddBatchError(linked+already, failed, len(children))
+}
+
+// subAddBatchError mirrors subRemoveBatchError for sub add.
+func subAddBatchError(successCount, failCount, total int) error {
+	if failCount == 0 {
+		return nil
+	}
+	if successCount == 0 {
+		return fmt.Errorf("all %d links failed", failCount)
+	}
+	return fmt.Errorf("%d of %d links failed", failCount, total)
 }
 
 type subCreateOptions struct {
