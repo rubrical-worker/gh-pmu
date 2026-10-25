@@ -203,7 +203,9 @@ type subCreateOptions struct {
 	labels           []string
 	assignees        []string
 	milestone        string
-	project          int
+	project          string // --project: a number under the configured owner, or owner/number (#924)
+	projectOwner     string // resolved from project by runSubCreate
+	projectNumber    int
 	inheritLabels    bool
 	inheritAssign    bool
 	inheritMilestone bool
@@ -246,7 +248,7 @@ Examples:
 	cmd.Flags().StringArrayVarP(&opts.labels, "label", "l", nil, "Add labels to the sub-issue (can be specified multiple times)")
 	cmd.Flags().StringArrayVarP(&opts.assignees, "assignee", "a", nil, "Assign users to the sub-issue (can be specified multiple times)")
 	cmd.Flags().StringVarP(&opts.milestone, "milestone", "m", "", "Set milestone (title or number)")
-	cmd.Flags().IntVar(&opts.project, "project", 0, "Add to project (project number)")
+	cmd.Flags().StringVar(&opts.project, "project", "", "Add to project: a number under the configured owner, or owner/number")
 	cmd.Flags().BoolVar(&opts.inheritLabels, "inherit-labels", false, "Inherit labels from parent (same repo only)")
 	cmd.Flags().BoolVar(&opts.inheritAssign, "inherit-assignees", false, "Inherit assignees from parent (same repo only)")
 	cmd.Flags().BoolVar(&opts.inheritMilestone, "inherit-milestone", true, "Inherit milestone from parent (same repo only)")
@@ -270,12 +272,12 @@ type subCreatePreview struct {
 // warning: a dry run exists to surface exactly that before anything is written.
 func printSubCreateDryRun(cmd *cobra.Command, client *api.Client, cfg *config.Config, opts *subCreateOptions, p subCreatePreview) error {
 	project := "(none)"
-	if opts.project > 0 {
-		proj, err := client.GetProject(cfg.Project.Owner, opts.project)
+	if opts.projectNumber > 0 {
+		proj, err := client.GetProject(opts.projectOwner, opts.projectNumber)
 		if err != nil {
-			return fmt.Errorf("failed to find project %d: %w", opts.project, err)
+			return fmt.Errorf("failed to find project %s: %w", opts.project, err)
 		}
-		project = fmt.Sprintf("%s (%s #%d)", proj.Title, cfg.Project.Owner, opts.project)
+		project = fmt.Sprintf("%s (%s #%d)", proj.Title, opts.projectOwner, opts.projectNumber)
 	}
 	orNone := func(values []string) string {
 		if len(values) == 0 {
@@ -324,6 +326,15 @@ func runSubCreate(cmd *cobra.Command, opts *subCreateOptions) error {
 
 	if err := cfg.Validate(); err != nil {
 		return fmt.Errorf("invalid configuration: %w", err)
+	}
+
+	// Resolve --project before anything is written (#924). No refusal for a
+	// cross-repo child without it: sub create then adds to no project at all,
+	// so there is no wrong-board fallback.
+	if opts.project != "" {
+		if opts.projectOwner, opts.projectNumber, err = parseProjectRef(opts.project, cfg.Project.Owner); err != nil {
+			return err
+		}
 	}
 
 	// Validate body flags mutual exclusivity
@@ -451,10 +462,10 @@ func runSubCreate(cmd *cobra.Command, opts *subCreateOptions) error {
 	// Add to project if specified. The issue already exists, so a failure here is
 	// a partial success reported after the confirmation (#938).
 	var projectErr error
-	if opts.project > 0 {
-		project, err := client.GetProject(cfg.Project.Owner, opts.project)
+	if opts.projectNumber > 0 {
+		project, err := client.GetProject(opts.projectOwner, opts.projectNumber)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: failed to find project %d: %v\n", opts.project, err)
+			fmt.Fprintf(os.Stderr, "Warning: failed to find project %s: %v\n", opts.project, err)
 			projectErr = err
 		} else {
 			_, err := client.AddIssueToProject(project.ID, newIssue.ID)
@@ -487,8 +498,12 @@ func runSubCreate(cmd *cobra.Command, opts *subCreateOptions) error {
 	if milestone != "" {
 		fmt.Fprintf(w, "  Milestone: %s\n", milestone)
 	}
-	if opts.project > 0 && projectErr == nil {
-		fmt.Fprintf(w, "  Project: #%d\n", opts.project)
+	if opts.projectNumber > 0 && projectErr == nil {
+		if opts.projectOwner == cfg.Project.Owner {
+			fmt.Fprintf(w, "  Project: #%d\n", opts.projectNumber)
+		} else {
+			fmt.Fprintf(w, "  Project: %s #%d\n", opts.projectOwner, opts.projectNumber)
+		}
 	}
 	fmt.Fprintf(w, "🔗 %s\n", newIssue.URL)
 
@@ -496,7 +511,7 @@ func runSubCreate(cmd *cobra.Command, opts *subCreateOptions) error {
 		return &api.PartialSuccessError{
 			Resource: fmt.Sprintf("sub-issue #%d", newIssue.Number),
 			URL:      newIssue.URL,
-			Steps:    []string{fmt.Sprintf("add to project %d", opts.project)},
+			Steps:    []string{fmt.Sprintf("add to project %s", opts.project)},
 			Err:      projectErr,
 		}
 	}

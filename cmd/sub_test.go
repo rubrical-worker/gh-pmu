@@ -225,12 +225,83 @@ func TestSubCreate_ProjectAddFailureIsPartialSuccess(t *testing.T) {
 	cmd.SetOut(&buf)
 	cmd.SetErr(&buf)
 
-	err := runSubCreate(cmd, &subCreateOptions{parent: "10", title: "Child", project: 5})
+	err := runSubCreate(cmd, &subCreateOptions{parent: "10", title: "Child", project: "5"})
 	if !api.IsPartialSuccess(err) {
 		t.Fatalf("expected a partial-success error when adding to the project fails, got: %v (output %q)", err, buf.String())
 	}
 	if !strings.Contains(err.Error(), "#21") || !strings.Contains(err.Error(), "project 5") {
 		t.Errorf("error should name the created issue and the project step, got: %v", err)
+	}
+}
+
+// #924: sub create --project accepts owner/number as well as its bare number.
+func subCreateDryRunWithProject(t *testing.T, args ...string) (*mockGraphQLHandler, string, error) {
+	t.Helper()
+	handler := newMockGraphQLHandler()
+	handler.respondToFunc("GetIssue", issueByNumberFixture(map[int]string{10: "Parent epic"}))
+	handler.respondTo("GetUserProject", userProjectFixture("proj-x", "Board"))
+	_, cleanup := setupTestEnvironment(t, handler)
+	t.Cleanup(cleanup)
+
+	cmd := newSubCreateCommand()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetErr(buf)
+	cmd.SetArgs(append([]string{"--parent", "10", "--title", "Child", "--dry-run"}, args...))
+	err := cmd.Execute()
+	return handler, buf.String(), err
+}
+
+func projectLookupOwner(h *mockGraphQLHandler) (string, float64) {
+	reqs := h.requestsFor("GetUserProject")
+	if len(reqs) == 0 {
+		return "", 0
+	}
+	owner, _ := reqs[0].Variables["owner"].(string)
+	number, _ := reqs[0].Variables["number"].(float64)
+	return owner, number
+}
+
+func TestSubCreate_ProjectOwnerNumberSelectsThatProject(t *testing.T) {
+	h, out, err := subCreateDryRunWithProject(t, "--project", "other-org/7")
+	if err != nil {
+		t.Fatalf("unexpected error: %v\n%s", err, out)
+	}
+	if owner, number := projectLookupOwner(h); owner != "other-org" || number != 7 {
+		t.Errorf("project looked up as %q #%v, want other-org #7", owner, number)
+	}
+	if !strings.Contains(out, "(other-org #7)") {
+		t.Errorf("expected dry run to name other-org #7, got:\n%s", out)
+	}
+}
+
+func TestSubCreate_BareProjectNumberKeepsLocalOwner(t *testing.T) {
+	h, out, err := subCreateDryRunWithProject(t, "--project", "5")
+	if err != nil {
+		t.Fatalf("unexpected error: %v\n%s", err, out)
+	}
+	owner, number := projectLookupOwner(h)
+	if owner == "" || owner == "other-org" || number != 5 {
+		t.Errorf("bare --project 5 looked up as %q #%v, want the configured owner #5", owner, number)
+	}
+}
+
+func TestSubCreate_InvalidProjectRejectedBeforeAnyWrite(t *testing.T) {
+	h, _, err := subCreateDryRunWithProject(t, "--project", "other-org/nope")
+	if err == nil || !strings.Contains(err.Error(), "--project") {
+		t.Fatalf("expected invalid --project rejected naming the flag, got: %v", err)
+	}
+	if n := len(h.requestsFor("CreateIssue")); n != 0 {
+		t.Errorf("sent %d CreateIssue for an invalid --project", n)
+	}
+}
+
+func TestSubCreate_CrossRepoWithoutProjectDoesNotRefuse(t *testing.T) {
+	// Without --project, sub create adds to no project at all, so there is no
+	// wrong-board fallback to refuse (#924).
+	_, out, err := subCreateDryRunWithProject(t, "--repo", "other-org/elsewhere")
+	if err != nil {
+		t.Fatalf("sub create must not refuse a cross-repo child without --project: %v\n%s", err, out)
 	}
 }
 
