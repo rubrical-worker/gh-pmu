@@ -670,17 +670,68 @@ func TestSubAddCommand_AcceptsURLs(t *testing.T) {
 
 // Additional newSubAddCommand Flag Tests (IT-3.2)
 
-func TestSubAddCommand_TooManyArgs(t *testing.T) {
-	cmd := NewRootCommand()
-	cmd.SetArgs([]string{"sub", "add", "1", "2", "3"})
+// #945: sub add takes one parent and any number of children, as sub remove does.
+func TestSubAddCommand_AcceptsMultipleChildren(t *testing.T) {
+	subCmd, _, err := NewRootCommand().Find([]string{"sub", "add"})
+	if err != nil {
+		t.Fatalf("sub add command not found: %v", err)
+	}
+	if err := subCmd.Args(subCmd, []string{"1", "2", "3", "4"}); err != nil {
+		t.Errorf("sub add should accept a parent and several children: %v", err)
+	}
+	if err := subCmd.Args(subCmd, []string{"1"}); err == nil {
+		t.Error("sub add with only a parent should be rejected")
+	}
+}
 
+func TestSubAddCommand_HelpShowsMultiChildUsage(t *testing.T) {
+	cmd := NewRootCommand()
+	cmd.SetArgs([]string{"sub", "add", "--help"})
 	buf := new(bytes.Buffer)
 	cmd.SetOut(buf)
 	cmd.SetErr(buf)
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("help failed: %v", err)
+	}
+	out := buf.String()
+	if !strings.Contains(out, "add <parent-issue> <child-issue>...") {
+		t.Errorf("usage should show several children, got:\n%s", out)
+	}
+	if !strings.Contains(out, "gh pmu sub add 10 15 16 17") {
+		t.Errorf("help should give a multi-child example, got:\n%s", out)
+	}
+}
 
-	err := cmd.Execute()
-	if err == nil {
-		t.Error("Expected error when too many arguments provided")
+func singleChildDuplicateHandler(parentOfChild int) *mockGraphQLHandler {
+	handler := newMockGraphQLHandler()
+	handler.respondToFunc("GetIssue", issueByNumberFixture(map[int]string{10: "Parent epic", 15: "Child task"}))
+	handler.respondTo("AddSubIssue", map[string]interface{}{
+		"errors": []interface{}{map[string]interface{}{"message": "Issue may not contain duplicate sub-issues"}},
+	})
+	handler.respondTo("GetParentIssue", parentIssueFixture(parentOfChild))
+	return handler
+}
+
+func TestSubAdd_SingleChildAlreadyLinkedToThisParentExitsZero(t *testing.T) {
+	handler := singleChildDuplicateHandler(10)
+
+	out, err := runSubAddScenario(t, handler, "10", "15")
+
+	if err != nil {
+		t.Fatalf("already linked to this parent must exit 0, got: %v\n%s", err, out)
+	}
+	if !strings.Contains(out, "#15 is already a sub-issue of #10") {
+		t.Errorf("expected the already-linked report, got:\n%s", out)
+	}
+}
+
+func TestSubAdd_SingleChildOtherParentErrorUnchanged(t *testing.T) {
+	handler := singleChildDuplicateHandler(99)
+
+	_, err := runSubAddScenario(t, handler, "10", "15")
+
+	if err == nil || err.Error() != "issue #15 is already a sub-issue (issues can only have one parent)" {
+		t.Errorf("different parent must keep the pre-#945 error exactly, got: %v", err)
 	}
 }
 

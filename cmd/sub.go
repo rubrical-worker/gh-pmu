@@ -54,22 +54,28 @@ func newSubAddCommand() *cobra.Command {
 	opts := &subAddOptions{}
 
 	cmd := &cobra.Command{
-		Use:   "add <parent-issue> <child-issue>",
-		Short: "Link an issue as a sub-issue of another",
-		Long: `Link an existing issue as a sub-issue of a parent issue.
+		Use:   "add <parent-issue> <child-issue>...",
+		Short: "Link issues as sub-issues of another",
+		Long: `Link one or more existing issues as sub-issues of a parent issue.
 
-Both issues must already exist. The child issue will appear as a
+All issues must already exist. Each child issue will appear as a
 sub-issue under the parent issue in GitHub's UI.
+
+Several children are linked in one request (up to 50 per request) and
+reported one line per child. A child already linked to this parent is
+reported as such and is not a failure; a child with a different parent
+is, and the command exits non-zero after linking the others.
 
 Accepts issue numbers, references (owner/repo#123), or full GitHub URLs.
 
 Examples:
   gh pmu sub add 10 15        # Link issue #15 as sub-issue of #10
   gh pmu sub add #10 #15      # Same, with # prefix
+  gh pmu sub add 10 15 16 17  # Link several sub-issues at once
   gh pmu sub add owner/repo#10 owner/repo#15  # Full references
   gh pmu sub add https://github.com/owner/repo/issues/10 15  # URL for parent
   gh pmu sub add 10 15 --repo owner/repo  # Specify default repository`,
-		Args: cobra.ExactArgs(2),
+		Args: cobra.MinimumNArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runSubAdd(cmd, args, opts)
 		},
@@ -183,8 +189,13 @@ func runSubAdd(cmd *cobra.Command, args []string, opts *subAddOptions) error {
 	err = client.AddSubIssue(parentIssue.ID, childIssue.ID)
 	if err != nil {
 		// Check if already linked (GitHub returns "duplicate" or "only have one parent" messages)
-		errMsg := strings.ToLower(err.Error())
-		if strings.Contains(errMsg, "duplicate") || strings.Contains(errMsg, "only have one parent") {
+		if isAlreadyParentedError(err.Error()) {
+			// Already linked to this very parent is the outcome asked for, not a
+			// failure (#945); a different parent keeps the original error.
+			if current, perr := client.GetParentIssue(childOwner, childRepo, childNumber); perr == nil && current != nil && current.ID == parentIssue.ID {
+				fmt.Fprintf(cmd.OutOrStdout(), "✓ Issue #%d is already a sub-issue of #%d\n", childNumber, parentNumber)
+				return nil
+			}
 			return fmt.Errorf("issue #%d is already a sub-issue (issues can only have one parent)", childNumber)
 		}
 		return fmt.Errorf("failed to add sub-issue link: %w", err)
