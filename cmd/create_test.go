@@ -247,6 +247,61 @@ func TestRunCreateWithDeps_DryRunShowsOverrideProject(t *testing.T) {
 	}
 }
 
+func overrideTargets(fields []api.ProjectField) *createTargets {
+	return &createTargets{
+		project:      &api.Project{ID: "proj-7", Title: "Other"},
+		projectOwner: "other-org", projectNumber: 7, overridden: true,
+		fields: fields,
+	}
+}
+
+func TestSetCreateFields_OverrideResolvesAgainstSelectedProject(t *testing.T) {
+	client := newMockCreateClient()
+	fields := []api.ProjectField{
+		{Name: "Status", DataType: "SINGLE_SELECT", Options: []api.FieldOption{{Name: "Backlog"}, {Name: "Done"}}},
+		{Name: "Priority", DataType: "SINGLE_SELECT", Options: []api.FieldOption{{Name: "P0"}, {Name: "P1"}}},
+	}
+
+	failed, unset, err := setCreateFields(client, &config.Config{}, overrideTargets(fields), "item-1", "Backlog", "P9")
+
+	if err != nil || len(failed) != 0 {
+		t.Fatalf("an absent alias must not fail the creation: failed=%v err=%v", failed, err)
+	}
+	if len(client.setFieldCalls) != 1 || client.setFieldCalls[0].fieldName != "Status" || client.setFieldCalls[0].value != "Backlog" {
+		t.Errorf("setFieldCalls = %+v, want only Status=Backlog", client.setFieldCalls)
+	}
+	if len(unset) != 1 || !strings.Contains(unset[0], "Priority") || !strings.Contains(unset[0], "P9") || !strings.Contains(unset[0], "other-org #7") {
+		t.Errorf("unset = %v, want Priority P9 reported by name against other-org #7", unset)
+	}
+}
+
+func TestSetCreateFields_OverrideMissingFieldReportedUnset(t *testing.T) {
+	client := newMockCreateClient()
+	fields := []api.ProjectField{{Name: "Status", DataType: "SINGLE_SELECT", Options: []api.FieldOption{{Name: "Backlog"}}}}
+
+	failed, unset, err := setCreateFields(client, &config.Config{}, overrideTargets(fields), "item-1", "", "P1")
+
+	if err != nil || len(failed) != 0 || len(client.setFieldCalls) != 0 {
+		t.Fatalf("missing field must be skipped, not attempted: failed=%v err=%v calls=%+v", failed, err, client.setFieldCalls)
+	}
+	if len(unset) != 1 || !strings.Contains(unset[0], "Priority") {
+		t.Errorf("unset = %v, want the missing Priority field named", unset)
+	}
+}
+
+func TestSetCreateFields_ConfiguredProjectBehaviorUnchanged(t *testing.T) {
+	// Without --project nothing is pre-checked: the write decides, as before.
+	client := newMockCreateClient()
+	targets := &createTargets{project: &api.Project{ID: "proj-1"}, projectOwner: "o", projectNumber: 1,
+		fields: []api.ProjectField{{Name: "Priority", DataType: "SINGLE_SELECT", Options: []api.FieldOption{{Name: "P0"}}}}}
+
+	_, unset, _ := setCreateFields(client, &config.Config{}, targets, "item-1", "", "P9")
+
+	if len(unset) != 0 || len(client.setFieldCalls) != 1 {
+		t.Errorf("configured project: unset=%v calls=%+v, want the write attempted and nothing pre-skipped", unset, client.setFieldCalls)
+	}
+}
+
 func TestCreateCommand_Exists(t *testing.T) {
 	cmd := NewRootCommand()
 	cmd.SetArgs([]string{"create", "--help"})

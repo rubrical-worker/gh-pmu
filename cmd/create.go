@@ -350,8 +350,11 @@ func finishCreate(client createClient, cfg *config.Config, targets *createTarget
 		return createPartialSuccess(issue, []string{"add to project"}, fmt.Errorf("failed to add issue to project: %w", err))
 	}
 
-	failedSteps, firstErr := setCreateFields(client, cfg, targets, itemID, status, priority)
+	failedSteps, unset, firstErr := setCreateFields(client, cfg, targets, itemID, status, priority)
 	printCreatedIssue(issue)
+	for _, u := range unset {
+		fmt.Fprintf(os.Stderr, "Warning: %s\n", u)
+	}
 	if len(failedSteps) > 0 {
 		return createPartialSuccess(issue, failedSteps, firstErr)
 	}
@@ -600,6 +603,7 @@ type createTargets struct {
 	projectOwner    string // owner of the selected project (configured, or --project)
 	projectNumber   int
 	overridden      bool // true when --project selected the project (#924)
+	fields          []api.ProjectField
 	branchFieldName string
 	branchValue     string // resolved --branch value; "" when not set
 }
@@ -677,6 +681,7 @@ func resolveCreateTargets(client createClient, cfg *config.Config, projectRef, o
 		projectOwner:    projectOwner,
 		projectNumber:   projectNumber,
 		overridden:      projectRef != "",
+		fields:          projectFields,
 		branchFieldName: ResolveBranchFieldName(projectFields),
 		branchValue:     branchValue,
 	}, nil
@@ -687,11 +692,20 @@ func resolveCreateTargets(client createClient, cfg *config.Config, projectRef, o
 // the capitalized defaults. Every write is attempted even after one fails, so a
 // single bad field does not leave the others unset; the failed steps and the
 // first error are returned for the partial-success report.
-func setCreateFields(client createClient, cfg *config.Config, targets *createTargets, itemID, status, priority string) ([]string, error) {
+//
+// On a --project override, status and priority are checked against the
+// selected project's own fields first: a field or option that project lacks is
+// returned in unset, named, and not written — never guessed, and never a
+// failure of the creation (#924).
+func setCreateFields(client createClient, cfg *config.Config, targets *createTargets, itemID, status, priority string) (failedSteps, unset []string, firstErr error) {
 	projectID := targets.project.ID
-	var failedSteps []string
-	var firstErr error
 	set := func(step, fieldName, value string) {
+		if targets.overridden && fieldName != targets.branchFieldName {
+			if reason := unresolvableOnProject(targets.fields, fieldName, value); reason != "" {
+				unset = append(unset, fmt.Sprintf("%s left unset: %s on %s #%d", fieldName, reason, targets.projectOwner, targets.projectNumber))
+				return
+			}
+		}
 		if err := client.SetProjectItemField(projectID, itemID, fieldName, value); err != nil {
 			fmt.Fprintf(os.Stderr, "Warning: failed to %s: %v\n", step, err)
 			failedSteps = append(failedSteps, step)
@@ -719,7 +733,28 @@ func setCreateFields(client createClient, cfg *config.Config, targets *createTar
 	if targets.branchValue != "" {
 		set("set branch", targets.branchFieldName, targets.branchValue)
 	}
-	return failedSteps, firstErr
+	return failedSteps, unset, firstErr
+}
+
+// unresolvableOnProject says why value cannot be written to fieldName on a
+// project with these fields, or "" when it can — or cannot be checked, as for
+// a text field, where the write itself decides.
+func unresolvableOnProject(fields []api.ProjectField, fieldName, value string) string {
+	for _, f := range fields {
+		if f.Name != fieldName {
+			continue
+		}
+		if len(f.Options) == 0 {
+			return ""
+		}
+		for _, o := range f.Options {
+			if o.Name == value {
+				return ""
+			}
+		}
+		return fmt.Sprintf("%q is not an option of %s", value, fieldName)
+	}
+	return fmt.Sprintf("the project has no %s field", fieldName)
 }
 
 // maxBodyFileSize is the maximum size for body/template file reads (1MB).
