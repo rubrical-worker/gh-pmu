@@ -62,7 +62,9 @@ func orgConfig(t *testing.T, dir string) map[string]interface{} {
 
 // setPriorityAlias rewrites fields.priority in the working directory's config.
 // No value aliases are written, so a test passes real option names straight
-// through without depending on how init named the aliases.
+// through without depending on how init named the aliases. The priority
+// default is dropped with them: init's "p2" alias would no longer resolve, and
+// create would send it to GitHub as an option name (#947).
 func setPriorityAlias(t *testing.T, dir, issueField string) {
 	t.Helper()
 	cfg := orgConfig(t, dir)
@@ -76,6 +78,9 @@ func setPriorityAlias(t *testing.T, dir, issueField string) {
 		alias["issue_field"] = issueField
 	}
 	fields["priority"] = alias
+	if defaults, ok := cfg["defaults"].(map[string]interface{}); ok {
+		delete(defaults, "priority")
+	}
 
 	data, err := json.MarshalIndent(cfg, "", "  ")
 	if err != nil {
@@ -127,12 +132,18 @@ func fieldListing(t *testing.T, dir, name string) (string, []string) {
 }
 
 // createOrgTestIssue creates an [E2E] issue in the org repository and
-// registers its cleanup. No status or priority is set, so creation does not
-// depend on the template's option names.
+// registers its cleanup. No --status or --priority is passed; config
+// defaults still apply. A partial success (issue created, a field write
+// failed) registers the cleanup before failing, so the issue is not left
+// behind (#947).
 func createOrgTestIssue(t *testing.T, dir, title string) int {
 	t.Helper()
 	result := runPMU(t, dir, "create", "--title", fmt.Sprintf("[E2E] %s", title))
 	if result.ExitCode != 0 {
+		if strings.Contains(result.Stdout, "Created issue #") {
+			number := extractIssueNumber(t, result.Stdout)
+			t.Cleanup(func() { runCleanupAfterTestIn(t, orgFixture.Repo, number) })
+		}
 		t.Fatalf("create in the org repository failed: %s\n%s", result.Stdout, result.Stderr)
 	}
 	number := extractIssueNumber(t, result.Stdout)
