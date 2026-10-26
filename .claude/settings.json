@@ -105,7 +105,33 @@
     "deny": [
       "Edit(/.claude/settings.json)",
       "Bash(git worktree remove *)",
-      "PowerShell(git worktree remove *)"
+      "PowerShell(git worktree remove *)",
+      "Bash(git push * main)",
+      "Bash(git push * main *)",
+      "Bash(git push *:main)",
+      "Bash(git push *:refs/heads/main)",
+      "Bash(git push * refs/heads/main)",
+      "Bash(git push *--force*)",
+      "Bash(git push * -f*)",
+      "Bash(git push -f*)",
+      "Bash(git push * +*)",
+      "PowerShell(git push * main)",
+      "PowerShell(git push * main *)",
+      "PowerShell(git push *:main)",
+      "PowerShell(git push *:refs/heads/main)",
+      "PowerShell(git push * refs/heads/main)",
+      "PowerShell(git push *--force*)",
+      "PowerShell(git push * -f*)",
+      "PowerShell(git push -f*)",
+      "PowerShell(git push * +*)"
+    ],
+    "ask": [
+      "Bash(git reset --hard*)",
+      "Bash(git clean -f*)",
+      "Bash(git filter-branch*)",
+      "PowerShell(git reset --hard*)",
+      "PowerShell(git clean -f*)",
+      "PowerShell(git filter-branch*)"
     ]
   }
 }
