@@ -477,14 +477,17 @@ See [Sub-Issues Guide](sub-issues.md) for detailed workflows.
 
 ### sub add
 
-Link existing issue as sub-issue.
+Link one or more existing issues as sub-issues.
 
 ```bash
-gh pmu sub add 10 15    # Issue 15 becomes sub-issue of 10
+gh pmu sub add 10 15          # Issue 15 becomes sub-issue of 10
+gh pmu sub add 10 15 16 17    # Link several children in one batched request
 
 # Specify repository
 gh pmu sub add 10 15 --repo owner/other-repo
 ```
+
+With several children, each gets its own result line (`✓ #N: title`, `✓ #N: already linked`, or `✗ #N: reason`), followed by `Summary: X linked, Y already linked, Z failed`. The command exits non-zero only if a child failed. Re-linking a child that is already a sub-issue of the same parent is reported as already linked and exits 0.
 
 ### sub create
 
