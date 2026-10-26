@@ -1,5 +1,5 @@
 ---
-version: "v0.110.0"
+version: "v0.111.0"
 description: Prepare a release by opening a PR, merging to main, and tagging, using the IDPF framework.
 argument-hint: "[version] [--skip-coverage] [--skip-review] [--dry-run] [--help]"
 copyright: "Rubrical Works (c) 2026"
@@ -358,6 +358,23 @@ if [ "$after" -gt "$before" ]; then git stash pop; fi
 **Pop only when something was stashed (#2602).** On a clean tree `git stash` saves nothing and exits 0, then `git stash pop` exits **1** with `No stash entries found.` — the last command before the tag step. The pair straddles checkout/pull, so the sequence appears to work and ends on a failure immediately before an irreversible tag.
 
 The guard compares `git stash list` before and after rather than testing the tree: `git status --porcelain` can report changes `git stash push` declines to save, so a dirtiness test and the stash's own behavior can disagree. The stash count cannot.
+
+### Step 4.4a: Merge-Commit CI Gate
+After Step 4.4's pull, `main` is at the commit Step 4.6 tags. Wait on the push-triggered run for **that** commit before tagging:
+```bash
+MERGE_SHA=$(git rev-parse HEAD)
+PR_MERGE_SHA=$(gh pr view "$BRANCH" --json mergeCommit --jq '.mergeCommit.oid')
+node .claude/scripts/shared/wait-for-ci.js --sha "$MERGE_SHA" --timeout 900
+```
+**If `MERGE_SHA` differs from `PR_MERGE_SHA`, report both SHAs before waiting** — `main` moved after the merge. Wait on `MERGE_SHA` regardless: it is what Step 4.6 tags.
+
+**On exit 1, 2 or 5 (failed, timed out, or still running at the cap), STOP before tagging.** Report the payload's `runId` and `conclusion` (or `status`) and the run's URL (`gh run view <runId> --json url --jq .url`). Do not continue to Step 4.6: the tag push is irreversible and starts any distribution deploy.
+
+**On exit 3 (`no_runs` / `no_executing_runs`): report "No CI run on merge commit $MERGE_SHA — continuing without a post-merge gate." and continue.**
+
+**Why exit 3 continues here when Step 4.7 STOPs (#3255, #2952).** Step 4.7 first establishes that a tag-triggered workflow exists; this step makes no such check. Many projects run CI on pull requests only, and for them no run on the merge commit is the honest, expected outcome. `wait-for-ci.js` waits out a 90-second registration window before returning `no_runs`, so a late-registering push run is still gated; the notice keeps the absence visible.
+
+**Scoped to the SHA, never the branch.** `--branch main` would let any other `main` run supply the verdict; `--sha` gates exactly the tagged commit. Any wait on the release branch's CI ran before the merge and says nothing about the merge commit.
 
 <!-- USER-EXTENSION-START: pre-tag -->
 ### Important Rules

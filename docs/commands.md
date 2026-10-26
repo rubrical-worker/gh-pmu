@@ -202,6 +202,9 @@ gh pmu create --title "Bug report" --template bug
 
 # With labels
 gh pmu create --title "Security fix" --label bug --label security
+
+# Into another repository, on that repository's board
+gh pmu create --title "Companion fix" --repo other-org/companion --project other-org/7
 ```
 
 **Flags unique to gh-pmu:**
@@ -210,8 +213,11 @@ gh pmu create --title "Security fix" --label bug --label security
 | `--status` | Set project status field on create |
 | `--priority` | Set project priority field on create |
 | `--branch` | Assign to branch (use 'current' for active) |
+| `--project` | Project to add the issue to, as `owner/number` (a bare number means the configured owner), overriding `.gh-pmu.json` |
 | `--from-file` | Create issue from YAML/JSON file |
 | `--dry-run` | Resolve the repository, project and fields and print what would be created, without creating anything |
+
+**Cross-repository creates and `--project`:** `--repo` sets the repository. The project still comes from `.gh-pmu.json` unless you pass `--project`. When `--repo` names a repository **not listed** in `.gh-pmu.json` `repositories` and you don't pass `--project`, `create` refuses before creating anything. The error names `--project`, because the alternative is quietly adding the issue to the local board. A `--repo` naming any configured repository keeps using the local project. With `--project`, `--status` and `--priority` resolve against that project's own fields. A value it doesn't have is reported as `left unset` by name and doesn't fail the creation.
 
 If the issue is created but adding it to the project or setting a field fails, `create` exits with code 6 and names the issue and the failed steps. Do not re-run it: the issue already exists (see [Exit Codes](#exit-codes)).
 
@@ -471,14 +477,17 @@ See [Sub-Issues Guide](sub-issues.md) for detailed workflows.
 
 ### sub add
 
-Link existing issue as sub-issue.
+Link one or more existing issues as sub-issues.
 
 ```bash
-gh pmu sub add 10 15    # Issue 15 becomes sub-issue of 10
+gh pmu sub add 10 15          # Issue 15 becomes sub-issue of 10
+gh pmu sub add 10 15 16 17    # Link several children in one batched request
 
 # Specify repository
 gh pmu sub add 10 15 --repo owner/other-repo
 ```
+
+With several children, each gets its own result line (`✓ #N: title`, `✓ #N: already linked`, or `✗ #N: reason`), followed by `Summary: X linked, Y already linked, Z failed`. The command exits non-zero only if a child failed. Re-linking a child that is already a sub-issue of the same parent is reported as already linked and exits 0.
 
 ### sub create
 
@@ -504,6 +513,7 @@ gh pmu sub create --parent 10 --title "Task" --inherit-assignees
 | `--inherit-labels` | Copy labels from parent (default: false) |
 | `--inherit-milestone` | Copy milestone from parent (default: true) |
 | `--inherit-assignees` | Copy assignees from parent (default: false) |
+| `--project` | Add the new sub-issue to a project: a bare number under the configured owner, or `owner/number`. Without it the sub-issue is added to no project. |
 | `--dry-run` | Resolve the parent, labels, assignees and milestone and print what would be created, without creating anything |
 
 **Flags matching `gh issue create`:**

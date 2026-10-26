@@ -1,5 +1,5 @@
 ---
-version: "v0.110.0"
+version: "v0.111.0"
 description: Create a branch with a tracker issue, using the IDPF framework.
 argument-hint: "<branch-name> (e.g., release/v0.16.0, my-feature, bugfix-123) [--help]"
 copyright: "Rubrical Works (c) 2026"

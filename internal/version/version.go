@@ -4,4 +4,4 @@ package version
 
 // Version is the current gh-pmu version.
 // Updated by /prepare-release — do not edit manually during development.
-const Version = "1.7.0"
+const Version = "1.8.0"

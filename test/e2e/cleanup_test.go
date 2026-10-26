@@ -6,41 +6,41 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"os/exec"
 	"strconv"
 	"strings"
 	"testing"
 )
 
-const testRepo = "rubrical-worker/gh-pmu-e2e-test"
-
 // TestCleanupE2EIssues cleans up any leftover E2E test issues and orphaned projects.
-// This test only runs when E2E_CLEANUP=true is set.
+// This test only runs when E2E_CLEANUP=true is set. It covers every fixture
+// owner, selected or not, since orphans outlive the run that made them.
 func TestCleanupE2EIssues(t *testing.T) {
 	if os.Getenv("E2E_CLEANUP") != "true" {
 		t.Skip("E2E_CLEANUP not set to true, skipping cleanup")
 	}
 
-	cleanupE2EIssues(t)
-	cleanupOrphanedProjects(t)
+	for _, f := range allFixtures {
+		cleanupE2EIssues(t, f.Repo)
+		cleanupOrphanedProjects(t, f)
+	}
 }
 
-// cleanupE2EIssues finds and deletes all issues with [E2E] prefix.
-func cleanupE2EIssues(t *testing.T) {
+// cleanupE2EIssues finds and deletes all issues with [E2E] prefix in repo.
+func cleanupE2EIssues(t *testing.T, repo string) {
 	t.Helper()
 
 	// Find all open issues with [E2E] prefix
-	issues := findE2EIssues(t)
+	issues := findE2EIssues(t, repo)
 
 	if len(issues) == 0 {
-		t.Log("No E2E test issues found to clean up")
+		t.Logf("No E2E test issues found to clean up in %s", repo)
 		return
 	}
 
-	t.Logf("Found %d E2E test issues to clean up", len(issues))
+	t.Logf("Found %d E2E test issues to clean up in %s", len(issues), repo)
 
 	for _, issue := range issues {
-		closeAndDeleteIssue(t, issue.Number, issue.Title)
+		closeAndDeleteIssue(t, repo, issue.Number, issue.Title)
 	}
 
 	t.Logf("Cleanup complete: removed %d issues", len(issues))
@@ -52,22 +52,20 @@ type e2eIssue struct {
 	Title  string `json:"title"`
 }
 
-// findE2EIssues searches for issues with [E2E] prefix in the test repository.
-func findE2EIssues(t *testing.T) []e2eIssue {
+// findE2EIssues searches for issues with [E2E] prefix in repo.
+func findE2EIssues(t *testing.T, repo string) []e2eIssue {
 	t.Helper()
 
 	// Use gh issue list to find [E2E] issues
-	cmd := exec.Command("gh", "issue", "list",
-		"--repo", testRepo,
+	output, _, err := runGH("issue", "list",
+		"--repo", repo,
 		"--search", "[E2E] in:title",
 		"--state", "all",
 		"--limit", "100",
 		"--json", "number,title",
 	)
-
-	output, err := cmd.Output()
 	if err != nil {
-		t.Logf("Warning: failed to list E2E issues: %v", err)
+		t.Logf("Warning: failed to list E2E issues in %s: %v", repo, err)
 		return nil
 	}
 
@@ -89,31 +87,28 @@ func findE2EIssues(t *testing.T) []e2eIssue {
 }
 
 // closeAndDeleteIssue closes and deletes a single issue, logging the action.
-func closeAndDeleteIssue(t *testing.T, number int, title string) {
+func closeAndDeleteIssue(t *testing.T, repo string, number int, title string) {
 	t.Helper()
 
 	t.Logf("Removing issue #%d: %s", number, title)
 
 	// Close the issue
-	closeCmd := exec.Command("gh", "issue", "close",
-		"--repo", testRepo,
+	if stdout, stderr, err := runGH("issue", "close",
+		"--repo", repo,
 		strconv.Itoa(number),
 		"--reason", "not planned",
-	)
-	if output, err := closeCmd.CombinedOutput(); err != nil {
-		t.Logf("  Warning: failed to close #%d: %v\n  Output: %s", number, err, output)
+	); err != nil {
+		t.Logf("  Warning: failed to close #%d: %v\n  Output: %s%s", number, err, stdout, stderr)
 	}
 
 	// Delete the issue (requires admin permissions)
-	deleteCmd := exec.Command("gh", "issue", "delete",
-		"--repo", testRepo,
+	if _, _, err := runGH("issue", "delete",
+		"--repo", repo,
 		strconv.Itoa(number),
 		"--yes",
-	)
-	if output, err := deleteCmd.CombinedOutput(); err != nil {
+	); err != nil {
 		// Log but don't fail - deletion may not be available
 		t.Logf("  Note: could not delete #%d (may require admin): %v", number, err)
-		_ = output // suppress unused warning
 	} else {
 		t.Logf("  Deleted issue #%d", number)
 	}
@@ -125,20 +120,31 @@ type e2eProject struct {
 	Title  string `json:"title"`
 }
 
-// cleanupOrphanedProjects finds and deletes projects created by init E2E tests.
-// The real test project is #41; anything named "gh-pmu-e2e-test" with a higher
-// number is an orphan from a previous test run.
-func cleanupOrphanedProjects(t *testing.T) {
+// isOrphanProject reports whether p is a project an init test created under
+// f's owner and failed to delete: init titles its projects after the
+// repository, and the fixture's template project is never an orphan.
+func isOrphanProject(f Fixture, p e2eProject) bool {
+	return p.Title == f.RepoName() && p.Number != f.TemplateProject
+}
+
+// cleanupOrphanedProjects finds and deletes projects created by init E2E tests
+// under f's owner, matched by title (#940). An owner whose template project is
+// not recorded yet is left alone: without it there is nothing to exclude.
+func cleanupOrphanedProjects(t *testing.T, f Fixture) {
 	t.Helper()
 
-	cmd := exec.Command("gh", "project", "list",
-		"--owner", "rubrical-worker",
+	if f.TemplateProject == 0 {
+		t.Logf("Skipping orphan cleanup for %s: template project not recorded", f.Owner)
+		return
+	}
+
+	output, _, err := runGH("project", "list",
+		"--owner", f.Owner,
 		"--format", "json",
 		"--limit", "100",
 	)
-	output, err := cmd.Output()
 	if err != nil {
-		t.Logf("Warning: failed to list projects: %v", err)
+		t.Logf("Warning: failed to list projects for %s: %v", f.Owner, err)
 		return
 	}
 
@@ -152,34 +158,32 @@ func cleanupOrphanedProjects(t *testing.T) {
 
 	var orphans []e2eProject
 	for _, p := range resp.Projects {
-		if p.Title == "gh-pmu-e2e-test" && p.Number != 41 {
+		if isOrphanProject(f, p) {
 			orphans = append(orphans, p)
 		}
 	}
 
 	if len(orphans) == 0 {
-		t.Log("No orphaned test projects found")
+		t.Logf("No orphaned test projects found for %s", f.Owner)
 		return
 	}
 
-	t.Logf("Found %d orphaned test projects to clean up", len(orphans))
+	t.Logf("Found %d orphaned test projects to clean up for %s", len(orphans), f.Owner)
 	for _, p := range orphans {
 		t.Logf("Deleting orphaned project #%d: %s", p.Number, p.Title)
-		delCmd := exec.Command("gh", "project", "delete",
-			strconv.Itoa(p.Number),
-			"--owner", "rubrical-worker",
-		)
-		if delOutput, err := delCmd.CombinedOutput(); err != nil {
-			t.Logf("  Warning: failed to delete project #%d: %v\n  Output: %s", p.Number, err, delOutput)
-		} else {
-			t.Logf("  Deleted project #%d", p.Number)
-		}
+		deleteFixtureProject(t, f, p.Number)
 	}
 }
 
 // runCleanupAfterTest is a helper that can be deferred in tests to clean up
-// a specific issue after the test completes.
+// a specific user-fixture issue after the test completes.
 func runCleanupAfterTest(t *testing.T, issueNum int) {
+	t.Helper()
+	runCleanupAfterTestIn(t, userFixture.Repo, issueNum)
+}
+
+// runCleanupAfterTestIn cleans up an issue a test created in repo.
+func runCleanupAfterTestIn(t *testing.T, repo string, issueNum int) {
 	t.Helper()
 
 	if issueNum <= 0 {
@@ -187,12 +191,11 @@ func runCleanupAfterTest(t *testing.T, issueNum int) {
 	}
 
 	// Get issue title for logging
-	cmd := exec.Command("gh", "issue", "view",
-		"--repo", testRepo,
+	output, _, _ := runGH("issue", "view",
+		"--repo", repo,
 		strconv.Itoa(issueNum),
 		"--json", "title",
 	)
-	output, _ := cmd.Output()
 
 	var result struct {
 		Title string `json:"title"`
@@ -204,5 +207,5 @@ func runCleanupAfterTest(t *testing.T, issueNum int) {
 		title = fmt.Sprintf("Issue #%d", issueNum)
 	}
 
-	closeAndDeleteIssue(t, issueNum, title)
+	closeAndDeleteIssue(t, repo, issueNum, title)
 }

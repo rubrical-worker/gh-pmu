@@ -29,6 +29,10 @@ type mockCreateClient struct {
 	setFieldCalls []createSetFieldCall
 	createCalls   int
 
+	getProjectCalls   int
+	lastProjectOwner  string
+	lastProjectNumber int
+
 	// Error injection
 	createIssueErr          error
 	getProjectErr           error
@@ -73,6 +77,8 @@ func (m *mockCreateClient) CreateIssueWithOptions(owner, repo, title, body strin
 }
 
 func (m *mockCreateClient) GetProject(owner string, number int) (*api.Project, error) {
+	m.getProjectCalls++
+	m.lastProjectOwner, m.lastProjectNumber = owner, number
 	if m.getProjectErr != nil {
 		return nil, m.getProjectErr
 	}
@@ -108,6 +114,192 @@ func (m *mockCreateClient) GetOpenIssuesByLabel(owner, repo, label string) ([]ap
 		return nil, m.getOpenIssuesByLabelErr
 	}
 	return m.issuesByLabel, nil
+}
+
+// ============================================================================
+// #924: --project override
+// ============================================================================
+
+func TestParseProjectRef(t *testing.T) {
+	tests := []struct {
+		in        string
+		wantOwner string
+		wantNum   int
+		wantErr   bool
+	}{
+		{"other-org/7", "other-org", 7, false},
+		{"12", "local-owner", 12, false},
+		{" other-org/7 ", "other-org", 7, false},
+		{"", "", 0, true},
+		{"other-org/x", "", 0, true},
+		{"other-org/0", "", 0, true},
+		{"a/b/3", "", 0, true},
+		{"/7", "", 0, true},
+	}
+	for _, tt := range tests {
+		owner, num, err := parseProjectRef(tt.in, "local-owner")
+		if (err != nil) != tt.wantErr {
+			t.Errorf("parseProjectRef(%q) err = %v, wantErr %v", tt.in, err, tt.wantErr)
+			continue
+		}
+		if !tt.wantErr && (owner != tt.wantOwner || num != tt.wantNum) {
+			t.Errorf("parseProjectRef(%q) = %q, %d; want %q, %d", tt.in, owner, num, tt.wantOwner, tt.wantNum)
+		}
+	}
+}
+
+func projectOverrideCfg() *config.Config {
+	return &config.Config{
+		Project:      config.Project{Owner: "test-owner", Number: 1},
+		Repositories: []string{"owner/repo", "owner/second"},
+	}
+}
+
+func TestRunCreateWithDeps_ProjectOverrideAddsToNamedProject(t *testing.T) {
+	client := newMockCreateClient()
+	cmd := NewRootCommand()
+	cmd.SetOut(new(bytes.Buffer))
+
+	err := runCreateWithDeps(cmd, &createOptions{title: "T", repo: "other-org/target", project: "other-org/7"}, projectOverrideCfg(), client, "other-org", "target")
+
+	if err != nil {
+		t.Fatalf("Unexpected error: %v", err)
+	}
+	if client.lastProjectOwner != "other-org" || client.lastProjectNumber != 7 {
+		t.Errorf("project = %s #%d, want other-org #7", client.lastProjectOwner, client.lastProjectNumber)
+	}
+	if client.createCalls != 1 {
+		t.Errorf("createCalls = %d, want 1", client.createCalls)
+	}
+}
+
+func TestRunCreateWithDeps_UnconfiguredRepoWithoutProjectRefuses(t *testing.T) {
+	client := newMockCreateClient()
+	cmd := NewRootCommand()
+	cmd.SetOut(new(bytes.Buffer))
+
+	err := runCreateWithDeps(cmd, &createOptions{title: "T", repo: "other-org/target"}, projectOverrideCfg(), client, "other-org", "target")
+
+	if err == nil || !strings.Contains(err.Error(), "--project") {
+		t.Fatalf("Expected refusal naming --project, got: %v", err)
+	}
+	if client.createCalls != 0 || client.getProjectCalls != 0 {
+		t.Errorf("refusal must create nothing and touch no project: createCalls=%d getProjectCalls=%d", client.createCalls, client.getProjectCalls)
+	}
+}
+
+func TestRunCreateWithDeps_UnconfiguredRepoFromFileWithoutProjectRefuses(t *testing.T) {
+	client := newMockCreateClient()
+	cmd := NewRootCommand()
+	cmd.SetOut(new(bytes.Buffer))
+	opts := &createOptions{repo: "other-org/target", fromFile: "issue.yml", parsedFile: &issueFromFile{Title: "T"}}
+
+	err := runCreateWithDeps(cmd, opts, projectOverrideCfg(), client, "other-org", "target")
+
+	if err == nil || !strings.Contains(err.Error(), "--project") || client.createCalls != 0 {
+		t.Fatalf("Expected --from-file to refuse the same way, got err=%v createCalls=%d", err, client.createCalls)
+	}
+}
+
+func TestRunCreateWithDeps_ConfiguredRepoKeepsLocalProject(t *testing.T) {
+	client := newMockCreateClient()
+	cmd := NewRootCommand()
+	cmd.SetOut(new(bytes.Buffer))
+
+	err := runCreateWithDeps(cmd, &createOptions{title: "T", repo: "Owner/Second"}, projectOverrideCfg(), client, "Owner", "Second")
+
+	if err != nil {
+		t.Fatalf("Configured repository (any listed, case-insensitive) must not refuse: %v", err)
+	}
+	if client.lastProjectOwner != "test-owner" || client.lastProjectNumber != 1 {
+		t.Errorf("project = %s #%d, want local test-owner #1", client.lastProjectOwner, client.lastProjectNumber)
+	}
+}
+
+func TestRunCreateWithDeps_InvalidProjectRefIsRejectedBeforeCreate(t *testing.T) {
+	client := newMockCreateClient()
+	cmd := NewRootCommand()
+	cmd.SetOut(new(bytes.Buffer))
+
+	err := runCreateWithDeps(cmd, &createOptions{title: "T", repo: "other-org/target", project: "other-org/nope"}, projectOverrideCfg(), client, "other-org", "target")
+
+	if err == nil || client.createCalls != 0 {
+		t.Fatalf("Expected invalid --project rejected before create, got err=%v createCalls=%d", err, client.createCalls)
+	}
+}
+
+func TestRunCreateWithDeps_DryRunShowsOverrideProject(t *testing.T) {
+	client := newMockCreateClient()
+	cmd := NewRootCommand()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+
+	err := runCreateWithDeps(cmd, &createOptions{title: "T", repo: "other-org/target", project: "other-org/7", dryRun: true}, projectOverrideCfg(), client, "other-org", "target")
+
+	if err != nil {
+		t.Fatalf("Unexpected error: %v", err)
+	}
+	if !strings.Contains(buf.String(), "(other-org #7)") {
+		t.Errorf("Expected dry run to name the override project, got: %s", buf.String())
+	}
+	if client.createCalls != 0 {
+		t.Errorf("dry run created an issue")
+	}
+}
+
+func overrideTargets(fields []api.ProjectField) *createTargets {
+	return &createTargets{
+		project:      &api.Project{ID: "proj-7", Title: "Other"},
+		projectOwner: "other-org", projectNumber: 7, overridden: true,
+		fields: fields,
+	}
+}
+
+func TestSetCreateFields_OverrideResolvesAgainstSelectedProject(t *testing.T) {
+	client := newMockCreateClient()
+	fields := []api.ProjectField{
+		{Name: "Status", DataType: "SINGLE_SELECT", Options: []api.FieldOption{{Name: "Backlog"}, {Name: "Done"}}},
+		{Name: "Priority", DataType: "SINGLE_SELECT", Options: []api.FieldOption{{Name: "P0"}, {Name: "P1"}}},
+	}
+
+	failed, unset, err := setCreateFields(client, &config.Config{}, overrideTargets(fields), "item-1", "Backlog", "P9")
+
+	if err != nil || len(failed) != 0 {
+		t.Fatalf("an absent alias must not fail the creation: failed=%v err=%v", failed, err)
+	}
+	if len(client.setFieldCalls) != 1 || client.setFieldCalls[0].fieldName != "Status" || client.setFieldCalls[0].value != "Backlog" {
+		t.Errorf("setFieldCalls = %+v, want only Status=Backlog", client.setFieldCalls)
+	}
+	if len(unset) != 1 || !strings.Contains(unset[0], "Priority") || !strings.Contains(unset[0], "P9") || !strings.Contains(unset[0], "other-org #7") {
+		t.Errorf("unset = %v, want Priority P9 reported by name against other-org #7", unset)
+	}
+}
+
+func TestSetCreateFields_OverrideMissingFieldReportedUnset(t *testing.T) {
+	client := newMockCreateClient()
+	fields := []api.ProjectField{{Name: "Status", DataType: "SINGLE_SELECT", Options: []api.FieldOption{{Name: "Backlog"}}}}
+
+	failed, unset, err := setCreateFields(client, &config.Config{}, overrideTargets(fields), "item-1", "", "P1")
+
+	if err != nil || len(failed) != 0 || len(client.setFieldCalls) != 0 {
+		t.Fatalf("missing field must be skipped, not attempted: failed=%v err=%v calls=%+v", failed, err, client.setFieldCalls)
+	}
+	if len(unset) != 1 || !strings.Contains(unset[0], "Priority") {
+		t.Errorf("unset = %v, want the missing Priority field named", unset)
+	}
+}
+
+func TestSetCreateFields_ConfiguredProjectBehaviorUnchanged(t *testing.T) {
+	// Without --project nothing is pre-checked: the write decides, as before.
+	client := newMockCreateClient()
+	targets := &createTargets{project: &api.Project{ID: "proj-1"}, projectOwner: "o", projectNumber: 1,
+		fields: []api.ProjectField{{Name: "Priority", DataType: "SINGLE_SELECT", Options: []api.FieldOption{{Name: "P0"}}}}}
+
+	_, unset, _ := setCreateFields(client, &config.Config{}, targets, "item-1", "", "P9")
+
+	if len(unset) != 0 || len(client.setFieldCalls) != 1 {
+		t.Errorf("configured project: unset=%v calls=%+v, want the write attempted and nothing pre-skipped", unset, client.setFieldCalls)
+	}
 }
 
 func TestCreateCommand_Exists(t *testing.T) {

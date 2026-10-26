@@ -403,6 +403,7 @@ func runMoveWithDeps(cmd *cobra.Command, args []string, opts *moveOptions, cfg *
 	// Build validation results map for dry-run display
 	var validationErrors ValidationErrors
 	var forceWarnings []string
+	var gateWaivers []string                  // unchecked lines accepted via configured gate markers (#923)
 	validationResults := make(map[int]string) // issue number -> validation status
 
 	if cfg.IsIDPF() && statusValue != "" {
@@ -428,9 +429,18 @@ func runMoveWithDeps(cmd *cobra.Command, args []string, opts *moveOptions, cfg *
 			if err := validateStatusTransition(cfg, ctx, statusValue, releaseValue, opts.force); err != nil {
 				validationErrors.Add(*err)
 				validationResults[info.Number] = err.Message
-			} else if opts.force && countUncheckedBoxes(info.Body) > 0 {
+				continue
+			}
+			// Lines ending in a configured gate marker are unchecked by design:
+			// reported as accepted, never counted as a --force bypass (#923).
+			blocking, waived := partitionUncheckedItems(info.Body, cfg.CheckboxGateMarkers)
+			if checksCheckboxes(statusValue) && len(waived) > 0 {
+				gateWaivers = append(gateWaivers, fmt.Sprintf("#%d: %d unchecked AC line(s) accepted as gates:\n    %s",
+					info.Number, len(waived), strings.Join(trimItemPrefixes(waived), "\n    ")))
+			}
+			if opts.force && len(blocking) > 0 {
 				// Track --force bypasses for warning
-				forceWarnings = append(forceWarnings, fmt.Sprintf("#%d has %d unchecked checkbox(es)", info.Number, countUncheckedBoxes(info.Body)))
+				forceWarnings = append(forceWarnings, fmt.Sprintf("#%d has %d unchecked checkbox(es)", info.Number, len(blocking)))
 				validationResults[info.Number] = "pass (--force)"
 			} else {
 				validationResults[info.Number] = "pass"
@@ -450,6 +460,13 @@ func runMoveWithDeps(cmd *cobra.Command, args []string, opts *moveOptions, cfg *
 			fmt.Fprintf(cmd.OutOrStdout(), "Warning: --force bypasses checkbox validation:\n")
 			for _, w := range forceWarnings {
 				fmt.Fprintf(cmd.OutOrStdout(), "  %s\n", w)
+			}
+			fmt.Fprintln(cmd.OutOrStdout())
+		}
+		// Report gate waivers so a pass is never silent about what it accepted.
+		if len(gateWaivers) > 0 {
+			for _, g := range gateWaivers {
+				fmt.Fprintf(cmd.OutOrStdout(), "%s\n", g)
 			}
 			fmt.Fprintln(cmd.OutOrStdout())
 		}

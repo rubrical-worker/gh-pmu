@@ -5,6 +5,7 @@ package e2e
 import (
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -12,8 +13,9 @@ import (
 )
 
 // TestInitNonInteractiveMode tests the init command in non-interactive mode.
-// This copies from the source project #41 configured in config_test.go.
+// This copies from the user fixture's template project (fixture_test.go).
 func TestInitNonInteractiveMode(t *testing.T) {
+	f := requireFixture(t, userFixture)
 	// Create a temp directory for the init test
 	tmpDir := t.TempDir()
 
@@ -24,8 +26,8 @@ func TestInitNonInteractiveMode(t *testing.T) {
 		// Run init in non-interactive mode
 		result := runPMU(t, tmpDir, "init",
 			"--non-interactive",
-			"--source-project", "41",
-			"--repo", "rubrical-worker/gh-pmu-e2e-test",
+			"--source-project", strconv.Itoa(f.TemplateProject),
+			"--repo", f.Repo,
 		)
 
 		assertExitCode(t, result, 0)
@@ -63,8 +65,8 @@ func TestInitNonInteractiveMode(t *testing.T) {
 			if num, ok := project["number"].(float64); !ok || num <= 0 {
 				t.Errorf("Expected positive project number, got %v", project["number"])
 			}
-			if project["owner"] != "rubrical-worker" {
-				t.Errorf("Expected owner 'rubrical-worker', got %v", project["owner"])
+			if project["owner"] != f.Owner {
+				t.Errorf("Expected owner %q, got %v", f.Owner, project["owner"])
 			}
 		}
 
@@ -74,8 +76,8 @@ func TestInitNonInteractiveMode(t *testing.T) {
 			t.Error("Config missing 'repositories' section")
 		} else if len(repos) == 0 {
 			t.Error("No repositories configured")
-		} else if repos[0] != "rubrical-worker/gh-pmu-e2e-test" {
-			t.Errorf("Expected repo 'rubrical-worker/gh-pmu-e2e-test', got %v", repos[0])
+		} else if repos[0] != f.Repo {
+			t.Errorf("Expected repo %q, got %v", f.Repo, repos[0])
 		}
 
 		// Verify framework defaults to IDPF
@@ -94,13 +96,14 @@ func TestInitNonInteractiveMode(t *testing.T) {
 
 // TestInitNonInteractiveFrameworkNone tests init with --framework none.
 func TestInitNonInteractiveFrameworkNone(t *testing.T) {
+	f := requireFixture(t, userFixture)
 	tmpDir := t.TempDir()
 	initGitRepo(t, tmpDir)
 
 	result := runPMU(t, tmpDir, "init",
 		"--non-interactive",
-		"--source-project", "41",
-		"--repo", "rubrical-worker/gh-pmu-e2e-test",
+		"--source-project", strconv.Itoa(f.TemplateProject),
+		"--repo", f.Repo,
 		"--framework", "none",
 	)
 
@@ -136,29 +139,30 @@ func TestInitNonInteractiveFrameworkNone(t *testing.T) {
 // TestInitNonInteractiveWithOwner tests that --owner is honored over the owner
 // that would otherwise be inferred from --repo.
 //
-// The e2e infra is single-owner: the source template project #41 and project
-// creation only work under "rubrical-worker", so --owner must be rubrical-worker.
+// The user fixture's template project and project creation only work under
+// its own owner, so --owner must be that owner.
 // To make the flag's effect observable, --repo deliberately points at a repo under
 // a DIFFERENT owner (octocat/Hello-World). Repository linking and label creation are
 // warn-only in init (init.go / init_atomic.go), so the unrelated repo does not fail
 // init. If --owner were ignored, the resolved owner would fall back to the --repo
-// owner "octocat", source-project #41 lookup under octocat would fail, and init would
-// exit non-zero. Honoring --owner yields exit 0 and project.owner == "rubrical-worker"
+// owner "octocat", the template project lookup under octocat would fail, and init would
+// exit non-zero. Honoring --owner yields exit 0 and project.owner == the fixture owner
 // — distinguishable from the repo owner, unlike the previous same-owner assertion.
 func TestInitNonInteractiveWithOwner(t *testing.T) {
+	f := requireFixture(t, userFixture)
 	tmpDir := t.TempDir()
 	initGitRepo(t, tmpDir)
 
 	result := runPMU(t, tmpDir, "init",
 		"--non-interactive",
-		"--source-project", "41",
+		"--source-project", strconv.Itoa(f.TemplateProject),
 		"--repo", "octocat/Hello-World", // repo owner deliberately != --owner
-		"--owner", "rubrical-worker",
+		"--owner", f.Owner,
 	)
 
 	assertExitCode(t, result, 0)
 
-	// Clean up the created project (created under the --owner, rubrical-worker)
+	// Clean up the created project (created under the --owner, the fixture owner)
 	if projNum := extractProjectNumber(t, result.Stdout); projNum > 0 {
 		t.Cleanup(func() { deleteTestProject(t, projNum) })
 	}
@@ -180,8 +184,8 @@ func TestInitNonInteractiveWithOwner(t *testing.T) {
 	if !ok {
 		t.Fatalf("Config missing 'project' section")
 	}
-	if project["owner"] != "rubrical-worker" {
-		t.Errorf("Expected project.owner 'rubrical-worker' (from --owner), got %v — --owner not honored", project["owner"])
+	if project["owner"] != f.Owner {
+		t.Errorf("Expected project.owner %q (from --owner), got %v — --owner not honored", f.Owner, project["owner"])
 	}
 }
 
@@ -191,6 +195,7 @@ func TestInitNonInteractiveWithOwner(t *testing.T) {
 // project (steering users toward --project <existing>), the explicit-replace
 // path now requires --force in addition to --yes.
 func TestInitNonInteractiveOverwrite(t *testing.T) {
+	f := requireFixture(t, userFixture)
 	tmpDir := t.TempDir()
 	initGitRepo(t, tmpDir)
 
@@ -206,8 +211,8 @@ func TestInitNonInteractiveOverwrite(t *testing.T) {
 	// really wants to replace the project pointer rather than re-link via --project).
 	result := runPMU(t, tmpDir, "init",
 		"--non-interactive",
-		"--source-project", "41",
-		"--repo", "rubrical-worker/gh-pmu-e2e-test",
+		"--source-project", strconv.Itoa(f.TemplateProject),
+		"--repo", f.Repo,
 		"--yes",
 		"--force",
 	)
@@ -228,13 +233,14 @@ func TestInitNonInteractiveOverwrite(t *testing.T) {
 	if strings.Contains(string(configData), "existing") {
 		t.Error("Expected existing config to be overwritten")
 	}
-	if !strings.Contains(string(configData), "rubrical-worker") {
+	if !strings.Contains(string(configData), f.Owner) {
 		t.Error("Expected new config to contain repo owner")
 	}
 }
 
 // TestInitNonInteractiveMissingFlags tests error handling for missing flags.
 func TestInitNonInteractiveMissingFlags(t *testing.T) {
+	f := requireFixture(t, userFixture)
 	tmpDir := t.TempDir()
 
 	t.Run("missing_both_flags", func(t *testing.T) {
@@ -256,7 +262,7 @@ func TestInitNonInteractiveMissingFlags(t *testing.T) {
 	t.Run("missing_repo", func(t *testing.T) {
 		result := runPMU(t, tmpDir, "init",
 			"--non-interactive",
-			"--source-project", "41",
+			"--source-project", strconv.Itoa(f.TemplateProject),
 		)
 		assertExitCode(t, result, 1)
 		assertContains(t, result.Stderr, "--repo")
@@ -265,11 +271,12 @@ func TestInitNonInteractiveMissingFlags(t *testing.T) {
 
 // TestInitNonInteractiveInvalidRepoFormat tests error handling for invalid repo format.
 func TestInitNonInteractiveInvalidRepoFormat(t *testing.T) {
+	f := requireFixture(t, userFixture)
 	tmpDir := t.TempDir()
 
 	result := runPMU(t, tmpDir, "init",
 		"--non-interactive",
-		"--source-project", "41",
+		"--source-project", strconv.Itoa(f.TemplateProject),
 		"--repo", "invalid-repo-format",
 	)
 
@@ -282,6 +289,7 @@ func TestInitNonInteractiveInvalidRepoFormat(t *testing.T) {
 
 // TestInitNonInteractiveExistingConfigNoYes tests error when config exists without --yes.
 func TestInitNonInteractiveExistingConfigNoYes(t *testing.T) {
+	f := requireFixture(t, userFixture)
 	tmpDir := t.TempDir()
 
 	// Create existing config in both formats (init checks JSON first, YAML as fallback)
@@ -296,8 +304,8 @@ func TestInitNonInteractiveExistingConfigNoYes(t *testing.T) {
 
 	result := runPMU(t, tmpDir, "init",
 		"--non-interactive",
-		"--source-project", "41",
-		"--repo", "rubrical-worker/gh-pmu-e2e-test",
+		"--source-project", strconv.Itoa(f.TemplateProject),
+		"--repo", f.Repo,
 	)
 
 	assertExitCode(t, result, 1)

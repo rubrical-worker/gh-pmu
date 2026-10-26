@@ -54,22 +54,28 @@ func newSubAddCommand() *cobra.Command {
 	opts := &subAddOptions{}
 
 	cmd := &cobra.Command{
-		Use:   "add <parent-issue> <child-issue>",
-		Short: "Link an issue as a sub-issue of another",
-		Long: `Link an existing issue as a sub-issue of a parent issue.
+		Use:   "add <parent-issue> <child-issue>...",
+		Short: "Link issues as sub-issues of another",
+		Long: `Link one or more existing issues as sub-issues of a parent issue.
 
-Both issues must already exist. The child issue will appear as a
+All issues must already exist. Each child issue will appear as a
 sub-issue under the parent issue in GitHub's UI.
+
+Several children are linked in one request (up to 50 per request) and
+reported one line per child. A child already linked to this parent is
+reported as such and is not a failure; a child with a different parent
+is, and the command exits non-zero after linking the others.
 
 Accepts issue numbers, references (owner/repo#123), or full GitHub URLs.
 
 Examples:
   gh pmu sub add 10 15        # Link issue #15 as sub-issue of #10
   gh pmu sub add #10 #15      # Same, with # prefix
+  gh pmu sub add 10 15 16 17  # Link several sub-issues at once
   gh pmu sub add owner/repo#10 owner/repo#15  # Full references
   gh pmu sub add https://github.com/owner/repo/issues/10 15  # URL for parent
   gh pmu sub add 10 15 --repo owner/repo  # Specify default repository`,
-		Args: cobra.ExactArgs(2),
+		Args: cobra.MinimumNArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runSubAdd(cmd, args, opts)
 		},
@@ -102,10 +108,17 @@ func runSubAdd(cmd *cobra.Command, args []string, opts *subAddOptions) error {
 		return fmt.Errorf("invalid parent issue: %w", err)
 	}
 
-	// Parse child issue reference
-	childOwner, childRepo, childNumber, err := parseIssueReference(args[1])
-	if err != nil {
-		return fmt.Errorf("invalid child issue: %w", err)
+	// Parse child issue references (args[1:])
+	children := make([]subAddChild, 0, len(args)-1)
+	for _, arg := range args[1:] {
+		o, r, n, err := parseIssueReference(arg)
+		if err != nil {
+			if len(args) == 2 {
+				return fmt.Errorf("invalid child issue: %w", err)
+			}
+			return fmt.Errorf("invalid child issue %s: %w", arg, err)
+		}
+		children = append(children, subAddChild{owner: o, repo: r, number: n})
 	}
 
 	// Determine default repository (--repo flag takes precedence over config).
@@ -133,12 +146,14 @@ func runSubAdd(cmd *cobra.Command, args []string, opts *subAddOptions) error {
 		parentRepo = defaultRepo
 	}
 
-	if childOwner == "" || childRepo == "" {
-		if defaultOwner == "" || defaultRepo == "" {
-			return fmt.Errorf("no repository specified and none configured (use --repo or configure in .gh-pmu.json)")
+	for i := range children {
+		if children[i].owner == "" || children[i].repo == "" {
+			if defaultOwner == "" || defaultRepo == "" {
+				return fmt.Errorf("no repository specified and none configured (use --repo or configure in .gh-pmu.json)")
+			}
+			children[i].owner = defaultOwner
+			children[i].repo = defaultRepo
 		}
-		childOwner = defaultOwner
-		childRepo = defaultRepo
 	}
 
 	// Create API client
@@ -156,6 +171,11 @@ func runSubAdd(cmd *cobra.Command, args []string, opts *subAddOptions) error {
 		return err
 	}
 
+	if len(children) > 1 {
+		return addSubIssuesBatch(cmd, client, parentIssue, parentNumber, children)
+	}
+	childOwner, childRepo, childNumber := children[0].owner, children[0].repo, children[0].number
+
 	// Validate child issue exists
 	childIssue, err := client.GetIssue(childOwner, childRepo, childNumber)
 	if err != nil {
@@ -169,8 +189,13 @@ func runSubAdd(cmd *cobra.Command, args []string, opts *subAddOptions) error {
 	err = client.AddSubIssue(parentIssue.ID, childIssue.ID)
 	if err != nil {
 		// Check if already linked (GitHub returns "duplicate" or "only have one parent" messages)
-		errMsg := strings.ToLower(err.Error())
-		if strings.Contains(errMsg, "duplicate") || strings.Contains(errMsg, "only have one parent") {
+		if isAlreadyParentedError(err.Error()) {
+			// Already linked to this very parent is the outcome asked for, not a
+			// failure (#945); a different parent keeps the original error.
+			if current, perr := client.GetParentIssue(childOwner, childRepo, childNumber); perr == nil && current != nil && current.ID == parentIssue.ID {
+				fmt.Fprintf(cmd.OutOrStdout(), "✓ Issue #%d is already a sub-issue of #%d\n", childNumber, parentNumber)
+				return nil
+			}
 			return fmt.Errorf("issue #%d is already a sub-issue (issues can only have one parent)", childNumber)
 		}
 		return fmt.Errorf("failed to add sub-issue link: %w", err)
@@ -194,6 +219,115 @@ func runSubAdd(cmd *cobra.Command, args []string, opts *subAddOptions) error {
 	return nil
 }
 
+// subAddChild is one child reference given to sub add.
+type subAddChild struct {
+	owner  string
+	repo   string
+	number int
+}
+
+// subAddClient is the API surface the multi-child path needs.
+type subAddClient interface {
+	GetIssue(owner, repo string, number int) (*api.Issue, error)
+	GetParentIssue(owner, repo string, number int) (*api.Issue, error)
+	BatchAddSubIssues(parentID string, childIDs []string) ([]api.BatchSubIssueResult, error)
+}
+
+// isAlreadyParentedError reports whether a link failure is GitHub refusing a
+// child that already has a parent ("duplicate" sub-issue, or "only have one
+// parent"). Which parent it has is not in the message.
+func isAlreadyParentedError(msg string) bool {
+	msg = strings.ToLower(msg)
+	return strings.Contains(msg, "duplicate") || strings.Contains(msg, "only have one parent")
+}
+
+// addSubIssuesBatch links several children to one parent in a single
+// aliased request per 50 children (#945), then reports one line per child in
+// sub remove's batch format and a summary. A child already linked to this
+// parent is reported as such and is not a failure; a child with a different
+// parent, an unresolvable child, or any other error is, and makes the command
+// exit non-zero. The other children are linked either way.
+func addSubIssuesBatch(cmd *cobra.Command, client subAddClient, parentIssue *api.Issue, parentNumber int, children []subAddChild) error {
+	lines := make([]string, len(children))
+	var linked, already, failed int
+
+	// Resolve every child first; one that cannot be resolved is reported and
+	// never sent.
+	var sendIdx []int
+	var sendIDs []string
+	titles := make([]string, len(children))
+	for i, c := range children {
+		issue, err := client.GetIssue(c.owner, c.repo, c.number)
+		if err != nil {
+			failed++
+			lines[i] = fmt.Sprintf("✗ #%d: failed to get issue: %v", c.number, err)
+			continue
+		}
+		if err := requireResolvedIssue(issue, c.number); err != nil {
+			failed++
+			lines[i] = fmt.Sprintf("✗ #%d: %v", c.number, err)
+			continue
+		}
+		titles[i] = issue.Title
+		sendIdx = append(sendIdx, i)
+		sendIDs = append(sendIDs, issue.ID)
+	}
+
+	if len(sendIDs) > 0 {
+		results, err := client.BatchAddSubIssues(parentIssue.ID, sendIDs)
+		if err != nil {
+			return fmt.Errorf("failed to add sub-issue links: %w", err)
+		}
+		for j, r := range results {
+			i := sendIdx[j]
+			c := children[i]
+			switch {
+			case r.Success:
+				linked++
+				lines[i] = fmt.Sprintf("✓ #%d: %s", c.number, titles[i])
+			case isAlreadyParentedError(r.Error):
+				// The message does not say which parent; ask, so a re-run that
+				// meets its own earlier links is not reported as a failure.
+				current, perr := client.GetParentIssue(c.owner, c.repo, c.number)
+				switch {
+				case perr == nil && current != nil && current.ID == parentIssue.ID:
+					already++
+					lines[i] = fmt.Sprintf("✓ #%d: already linked", c.number)
+				case perr == nil && current != nil:
+					failed++
+					lines[i] = fmt.Sprintf("✗ #%d: already has a parent (#%d)", c.number, current.Number)
+				default:
+					failed++
+					lines[i] = fmt.Sprintf("✗ #%d: already has a parent", c.number)
+				}
+			default:
+				failed++
+				lines[i] = fmt.Sprintf("✗ #%d: %s", c.number, r.Error)
+			}
+		}
+	}
+
+	w := cmd.OutOrStdout()
+	fmt.Fprintf(w, "Linking sub-issues to parent #%d: %s\n\n", parentNumber, parentIssue.Title)
+	for _, l := range lines {
+		fmt.Fprintln(w, "  "+l)
+	}
+	fmt.Fprintf(w, "\nSummary: %d linked, %d already linked, %d failed\n", linked, already, failed)
+
+	return subAddBatchError(linked+already, failed, len(children))
+}
+
+// subAddBatchError mirrors subRemoveBatchError for sub add.
+func subAddBatchError(successCount, failCount, total int) error {
+	if failCount == 0 {
+		return nil
+	}
+	if successCount == 0 {
+		return fmt.Errorf("all %d links failed", failCount)
+	}
+	return fmt.Errorf("%d of %d links failed", failCount, total)
+}
+
 type subCreateOptions struct {
 	parent           string
 	title            string
@@ -203,7 +337,9 @@ type subCreateOptions struct {
 	labels           []string
 	assignees        []string
 	milestone        string
-	project          int
+	project          string // --project: a number under the configured owner, or owner/number (#924)
+	projectOwner     string // resolved from project by runSubCreate
+	projectNumber    int
 	inheritLabels    bool
 	inheritAssign    bool
 	inheritMilestone bool
@@ -246,7 +382,7 @@ Examples:
 	cmd.Flags().StringArrayVarP(&opts.labels, "label", "l", nil, "Add labels to the sub-issue (can be specified multiple times)")
 	cmd.Flags().StringArrayVarP(&opts.assignees, "assignee", "a", nil, "Assign users to the sub-issue (can be specified multiple times)")
 	cmd.Flags().StringVarP(&opts.milestone, "milestone", "m", "", "Set milestone (title or number)")
-	cmd.Flags().IntVar(&opts.project, "project", 0, "Add to project (project number)")
+	cmd.Flags().StringVar(&opts.project, "project", "", "Add to project: a number under the configured owner, or owner/number")
 	cmd.Flags().BoolVar(&opts.inheritLabels, "inherit-labels", false, "Inherit labels from parent (same repo only)")
 	cmd.Flags().BoolVar(&opts.inheritAssign, "inherit-assignees", false, "Inherit assignees from parent (same repo only)")
 	cmd.Flags().BoolVar(&opts.inheritMilestone, "inherit-milestone", true, "Inherit milestone from parent (same repo only)")
@@ -270,12 +406,12 @@ type subCreatePreview struct {
 // warning: a dry run exists to surface exactly that before anything is written.
 func printSubCreateDryRun(cmd *cobra.Command, client *api.Client, cfg *config.Config, opts *subCreateOptions, p subCreatePreview) error {
 	project := "(none)"
-	if opts.project > 0 {
-		proj, err := client.GetProject(cfg.Project.Owner, opts.project)
+	if opts.projectNumber > 0 {
+		proj, err := client.GetProject(opts.projectOwner, opts.projectNumber)
 		if err != nil {
-			return fmt.Errorf("failed to find project %d: %w", opts.project, err)
+			return fmt.Errorf("failed to find project %s: %w", opts.project, err)
 		}
-		project = fmt.Sprintf("%s (%s #%d)", proj.Title, cfg.Project.Owner, opts.project)
+		project = fmt.Sprintf("%s (%s #%d)", proj.Title, opts.projectOwner, opts.projectNumber)
 	}
 	orNone := func(values []string) string {
 		if len(values) == 0 {
@@ -324,6 +460,15 @@ func runSubCreate(cmd *cobra.Command, opts *subCreateOptions) error {
 
 	if err := cfg.Validate(); err != nil {
 		return fmt.Errorf("invalid configuration: %w", err)
+	}
+
+	// Resolve --project before anything is written (#924). No refusal for a
+	// cross-repo child without it: sub create then adds to no project at all,
+	// so there is no wrong-board fallback.
+	if opts.project != "" {
+		if opts.projectOwner, opts.projectNumber, err = parseProjectRef(opts.project, cfg.Project.Owner); err != nil {
+			return err
+		}
 	}
 
 	// Validate body flags mutual exclusivity
@@ -451,10 +596,10 @@ func runSubCreate(cmd *cobra.Command, opts *subCreateOptions) error {
 	// Add to project if specified. The issue already exists, so a failure here is
 	// a partial success reported after the confirmation (#938).
 	var projectErr error
-	if opts.project > 0 {
-		project, err := client.GetProject(cfg.Project.Owner, opts.project)
+	if opts.projectNumber > 0 {
+		project, err := client.GetProject(opts.projectOwner, opts.projectNumber)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: failed to find project %d: %v\n", opts.project, err)
+			fmt.Fprintf(os.Stderr, "Warning: failed to find project %s: %v\n", opts.project, err)
 			projectErr = err
 		} else {
 			_, err := client.AddIssueToProject(project.ID, newIssue.ID)
@@ -487,8 +632,12 @@ func runSubCreate(cmd *cobra.Command, opts *subCreateOptions) error {
 	if milestone != "" {
 		fmt.Fprintf(w, "  Milestone: %s\n", milestone)
 	}
-	if opts.project > 0 && projectErr == nil {
-		fmt.Fprintf(w, "  Project: #%d\n", opts.project)
+	if opts.projectNumber > 0 && projectErr == nil {
+		if opts.projectOwner == cfg.Project.Owner {
+			fmt.Fprintf(w, "  Project: #%d\n", opts.projectNumber)
+		} else {
+			fmt.Fprintf(w, "  Project: %s #%d\n", opts.projectOwner, opts.projectNumber)
+		}
 	}
 	fmt.Fprintf(w, "🔗 %s\n", newIssue.URL)
 
@@ -496,7 +645,7 @@ func runSubCreate(cmd *cobra.Command, opts *subCreateOptions) error {
 		return &api.PartialSuccessError{
 			Resource: fmt.Sprintf("sub-issue #%d", newIssue.Number),
 			URL:      newIssue.URL,
-			Steps:    []string{fmt.Sprintf("add to project %d", opts.project)},
+			Steps:    []string{fmt.Sprintf("add to project %s", opts.project)},
 			Err:      projectErr,
 		}
 	}

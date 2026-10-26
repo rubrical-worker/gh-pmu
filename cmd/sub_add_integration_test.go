@@ -73,7 +73,8 @@ func TestRunSubAdd_Integration_LinkWithHashPrefix(t *testing.T) {
 	testutil.AssertContains(t, result.Stdout, "Linked issue")
 }
 
-// TestRunSubAdd_Integration_AlreadyLinkedError tests error when issue is already linked
+// TestRunSubAdd_Integration_AlreadyLinkedError tests re-linking to the same
+// parent: reported as already linked and exit 0 since #945 (name kept for history)
 func TestRunSubAdd_Integration_AlreadyLinkedError(t *testing.T) {
 	testutil.RequireTestEnv(t)
 
@@ -97,15 +98,12 @@ func TestRunSubAdd_Integration_AlreadyLinkedError(t *testing.T) {
 	result := testutil.RunCommand(t, "sub", "add", fmt.Sprintf("%d", parentNum), fmt.Sprintf("%d", childNum))
 	testutil.AssertExitCode(t, result, 0)
 
-	// Try to link again (should fail)
+	// Link again to the same parent: since #945 that is the outcome asked for,
+	// reported as already linked, not a failure.
 	duplicateResult := testutil.RunCommand(t, "sub", "add", fmt.Sprintf("%d", parentNum), fmt.Sprintf("%d", childNum))
 
-	// Should fail with already linked error
-	if duplicateResult.ExitCode == 0 {
-		t.Error("Expected non-zero exit code when issue is already linked")
-	}
-
-	testutil.AssertContains(t, duplicateResult.Stderr, "already a sub-issue")
+	testutil.AssertExitCode(t, duplicateResult, 0)
+	testutil.AssertContains(t, duplicateResult.Stdout, "already a sub-issue")
 }
 
 // TestRunSubAdd_Integration_ParentNotFound tests error when parent issue doesn't exist

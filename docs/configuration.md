@@ -146,11 +146,29 @@ When `framework` is set to an IDPF variant (e.g., `IDPF`, `IDPF-Agile`), automat
 
 **Rules enforced:**
 - **Body required**: Issues must have content before moving to `in_review` or `done`
-- **Checkboxes**: All checkboxes must be checked before `in_review` or `done`
+- **Checkboxes**: All checkboxes must be checked before `in_review` or `done`, except lines ending in a configured gate marker (below)
 - **Branch assignment**: Issues must have a branch before moving from `backlog` to `ready` or `in_progress`
 
+**Gate markers (`checkboxGateMarkers`):**
+
+Some acceptance-criteria lines are unchecked *by design*, because another issue or a later phase owns their closure. List their endings so `move` stops counting them:
+
+```json
+{
+  "checkboxGateMarkers": ["→ QA: #N", "→ GATE: review", "→ GATE: release"]
+}
+```
+
+- Each entry is a literal string matched against the **end** of an unchecked checkbox line. Trailing whitespace is ignored.
+- A trailing `#N` matches `#` followed by one or more digits, so `→ QA: #N` recognizes `- [ ] Manual check → QA: #2755`.
+- A line that only partly matches still blocks. That includes a bare `→ GATE:`, a token you haven't configured, and a marker followed by more text.
+- Checkboxes inside code blocks are ignored, as for all checkbox validation.
+- Absent or empty means no marker is recognized. Behavior is unchanged.
+
+A plain `move` lists every line it accepted (`#42: 2 unchecked AC line(s) accepted as gates: ...`), so the pass is never silent. The same rule applies to multi-issue and `--recursive` moves, per issue.
+
 **Bypassing validation:**
-- Use `gh pmu move --force` to bypass checkbox validation
+- Use `gh pmu move --force` to bypass checkbox validation. Its warning counts only lines that aren't gate markers.
 - Body and branch requirements cannot be bypassed
 
 **Disable validation:**

@@ -362,6 +362,9 @@ func rawDocumentInvocations() []struct {
 		{"BatchAddIssuesToProject", func(c *Client) {
 			_, _ = c.BatchAddIssuesToProject("PVT_kw1", []string{"I_kw1", "I_kw2"})
 		}},
+		{"BatchAddSubIssues", func(c *Client) {
+			_, _ = c.BatchAddSubIssues("I_kwParent", []string{"I_kw1", "I_kw2"})
+		}},
 	}
 }
 

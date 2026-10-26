@@ -2253,6 +2253,155 @@ func parseBatchAddResponse(output []byte, issueIDs []string) ([]BatchAddResult, 
 	return results, nil
 }
 
+// BatchSubIssueResult reports one child of a BatchAddSubIssues call.
+type BatchSubIssueResult struct {
+	ChildID string
+	Success bool
+	Error   string
+}
+
+// batchSubIssueChunkSize is the number of aliased addSubIssue mutations sent
+// per request, matching batchAddChunkSize.
+const batchSubIssueChunkSize = 50
+
+// BatchAddSubIssues links children to one parent using aliased addSubIssue
+// mutations, batchSubIssueChunkSize per request, instead of one round trip per
+// child (#945). Top-level mutation fields run one after another, so the
+// aliases do not race on the parent the way concurrent calls did.
+//
+// A failure is reported per child: an alias-scoped GraphQL error marks only its
+// own child, and a request that fails outright marks every child in that chunk.
+// The returned error is reserved for inputs that cannot be sent at all.
+func (c *Client) BatchAddSubIssues(parentID string, childIDs []string) ([]BatchSubIssueResult, error) {
+	results := make([]BatchSubIssueResult, 0, len(childIDs))
+	if len(childIDs) == 0 {
+		return results, nil
+	}
+
+	for start := 0; start < len(childIDs); start += batchSubIssueChunkSize {
+		end := start + batchSubIssueChunkSize
+		if end > len(childIDs) {
+			end = len(childIDs)
+		}
+		chunk := childIDs[start:end]
+
+		_, requestBody, err := buildBatchAddSubIssuesRequest(parentID, chunk)
+		if err != nil {
+			return nil, err
+		}
+		output, err := c.doRawGraphQLBody([]byte(requestBody), nil)
+		if err != nil {
+			for _, id := range chunk {
+				results = append(results, BatchSubIssueResult{ChildID: id, Error: fmt.Sprintf("batch add sub-issues failed: %v", err)})
+			}
+			continue
+		}
+		chunkResults, err := parseBatchAddSubIssuesResponse(output, chunk)
+		if err != nil {
+			for _, id := range chunk {
+				results = append(results, BatchSubIssueResult{ChildID: id, Error: err.Error()})
+			}
+			continue
+		}
+		results = append(results, chunkResults...)
+	}
+
+	return results, nil
+}
+
+// buildBatchAddSubIssuesRequest constructs the aliased addSubIssue mutation and
+// its JSON request body. Alias aN carries childIDs[N]. Mirrors
+// buildBatchAddRequest.
+func buildBatchAddSubIssuesRequest(parentID string, childIDs []string) (mutation string, requestBody string, err error) {
+	if len(childIDs) == 0 {
+		return "", "", nil
+	}
+	if err := validateNodeID(parentID); err != nil {
+		return "", "", fmt.Errorf("parentID: %w", err)
+	}
+
+	varDecls := make([]string, 0, len(childIDs))
+	parts := make([]string, 0, len(childIDs))
+	variables := make(map[string]interface{}, len(childIDs))
+
+	for i, id := range childIDs {
+		if err := validateNodeID(id); err != nil {
+			return "", "", fmt.Errorf("childIDs[%d]: %w", i, err)
+		}
+		varName := fmt.Sprintf("input%d", i)
+		varDecls = append(varDecls, fmt.Sprintf("$%s: AddSubIssueInput!", varName))
+		parts = append(parts, fmt.Sprintf("a%d: addSubIssue(input: $%s) { subIssue { id } }", i, varName))
+		variables[varName] = map[string]interface{}{
+			"issueId":    parentID,
+			"subIssueId": id,
+		}
+	}
+
+	mutation = fmt.Sprintf("mutation BatchAddSubIssues(%s) { %s }",
+		strings.Join(varDecls, ", "),
+		strings.Join(parts, " "))
+
+	bodyBytes, err := json.Marshal(map[string]interface{}{
+		"query":     mutation,
+		"variables": variables,
+	})
+	if err != nil {
+		return "", "", fmt.Errorf("failed to marshal request body: %w", err)
+	}
+
+	return mutation, string(bodyBytes), nil
+}
+
+// parseBatchAddSubIssuesResponse decodes a batch response into one result per
+// child. A child succeeds only when its alias returned the linked sub-issue.
+func parseBatchAddSubIssuesResponse(output []byte, childIDs []string) ([]BatchSubIssueResult, error) {
+	var response struct {
+		Data map[string]*struct {
+			SubIssue struct {
+				ID string `json:"id"`
+			} `json:"subIssue"`
+		} `json:"data"`
+		Errors []struct {
+			Message string `json:"message"`
+			// Segments may be strings (aliases) or integers (list indices) (#861).
+			Path []interface{} `json:"path"`
+		} `json:"errors"`
+	}
+
+	if err := json.Unmarshal(output, &response); err != nil {
+		return nil, fmt.Errorf("failed to parse batch add sub-issues response: %w", err)
+	}
+
+	results := make([]BatchSubIssueResult, 0, len(childIDs))
+	for i, id := range childIDs {
+		alias := fmt.Sprintf("a%d", i)
+		result := BatchSubIssueResult{ChildID: id}
+
+		for _, graphErr := range response.Errors {
+			if len(graphErr.Path) > 0 {
+				if seg, ok := graphErr.Path[0].(string); ok && seg == alias {
+					result.Error = graphErr.Message
+					break
+				}
+			}
+		}
+
+		if result.Error == "" {
+			if node := response.Data[alias]; node != nil && node.SubIssue.ID != "" {
+				result.Success = true
+			} else if len(response.Errors) > 0 {
+				result.Error = response.Errors[0].Message
+			} else {
+				result.Error = "no sub-issue returned"
+			}
+		}
+
+		results = append(results, result)
+	}
+
+	return results, nil
+}
+
 // DeleteProjectV2Input represents the input for deleting a project.
 type DeleteProjectV2Input struct {
 	ProjectID graphql.ID `json:"projectId"`

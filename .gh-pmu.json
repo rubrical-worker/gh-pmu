@@ -1,5 +1,5 @@
 {
-  "version": "1.6.0",
+  "version": "1.7.0",
   "project": {
     "name": "gh-pmu",
     "number": 11,
@@ -15,8 +15,7 @@
   },
   "fields": {
     "branch": {
-      "field": "Branch",
-      "values": null
+      "field": "Branch"
     },
     "priority": {
       "field": "Priority",
