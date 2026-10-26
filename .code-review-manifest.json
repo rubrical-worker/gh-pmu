@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "lastRun": "2026-10-25T23:24:04.071Z",
+  "lastRun": "2026-10-26T00:23:54.811Z",
   "charter": {
     "contentHash": "sha256:9549d1555ebb13b1e9092f835815b04fa9e1c873efe761d137fbafac882364f3"
   },
@@ -1198,10 +1198,10 @@
   "lastDiffReview": {
     "baseRef": "main",
     "baseSha": "2a72c60c0fbb670e4fc64612c87cc2c57a3a269d",
-    "headSha": "68e7c393807003782f5152df56cd7aa09da3fd1d",
-    "reviewedAt": "2026-10-25T23:24:04.071Z",
-    "workingTreeIncluded": true,
-    "filesReviewed": 7,
+    "headSha": "617021cb69a5060bcc72a64dcb039f6d5da2a5e6",
+    "reviewedAt": "2026-10-26T00:23:54.811Z",
+    "workingTreeIncluded": false,
+    "filesReviewed": 0,
     "findings": {
       "introduced": {
         "high": 0,
@@ -1216,12 +1216,6 @@
         "info": 0
       }
     },
-    "issues": [
-      948,
-      949,
-      950,
-      951,
-      952
-    ]
+    "issues": []
   }
 }
