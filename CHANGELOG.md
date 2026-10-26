@@ -7,6 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.8.0] - 2026-10-25
+
+`sub add` can now link several children to a parent in one command, and it
+reports each child's result. `create` and `sub create` gain `--project` to file
+an issue onto a different project board. A new `checkboxGateMarkers` setting
+lets unchecked acceptance criteria that end in a gate marker, such as
+`→ QA: #N`, pass `move` to in_review or done without `--force`.
+
+**Upgrade notes:**
+- `create --repo <owner/name>` now refuses a repository that isn't listed in `.gh-pmu.json` `repositories` unless `--project` is also given. Before, the issue was created there and added to the configured board. Pass `--project owner/number` to choose the board (#924)
+- Re-running `sub add` for a child that is already a sub-issue of the same parent now reports it as already linked and exits 0, instead of failing (#945)
+
+### Added
+- `sub add <parent> <child...>` links several children in batched GraphQL requests (50 per request). Each child gets its own result line, followed by a summary, and the command exits non-zero only if a child failed (#945)
+- `--project owner/number` (or a bare number for the configured owner) on `create` and `sub create` targets another project board. Status and priority aliases are resolved against that board, and an alias it lacks is reported as unset (#924)
+- `checkboxGateMarkers` in `.gh-pmu.json`: unchecked lines ending in a configured marker (a trailing `#N` matches any issue number) don't block `move` to in_review or done. `move` lists them as accepted gates, and the `--force` warning counts only the other unchecked lines (#923)
+
+### Fixed
+- `move` again blocks on an unchecked box with no text after it (`- [ ]`), which the gate-marker change had let through before release (#948)
+
+### Development
+- The E2E suite paces every GitHub call and retries rate-limited responses with backoff and a circuit breaker. It's tunable through `E2E_MIN_INTERVAL_MS`, `E2E_MUTATING_INTERVAL_MS`, `E2E_MAX_RATE_LIMIT_RETRIES`, `E2E_RATE_LIMIT_BASE_DELAY_MS` and `E2E_RATE_LIMIT_MAX_DELAY_MS` (#920)
+- The E2E suite runs against named fixtures: `E2E_FIXTURE=user` (the default), `org` or `all`. The new organization fixture (`rubrical-works/gh-pmu-e2e-test-org`, template project #16) covers org issue fields live (#940, #947)
+
+### Documentation
+- `docs/commands.md`: multi-child `sub add`, `create`/`sub create --project` and the `--repo` refusal
+- `docs/configuration.md`: `checkboxGateMarkers`
+- `test/e2e/README.md`: rate limiting, fixtures, org setup and token scopes
+- IDPF-Praxis framework upgraded to 0.111.0
+
 ## [1.7.0] - 2026-10-22
 
 gh-pmu now handles organization-level issue fields such as an org-wide
