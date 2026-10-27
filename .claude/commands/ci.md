@@ -1,7 +1,7 @@
 ---
-version: "v0.112.0"
+version: "v0.113.0"
 description: Manage GitHub Actions CI workflows interactively, using the IDPF framework.
-argument-hint: "[--list|--validate|--add <feature>|--recommend|--watch [--sha <commit>]] (no args shows status) [--help]"
+argument-hint: "[--list|--validate|--add <feature> [--file <workflow>] [--paths <p1,p2>]|--recommend|--watch [--sha <commit>]] (no args shows status) [--help]"
 copyright: "Rubrical Works (c) 2026"
 ---
 <!-- EXTENSIBLE -->
@@ -17,7 +17,7 @@ Interactive CI workflow management for GitHub Actions.
 | *(none)* | Show workflow status (default) |
 | `--list` | List available CI features |
 | `--validate` | Validate workflow YAML files |
-| `--add <feature>` | Add a CI feature to workflows |
+| `--add <feature> [--file <workflow>] [--paths <p1,p2>]` | Add a CI feature; `--file` names the workflow in `.github/workflows/` and skips auto-detection; `--paths` names `paths-ignore` patterns (comma-separated) instead of deriving them |
 | `--recommend` | Analyze project and suggest improvements |
 | `--watch [--sha <commit>]` | Monitor CI run status for a commit |
 | `--help` | Open this command's docs page. Takes precedence over every other argument and performs no action. |
@@ -33,7 +33,7 @@ Display summary of existing workflows: name, trigger events, OS targets, languag
 node .claude/scripts/shared/ci-status.js
 ```
 ### `/ci --list` — List Available CI Features
-Lists all 11 CI features grouped by tier (v1 High Value, v2 Medium Value) with enabled/disabled status and one-line descriptions. Shows summary count.
+Lists all CI features (21 in `ci-features.json`) grouped by tier (v1 High Value, v2 Medium Value) with enabled/disabled status and one-line descriptions. Shows summary count.
 ```bash
 node .claude/scripts/shared/ci-list.js
 ```
@@ -56,17 +56,22 @@ node .claude/scripts/shared/ci-validate.js
 **Workflow:**
 1. Validate feature name against `ci-features.json`
 2. Detect project language via `ci-detect-lang.js`
-3. Auto-detect target workflow file via `ci-detect-workflow.js`
+3. Target workflow: the one `--file` names (must exist in `.github/workflows/`; no auto-detection), else `ci-detect-workflow.js` — for `trigger-scope`, the single workflow its classifier qualifies (several → refused, asks for `--file`)
 4. Confirm target file with user before modifying
 5. Add feature configuration via `ci-modify.js` (YAML-safe)
 6. Create backup before modification
 7. Report changes and target file
 
+**Trigger features:**
+- `paths-ignore`: patterns from the repo layout — doc dirs and IDPF artifact dirs present (`Proposal/`, `Construction/`, `Inception/`, `Mockups/`) plus root `'*.md'`; warns on any pattern (generated or existing) matching `.claude/commands/*.md` or other runtime markdown. Added only to existing `push`/`pull_request` events with no path filter — never adds a trigger. Nothing to ignore or no such event → refused, nothing written.
+- `paths-ignore --paths '<p1>,<p2>'`: the named patterns instead of the layout, merged into each `push`/`pull_request` event's existing `paths-ignore` list without duplicates (existing entries kept), or a new list where the event has no path filter — never adds a trigger. An event with `paths:` refuses the whole edit, nothing written; a tag-only push is skipped and named. Same runtime-markdown warning; the result states what the patterns give up, including `/done` no longer waiting for CI on a push touching only them. `--paths` with any other feature → refused.
+- `trigger-scope`: narrows an audit/scanner workflow to `paths:` (manifests/lockfiles, source dirs, the workflow file), weekly `schedule` and `workflow_dispatch`. Scheduled runs check the default branch only.
+
 <!-- USER-EXTENSION-START: post-add -->
 <!-- USER-EXTENSION-END: post-add -->
 
 ```bash
-node .claude/scripts/shared/ci-add.js <feature>
+node .claude/scripts/shared/ci-add.js <feature> [--file <workflow>] [--paths <p1,p2>]
 ```
 ### `/ci --recommend` — Analyze and Recommend
 
@@ -75,8 +80,13 @@ node .claude/scripts/shared/ci-add.js <feature>
 
 **Workflow:**
 1. Analyze project stack via `ci-analyze.js` (language, test tooling, build system, deployment targets)
-2. Inventory existing workflows via `ci-recommend.js`
-3. Compare to best practices, categorize findings as [Add], [Remove], [Alter], [Improve]
+2. Inventory workflows via `ci-recommend.js`, which first prints the per-push report:
+   - **Jobs per branch push** — per workflow and total, matrix legs expanded (`include`/`exclude` applied); jobs whose `if:` excludes a branch push listed, not counted; named-branch workflows listed, not summed
+   - **Duplicate suites** — a test command run as a full suite more than once per push (shard legs of one job = one run)
+   - **Local verification set** — each job labeled duplicating the declared suites (`resolveSuites()`, `/work` Step 4f sweep) or adding signal, naming each: runner OS the local sweep lacks (Windows: CRLF checkout), command or action no local suite runs
+   - **Advisories** — duplicate suites and duplicating jobs: hand edits with a suggestion, not menu items
+3. Compare to best practices, categorize findings as [Add], [Remove], [Alter], [Improve]. `paths-ignore` offered per unfiltered `push`/`pull_request` event from the parsed `on:` block; `trigger-scope` for a workflow running on every branch push with no test step and an audit/scanner step (`npm audit`, `pip-audit`, `cargo audit`, `osv-scanner`, `semgrep`, `gitleaks`, CodeQL, Electronegativity)
+   - **Every recommendation and advisory from this analysis states the CI signal it removes or defers** — its `tradeoff`, printed as `Gives up:` in report, menu and apply confirmation
 4. Present numbered selectable menu via `ci-recommend-ui.js`
 5. Apply selected recommendations via `ci-apply.js`
 6. Report summary
@@ -126,7 +136,7 @@ To set up CI manually: create .github/workflows/ and add workflow YAML files.
 | *(none)* or `status` | Execute `ci-status.js` |
 | `--list` | Execute `ci-list.js` |
 | `--validate` | Execute `ci-validate.js` |
-| `--add <feature>` | Execute `ci-add.js <feature>` |
+| `--add <feature> [--file X] [--paths P]` | Execute `ci-add.js <feature> [--file X] [--paths P]` |
 | `--recommend` | Execute `ci-analyze.js` + `ci-recommend.js` flow |
 | `--watch [--sha X]` | Execute `ci-watch.js --sha X` (default: HEAD) |
 | Other | Error: `Unknown subcommand: $1` |
