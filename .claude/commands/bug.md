@@ -1,5 +1,5 @@
 ---
-version: "v0.111.0"
+version: "v0.112.0"
 description: Create a bug issue from the IDPF framework's standard template.
 argument-hint: "<title> [--help]"
 copyright: "Rubrical Works (c) 2026"
@@ -45,6 +45,7 @@ If AC text in description mentions a verification mechanism (see `.claude/metada
 | Disposition | When | Result |
 |---|---|---|
 | **Drop** | Work appears in `phaseFeasibility.ownedElsewhere` — CHANGELOG, tagging, release publication belong to `/prepare-release` | Do not author the AC; tell the user which command owns it |
+| **Drop** | AC restates the project's test command passing ("`npm test` passes", "the test suite passes") — `dischargedByWorkflow`; the `/work` Step 4f sweep already runs it | Do not author the AC; tell the user `/work` Step 4f owns it. **Keep it** when `keptWhen` holds (no verification set declared, so Step 4f runs nothing) |
 | **Annotate** | Gate is genuinely load-bearing (required human review or sign-off) | `- [ ] {acText} → GATE: {phase}` per `annotationFormat`, and **name the event that resolves it** — a token that cannot name one is not a gate |
 Prefer annotation over deletion when the requirement is real: the goal is to stop the gate deadlocking `in_review`, not to remove the requirement. **Warning-only, as `verificationGate` is** — do **not** block creation. `/bug` and `/enhancement` take free text and often carry no ACs, so blocking would stop capture over an AC nobody wrote.
 ### Step 2b: Detect Version

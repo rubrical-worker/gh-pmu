@@ -1,5 +1,5 @@
 ---
-version: "v0.111.0"
+version: "v0.112.0"
 description: Tag a beta from a feature branch without merging to main, using the IDPF framework.
 argument-hint: "[--skip-coverage] [--skip-review] [--dry-run] [--help]"
 copyright: "Rubrical Works (c) 2026"
@@ -24,6 +24,8 @@ Tag a beta from a feature branch without merging to main.
 ## Execution Instructions
 **REQUIRED:** `TaskCreate` one task per numbered phase/step and one per non-empty `USER-EXTENSION` block; skip commented-out extensions. Mark `in_progress` -> `completed`. **Post-Compaction:** re-read spec, `TaskList`, resume from first incomplete task.
 ---
+**Prompt shape (#3233).** Every **ASK USER** below follows `{frameworkPath}/Reference/AskUserQuestion-Shape.md`: context first as markdown (results as a table), an options table keyed `{n}.{label}`, a one-line question, unprefixed labels, and for single-select a `preview` per option saying what it does; `ask-question-shape-hook.js` blocks a strayed question.
+
 ## Pre-Checks
 ### Verify NOT on Main
 ```bash
@@ -89,7 +91,7 @@ The script analyzes which E2E tests may be impacted by changes:
 **If `newCommandsWithoutTests` is non-empty, warn user about missing coverage.**
 <!-- USER-EXTENSION-END: post-analysis -->
 
-**ASK USER:** Confirm beta version before proceeding.
+**ASK USER:** Confirm beta version before proceeding. Phase 1 analysis table first; options `1.Proceed`, `2.Stop`; question `Proceed with beta <version>?`; previews: *Proceed* → Phase 2; *Stop* → ends, nothing changed.
 ---
 ## Phase 2: Validation
 
@@ -139,7 +141,7 @@ Refuses a beta (a published tag users install) with an unreviewed change or an i
 - Otherwise read `{frameworkPath}/Reference/code-review-execution.md` and execute its § Release Review Gate with `<command>` = `prepare-beta` — the whole gate (base, empty diff, `lastDiffReview` freshness, inline `/code-review --diff` on a missing/stale record, `--dry-run`, severity policy), shared with `/prepare-release`.
 - The file cannot be read → **STOP** with `Review gate could not read {frameworkPath}/Reference/code-review-execution.md; /prepare-beta stopped.` The gate never passes unread.
 
-**ASK USER:** Confirm validation passed before proceeding.
+**ASK USER:** Confirm validation passed before proceeding. Validation and review-gate table first; options `1.Continue`, `2.Stop`; question `Validation for beta <version> passed: continue to Phase 3?`; previews: *Continue* → CHANGELOG beta section; *Stop* → ends, no file edited.
 ---
 ## Phase 3: Prepare
 Update CHANGELOG.md with beta section.
@@ -191,7 +193,7 @@ rm .release-authorized
 <!-- USER-EXTENSION-END: pre-tag -->
 
 ### Step 4.2: Create Beta Tag
-**ASK USER:** Confirm ready to tag beta.
+**ASK USER:** Confirm ready to tag beta. Tag, commit and branch table first; options `1.Tag beta`, `2.Stop`; question `Tag and push beta <version>?`; previews: *Tag beta* → announce, create and push the tag (irreversible); *Stop* → no tag.
 **Once confirmed, announce the tag to every peer before creating it (#2960)** — a pushed `v*` tag cannot be undone:
 ```bash
 node .claude/scripts/shared/announce.js --event beta-starting --branch "$(git branch --show-current)" --tag "$VERSION"

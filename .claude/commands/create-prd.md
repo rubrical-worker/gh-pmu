@@ -1,5 +1,5 @@
 ---
-version: "v0.111.0"
+version: "v0.112.0"
 description: Transform a proposal into an Agile PRD using the IDPF framework.
 argument-hint: "<issue-number> | --extract [<directory>] [--help]"
 copyright: "Rubrical Works (c) 2026"
@@ -69,13 +69,7 @@ If not a proposal issue, error: `Issue #$issue_num does not have the 'proposal' 
 <!-- USER-EXTENSION-END: pre-analysis -->
 
 ### Phase 2: Validate Against Charter
-| Finding | Action |
-|---------|--------|
-| Aligned | Proceed |
-| Possibly misaligned | Ask for confirmation |
-| Conflicts with out-of-scope | Flag, offer resolution |
-
-**Resolution Options:** 1) Expand charter scope; 2) Defer to future release; 3) Proceed anyway (creates drift); 4) Revise proposal.
+Write proposal title, problem statement and proposed solution to `.tmp-charter-scope-{random}.txt` (suffix shelled out); run `node .claude/scripts/shared/lib/charter-scope.js --command create-prd --text-file <file>`; `rm` after. `skipped` → one line why, continue. `ask: true` → report `alignment` + `matchedItems`, offer `resolutionOptions` from `.claude/metadata/charter-enforcement.json` via `AskUserQuestion` (`expand` follows its `expansionFlow`). Relay `warnings`. Advisory: never blocks the PRD.
 
 ### Phase 3: Analyze Proposal Gaps
 | Element | Detection Patterns | Gap Action |
@@ -150,6 +144,7 @@ Re-read `.claude/metadata/ac-feasibility-prompts.json`. For each AC produced in 
 | Disposition | When | Result |
 |---|---|---|
 | **Drop** | Work appears in `phaseFeasibility.ownedElsewhere` — CHANGELOG, tagging, release publication belong to `/prepare-release` | Do not author the AC; report which command owns it |
+| **Drop** | AC restates the project's test command passing ("`npm test` passes", "the test suite passes") — `dischargedByWorkflow`; the `/work` Step 4f sweep already runs it | Do not author the AC; report that `/work` Step 4f owns it. **Keep it** when `keptWhen` holds (no verification set declared, so Step 4f runs nothing) |
 | **Annotate** | Gate is genuinely load-bearing (required human review or sign-off) | `- [ ] {acText} → GATE: {phase}` per `annotationFormat`, and **name the event that resolves it** — a token that cannot name one is not a gate |
 **Do not proceed to Phase 5 until every out-of-phase AC is dropped or annotated.** Blocking rather than warning-only because a PRD AC is not authored once: `/create-backlog` materializes it into story bodies, so one unannotated out-of-phase PRD AC becomes one in every inheriting story, each deadlocking its own `in_review`. `/bug` and `/enhancement` warn instead — one issue from free text, no fan-out.
 

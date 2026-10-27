@@ -1,5 +1,5 @@
 ---
-version: "v0.111.0"
+version: "v0.112.0"
 description: Prepare a release by opening a PR, merging to main, and tagging, using the IDPF framework.
 argument-hint: "[version] [--skip-coverage] [--skip-review] [--dry-run] [--help]"
 copyright: "Rubrical Works (c) 2026"
@@ -32,6 +32,8 @@ Validate, create PR to main, merge, and tag for deployment.
 
 **Task Rules:** One task per numbered phase/step; one per active extension; skip commented-out extensions.
 
+**Prompt shape (#3233).** Every **ASK USER** below follows `{frameworkPath}/Reference/AskUserQuestion-Shape.md`: context printed first as markdown (a results table where there are results), then an options table whose first column is `{n}.{label}`, a one-line question, unprefixed option labels, and for a single-select prompt a `preview` per option stating what that choice does. Each prompt names its context, question, options and previews; `.claude/hooks/ask-question-shape-hook.js` blocks a question that strays from the shape.
+
 ## Pre-Checks
 ### Check for Uncommitted Changes
 
@@ -39,17 +41,17 @@ Validate, create PR to main, merge, and tag for deployment.
 git status --porcelain
 ```
 
-**If empty (clean):** Proceed silently. **If non-empty (dirty):** Report changes, then present via `AskUserQuestion`:
+**If empty (clean):** Proceed silently. **If non-empty (dirty):** print the changes as a table (`Status`, `Path`), then options table `1.Stage and commit all`, `2.Let me review first`, `3.Continue anyway`, then present via `AskUserQuestion`:
 
 ```javascript
 AskUserQuestion({
   questions: [{
-    question: "Working tree has uncommitted changes. These could be lost when the branch is closed. How would you like to proceed?",
+    question: "Uncommitted changes found: how should the release proceed?",
     header: "Dirty tree",
     options: [
-      { label: "Stage and commit all", description: "Run git add -A and commit with a message you provide" },
-      { label: "Let me review first", description: "Stop here so you can review and handle changes manually" },
-      { label: "Continue anyway", description: "Proceed with release preparation despite uncommitted changes" }
+      { label: "Stage and commit all", description: "Run git add -A and commit with a message you provide", preview: "Runs git add -A, asks for a commit message, commits, then continues the release on a clean tree." },
+      { label: "Let me review first", description: "Stop here so you can review and handle changes manually", preview: "Stops here. Nothing is staged or committed; handle the changes, then re-run /prepare-release." },
+      { label: "Continue anyway", description: "Proceed with release preparation despite uncommitted changes", preview: "Proceeds with the changes uncommitted. They can be lost when the branch is closed." }
     ],
     multiSelect: false
   }]
@@ -73,14 +75,14 @@ Record as `$BRANCH`.
 **If `$BRANCH` is `main`:**
 1. Analyze commits: `git log $(git describe --tags --abbrev=0)..HEAD --oneline`
 2. Recommend version based on commit analysis
-3. **ASK USER:** Confirm version (e.g., `v0.26.0`)
+3. **ASK USER:** Confirm version (e.g., `v0.26.0`) — print the commit analysis (commits by type, recommended bump) as a table, then options `1.Use <version>`, `2.Another version`, `3.Stop`; question `Create release/<version> from main?`; previews: *Use <version>* creates and checks out `release/<version>` locally and continues; *Another version* asks for the version, then creates that branch; *Stop* creates nothing.
 4. **If `--dry-run`:** Report "Would create branch: release/v0.26.0" and stop.
 5. Create release branch:
    ```bash
    gh pmu branch start --name "release/$VERSION"
    git checkout "release/$VERSION"
-   git push -u origin "release/$VERSION"
    ```
+   **Not pushed here (#3364)** — Step 3.2 publishes it with the prep commit; a push now runs CI on a head superseded moments later.
 6. Update `$BRANCH` to `release/$VERSION`
 7. Report: "Created release branch: release/$VERSION. Continuing..."
 
@@ -97,7 +99,7 @@ gh pmu branch close "$BRANCH" --dry-run
 Name `$BRANCH` explicitly (required when more than one branch is active). **Show the output verbatim; do not parse it or add `--json`.** It prints `Would move N incomplete issue(s) to backlog:` then one `#N - title` line per issue, and changes nothing. The close moves every open tracker sub-issue except Parking Lot, keyed on open/closed and tracker membership — not board Status — so a `gh pmu list --status` filter answers a different question; `--status` also takes one value, and the comma-separated query this step used to run matched nothing while Step 4.3 moved everything.
 
 - **No issues listed:** say so explicitly — "No incomplete issues: Step 4.3's close will move nothing." — and proceed. Never infer an empty result from silence.
-- **Issues listed:** **ASK USER** via `AskUserQuestion`, naming them:
+- **Issues listed:** **ASK USER** via `AskUserQuestion`, naming them: print them as a table (`#`, `Title`, `Status`), then options `1.Transfer`, `2.Continue anyway`, `3.Stop`; question `<N> incomplete issues move to Backlog at Step 4.3: how to proceed?`; each option's preview states its effect:
   - **Transfer** — `/transfer-issue` to another branch, re-run the dry-run, ask again.
   - **Continue anyway** — first state: "Step 4.3 will move #N, #N… to Backlog and clear their Branch field." Then proceed.
   - **Stop** — halt now, before Phase 1; nothing has changed.
@@ -160,7 +162,7 @@ The script analyzes which E2E tests may be impacted by changes:
 
 <!-- USER-EXTENSION-END: post-analysis -->
 
-**ASK USER:** Confirm version before proceeding.
+**ASK USER:** Confirm version before proceeding. Print the Phase 1 analysis (commits by type, recommended version) as a table, then options `1.Proceed`, `2.Stop`; question `Proceed with <version>?`; previews: *Proceed* continues to Phase 2 validation; *Stop* ends here, nothing changed.
 
 ## Phase 2: Validation
 
@@ -240,7 +242,7 @@ Refuses a release with an unreviewed change or an introduced high-severity findi
 - Otherwise read `{frameworkPath}/Reference/code-review-execution.md` and execute its § Release Review Gate with `<command>` = `prepare-release` — the whole gate (base, empty diff, `lastDiffReview` freshness, inline `/code-review --diff` on a missing/stale record, `--dry-run`, severity policy), shared with `/prepare-beta`.
 - The file cannot be read → **STOP** with `Review gate could not read {frameworkPath}/Reference/code-review-execution.md; /prepare-release stopped.` The gate never passes unread.
 
-**ASK USER:** Confirm validation passed.
+**ASK USER:** Confirm validation passed. Print the Phase 2 results as a table (check, result: Step 2.0 helpers, the validation phases, coverage, the review gate), then options `1.Continue`, `2.Stop`; question `Validation for <version> passed: continue to Phase 3?`; previews: *Continue* lets Phase 3 edit the version files and CHANGELOG; *Stop* ends before any file is edited.
 
 ## Phase 3: Prepare
 
@@ -272,8 +274,13 @@ for path in CHANGELOG.md README.md README-DIST.md Docs/; do
   if [ -e "$path" ]; then git add "$path"; fi
 done
 git commit -m "chore: prepare release $VERSION"
-git push
+if git rev-parse --abbrev-ref --symbolic-full-name @{u} >/dev/null 2>&1; then
+  git push
+else
+  git push -u origin "$BRANCH"
+fi
 ```
+**One push publishes the branch (#3364).** A branch tracking an upstream gets the bare `git push`; a release branch just auto-created has none, so this push publishes it with the prep commit and sets the upstream.
 
 **Stage only what exists (#2602).** `git add` on a missing pathspec is **fatal** (exit 128) — nothing staged, no commit. `README-DIST.md` exists here and in almost no consuming project. Adjust the path list to this project's release files; the existence guard makes an extra entry harmless, not a reason to leave a wrong one.
 
@@ -314,7 +321,7 @@ node .claude/scripts/shared/wait-for-ci.js
 
 ### Step 4.2: Merge PR
 
-**ASK USER:** Approve and merge.
+**ASK USER:** Approve and merge. Print the PR (number, URL, checks) as a table, then options `1.Approve and merge`, `2.Stop`; question `Merge PR #<N> into main?`; previews: *Approve and merge* announces the release, merges, then closes the tracker and tags; *Stop* leaves the PR open, nothing merged.
 
 **Once approved, announce the release to every peer before merging (#2960).** The merge to `main`, tracker close, tag push that starts the distribution deploy and branch deletion all follow, and none can be undone:
 ```bash
@@ -395,7 +402,7 @@ node .claude/scripts/shared/lib/active-label.js remove [TRACKER_NUMBER]
 
 ### Step 4.6: Tag and Push
 
-**ASK USER:** Confirm ready to tag.
+**ASK USER:** Confirm ready to tag. Print the tag, commit and merge-commit CI result as a table, then options `1.Tag and push`, `2.Stop`; question `Tag and push <version>?`; previews: *Tag and push* creates the annotated tag and pushes it, starting the distribution deploy; *Stop* creates no tag.
 
 ```bash
 git tag -a $VERSION -m "Release $VERSION"
@@ -429,7 +436,7 @@ node .claude/scripts/shared/wait-for-ci.js --branch $VERSION --timeout 900
 
 **Scope the wait to the TAG, not the checked-out branch (#2653).** This step used to resolve the branch name at runtime and pass that. After Step 4.4 the checked-out branch is `main`, and a tag-triggered run carries the **tag name** as its `headBranch` — so `matchesFilter` rejected the run the tag had just created, and the newest `main` run supplied the verdict: the already-completed post-merge `Tests` run. The gate reported a pass without waiting for anything, **vacuous in exactly the projects that have tag-triggered workflows**. `$VERSION` is the tag, so the existing filter matches with no change to `selectRun()`. (The defective form is described, not quoted: a guard test rejects that literal anywhere in this step.)
 
-**`--branch` is still not optional (#2464).** Bare, the gate passes a null filter and `selectRun()` returns the newest run **repo-wide** — an unrelated run can supply the verdict. **`--timeout 900`** states the 15-minute budget explicitly rather than relying on adaptive extension of the 300s default (#2257) — it is `wait-for-ci.js`'s `MAX_CAP`, so the whole request is enforced; a larger one is clamped and reported (#3022).
+**`--branch` or `--sha` is still not optional (#2464).** Accepted scopes: `--branch <name>` and `--sha <commit>`. Every `wait-for-ci.js` call here passes one. `--sha` is a deliberate scope, not a regression: the post-merge gate waits on a merge commit on `main`, which has no release branch name to filter by, and a commit filter is narrower than any branch filter — it closes the same repo-wide hole (#3255, #3312). Bare, the gate passes a null filter and `selectRun()` returns the newest run **repo-wide** — an unrelated run can supply the verdict. **`--timeout 900`** states the 15-minute budget explicitly rather than relying on adaptive extension of the 300s default (#2257) — it is `wait-for-ci.js`'s `MAX_CAP`, so the whole request is enforced; a larger one is clamped and reported (#3022).
 
 **Why the trigger check, not a file-existence check (#2653).** The old conditional asked whether *any* workflow file exists. Almost every project has one, so it passed nearly always and sent the step on to wait against a filter that could not match — a vacuous pass dressed as a gate. Whether anything triggers on tags is the question that decides whether waiting is meaningful. The `grep` is a deliberate heuristic that errs toward waiting: over-waiting costs a timeout that reports honestly; under-waiting is the defect this step just had.
 ### Step 4.8: Update Release Notes
@@ -503,7 +510,7 @@ Do NOT auto-close issues just because they shipped.
 
 ## Phase 5: Close & Cleanup
 
-**ASK USER:** Confirm deployment verified and ready to close release.
+**ASK USER:** Confirm deployment verified and ready to close release. Print the deploy and CI results as a table, then options `1.Close release`, `2.Stop`; question `<version> deployment verified: close the release?`; previews: *Close release* comments on the tracker, deletes the working branch and verifies the GitHub release; *Stop* leaves the branch and tracker as they are.
 
 ### Step 5.1: Add Deployment Comment
 

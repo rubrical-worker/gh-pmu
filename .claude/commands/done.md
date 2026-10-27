@@ -1,5 +1,5 @@
 ---
-version: "v0.111.0"
+version: "v0.112.0"
 description: Complete issues with criteria verification and status transitions, using the IDPF framework.
 argument-hint: "[#issue... | --all] [--yes] (optional) [--help]"
 copyright: "Rubrical Works (c) 2026"
@@ -124,8 +124,9 @@ Report `Pushed.` Rejected (non-fast-forward — a push landed between 2.2 and no
 **Why a pinned file, not the reflog (#2635):** the reflog's previous ref value is this run's push only while nothing else moves the ref in between — and a push by **any other process sharing the same `.git`** (second agent session, terminal, editor integration) does. (Step 2.2's own fetch does not break it: it moves the ref to exactly the base wanted, or finds nothing new and leaves no entry.) The earlier trade-off accepted that fragility because a SHA in a variable did not survive compaction. A SHA in a file survives both — compaction-proof and immune to concurrent ref movement — which is why 2.2 writes one.
 Otherwise spawn background (`run_in_background: true`):
 ```bash
-node ./.claude/scripts/shared/ci-watch.js --sha $SHA --timeout 600
+node ./.claude/scripts/shared/ci-watch.js --sha $SHA --timeout auto
 ```
+**`--timeout auto` (#3321):** a fixed 600s was shorter than a full Tests run, so the watch timed out first and a later failure reached nobody. `auto` = longest job on each recent completed run's latest attempt (workflows this commit triggered) × 1.5, clamped 600–1800s; 600 when history cannot be read. A run still unfinished at the deadline gets **one** extension by that timeout, never past 1800s. Envelope `watchTimeout` names the value, `source` (`history`/`default`) and any `extension`; an exit 2 has already had its extension, so the terminal-event logic below is unchanged.
 Report `"CI monitoring started in background."`
 
 **Exit codes:**
@@ -133,7 +134,7 @@ Report `"CI monitoring started in background."`
 |---|---|
 | 0 | `"CI passed for #$ISSUE (duration)"` |
 | 1 | `"CI FAILED. Failed step: \"step-name\". Run: gh run view <id> --log-failed"` |
-| 2 | `"CI still running after 10m. Check: gh run list --commit $SHA"` |
+| 2 | `"CI still running after <N>s (timeout from <watchTimeout.source>). Check: gh run list --commit $SHA"` — `<N>` = `watchTimeout.extension.totalSeconds` when extended, else `watchTimeout.seconds` |
 | 3 | `"No CI run triggered (paths-ignore likely)"` |
 | 4 | `"CI cancelled (superseded by newer push)"` |
 

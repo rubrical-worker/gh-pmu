@@ -1,5 +1,5 @@
 ---
-version: "v0.111.0"
+version: "v0.112.0"
 description: Create a proposal document and tracking issue, using the IDPF framework.
 argument-hint: "<title> [--prior-art] [--update [changes]] [--help]"
 copyright: "Rubrical Works (c) 2026"
@@ -177,6 +177,9 @@ node -e "console.log(JSON.stringify(require('./.claude/scripts/shared/lib/prior-
 ```
 `REVIEW_SWEEP` ← `framework-config.json` `reviewSweep` (absent = `recommend`) → `{sweep, refused, mode, message}`. `sweep:true` → run the sweep step as written. `refused:true` → **do not sweep**; report `message` verbatim, emit **no** `**Prior Art:**` section (absence reads as "no sweep ran"), continue creating the proposal. Never a silent no-op — the user typed a flag and must learn why nothing happened and what to change.
 Mode `off` deliberately overrides a typed flag. Earlier revisions of this spec, its sibling, and the schema all promised `--prior-art` swept regardless; #2564 inverts that on purpose, and the refusal message is what keeps the inversion honest.
+
+### Step 3c: Charter Scope Check (#3001)
+Runs on create and `--update`. Write title + problem statement to `.tmp-charter-scope-{random}.txt` (suffix shelled out); run `node .claude/scripts/shared/lib/charter-scope.js --command proposal --text-file <file>`; `rm` after. `skipped` → one line why, continue. `ask: true` → report `alignment` + `matchedItems`, offer `resolutionOptions` from `.claude/metadata/charter-enforcement.json` via `AskUserQuestion` (`expand` follows its `expansionFlow`). Relay `warnings`. Advisory: never blocks creation.
 
 <!-- USER-EXTENSION-START: pre-create -->
 <!-- USER-EXTENSION-END: pre-create -->
