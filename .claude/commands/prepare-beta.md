@@ -1,5 +1,5 @@
 ---
-version: "v0.113.0"
+version: "v0.114.0"
 description: Tag a beta from a feature branch without merging to main, using the IDPF framework.
 argument-hint: "[--skip-coverage] [--skip-review] [--dry-run] [--help]"
 copyright: "Rubrical Works (c) 2026"
@@ -24,7 +24,7 @@ Tag a beta from a feature branch without merging to main.
 ## Execution Instructions
 **REQUIRED:** `TaskCreate` one task per numbered phase/step and one per non-empty `USER-EXTENSION` block; skip commented-out extensions. Mark `in_progress` -> `completed`. **Post-Compaction:** re-read spec, `TaskList`, resume from first incomplete task.
 ---
-**Prompt shape (#3233).** Every **ASK USER** below follows `{frameworkPath}/Reference/AskUserQuestion-Shape.md`: context first as markdown (results as a table), an options table keyed `{n}.{label}`, a one-line question, unprefixed labels, and for single-select a `preview` per option saying what it does; `ask-question-shape-hook.js` blocks a strayed question.
+**Prompt shape (#3233).** Every **ASK USER** below follows `{frameworkPath}/Reference/AskUserQuestion-Shape.md`: context first as markdown (results as a table), an options table keyed `{n}.{label}`, a one-line question, unprefixed labels, and for single-select a `preview` per option saying what it does; `ask-question-shape-hook.js` blocks only the tool's hard limits (4 options, 12-char header); the rest is convention.
 
 ## Pre-Checks
 ### Verify NOT on Main

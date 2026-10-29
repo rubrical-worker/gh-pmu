@@ -1,5 +1,5 @@
 ---
-version: "v0.113.0"
+version: "v0.114.0"
 description: Prepare a release by opening a PR, merging to main, and tagging, using the IDPF framework.
 argument-hint: "[version] [--skip-coverage] [--skip-review] [--dry-run] [--help]"
 copyright: "Rubrical Works (c) 2026"
@@ -32,7 +32,7 @@ Validate, create PR to main, merge, and tag for deployment.
 
 **Task Rules:** One task per numbered phase/step; one per active extension; skip commented-out extensions.
 
-**Prompt shape (#3233).** Every **ASK USER** below follows `{frameworkPath}/Reference/AskUserQuestion-Shape.md`: context printed first as markdown (a results table where there are results), then an options table whose first column is `{n}.{label}`, a one-line question, unprefixed option labels, and for a single-select prompt a `preview` per option stating what that choice does. Each prompt names its context, question, options and previews; `.claude/hooks/ask-question-shape-hook.js` blocks a question that strays from the shape.
+**Prompt shape (#3233).** Every **ASK USER** below follows `{frameworkPath}/Reference/AskUserQuestion-Shape.md`: context printed first as markdown (a results table where there are results), then an options table whose first column is `{n}.{label}`, a one-line question, unprefixed option labels, and for a single-select prompt a `preview` per option stating what that choice does. Each prompt names its context, question, options and previews; `.claude/hooks/ask-question-shape-hook.js` blocks only the tool's hard limits (4 options, a 12-character header); the rest of the shape is convention.
 
 ## Pre-Checks
 ### Check for Uncommitted Changes
@@ -367,13 +367,21 @@ if [ "$after" -gt "$before" ]; then git stash pop; fi
 The guard compares `git stash list` before and after rather than testing the tree: `git status --porcelain` can report changes `git stash push` declines to save, so a dirtiness test and the stash's own behavior can disagree. The stash count cannot.
 
 ### Step 4.4a: Merge-Commit CI Gate
-After Step 4.4's pull, `main` is at the commit Step 4.6 tags. Wait on the push-triggered run for **that** commit before tagging:
+After Step 4.4's pull, `main` is at the commit Step 4.6 tags. First decide whether the PR runs already tested that commit's tree:
 ```bash
 MERGE_SHA=$(git rev-parse HEAD)
 PR_MERGE_SHA=$(gh pr view "$BRANCH" --json mergeCommit --jq '.mergeCommit.oid')
+node .claude/scripts/shared/wait-for-ci.js --pr-tested --pr "$BRANCH" --sha "$MERGE_SHA"
+```
+It prints `{ path, reason, runId, runs, workflows }` and waits nothing:
+- **`path` is `skip`** → report "Merge commit $MERGE_SHA carries the PR-tested tree — verdict from PR run(s):" with each `runs[]` workflow, `runId` and `url`; continue to the pre-tag extension point without waiting.
+- **`path` is `wait`** → report its `reason`, then wait on the push-triggered run for **that** commit before tagging:
+```bash
 node .claude/scripts/shared/wait-for-ci.js --sha "$MERGE_SHA" --timeout 900
 ```
-**If `MERGE_SHA` differs from `PR_MERGE_SHA`, report both SHAs before waiting** — `main` moved after the merge. Wait on `MERGE_SHA` regardless: it is what Step 4.6 tags.
+**If `MERGE_SHA` differs from `PR_MERGE_SHA`, report both SHAs before waiting** — `main` moved after the merge, and the decision returns `wait`. Wait on `MERGE_SHA` regardless: it is what Step 4.6 tags.
+
+**Why the wait can be skipped (#3444).** When `main` did not move between the PR run and the merge, the merge commit's tree is the tree the `pull_request` runs passed, so the push run re-tests it. The decision skips only on evidence: `MERGE_SHA` is the PR's merge commit, its tree equals the PR head's, and every workflow the merged tree runs on push to the default branch also runs on `pull_request` and passed on the PR head with no skipped job. Workflows pair with runs by workflow id, never by name. A push-only workflow, a skipped PR job, a missing or unsuccessful PR run, or a failed `gh`/`git` lookup returns `wait` with that reason — it never skips on missing evidence. Step 4.7's tag-scoped wait is unaffected.
 
 **On exit 1, 2 or 5 (failed, timed out, or still running at the cap), STOP before tagging.** Report the payload's `runId` and `conclusion` (or `status`) and the run's URL (`gh run view <runId> --json url --jq .url`). Do not continue to Step 4.6: the tag push is irreversible and starts any distribution deploy.
 

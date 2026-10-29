@@ -145,3 +145,6 @@ runa_claude.cmd
 
 # Project defaults (managed by Praxis Hub Manager)
 .release-authorized
+
+# IDPF Framework (managed by Praxis Hub Manager)
+.claude/.announce-ledger.jsonl

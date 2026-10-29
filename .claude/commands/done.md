@@ -1,5 +1,5 @@
 ---
-version: "v0.113.0"
+version: "v0.114.0"
 description: Complete issues with criteria verification and status transitions, using the IDPF framework.
 argument-hint: "[#issue... | --all] [--yes] (optional) [--help]"
 copyright: "Rubrical Works (c) 2026"
@@ -44,6 +44,7 @@ Parse JSON, check `ok`:
 - **`ok: false`:** report `errors[]` (`code`, `message`, optional `suggestion`) → **STOP**
 - **Discovery** (`discovery` field): `mode: 'query'` (no-args) — present `discovery.issues` for user selection, re-run with `--issue N`. `mode: 'all'` (`--all`) — present list, ask "Complete all N in_review issues?"; yes → re-run with `--issues` for all numbers (deferred push: single push after last); empty list → "No in_review issues on current branch", STOP. **`yes: true` in envelope** (`--yes`): SKIP the prompt, re-run with `--issues` for all (pass `--yes` through). `query` mode still requires user selection.
 - **`ok: true` + `diffVerification`:** `requiresConfirmation: true` → report `warnings`, ask "Continue? (yes/no)"; yes → re-run with `--force-move`; no → **STOP**. **`yes: true` in envelope:** SKIP the prompt, re-run with `--force-move` (pass `--yes` through); still report warnings for audit. `requiresConfirmation: false` → already moved to done, proceed.
+- **`ok: true` + `gates.releaseHandoff.offered: true` (#3453):** every unchecked criterion is `→ GATE: release`, a check after the release deploys; `/prepare-release`'s tracker close would move the issue to Backlog. Nothing moved. After any diff confirmation, print `gates.releaseHandoff.criteria` and **ASK USER** (`AskUserQuestion`, header `Hand-off`): **Hand off (Recommended)** → re-run with `--release-handoff` (keep `--force-move` if the diff was confirmed); the preamble files one standalone QA issue per criterion through `.claude/scripts/shared/lib/qa-issue.js` (`qa-required`, `qa_required`, no branch tracker), rewrites each box `- [x] <criterion> → GATE: release → QA: #N` and moves the issue — report each `gates.releaseHandoff.handedOff` entry as `#$ISSUE: <criterion> → QA: #N`. **Already verified** → check the box via the `.tmp-$ISSUE.md` body flow, re-run without `--release-handoff`. **Leave In review** → nothing filed or moved; report the gate stays open. **`yes: true`:** take *Hand off*. `QA_FILING_FAILED` names filed QA issues in `handedOff` (boxes rewritten, issue not moved); a re-run hands off the rest.
 
 **Safety gates under `--yes`:** suppresses interactive prompts only. Does NOT bypass AC verification, force-move prohibition (`/work` Step 4b), `gh pmu` errors, or any failure halt — all halt as usual regardless of `--yes`.
 

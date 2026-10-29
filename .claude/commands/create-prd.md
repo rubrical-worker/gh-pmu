@@ -1,5 +1,5 @@
 ---
-version: "v0.113.0"
+version: "v0.114.0"
 description: Transform a proposal into an Agile PRD using the IDPF framework.
 argument-hint: "<issue-number> | --extract [<directory>] [--help]"
 copyright: "Rubrical Works (c) 2026"
@@ -127,7 +127,7 @@ const mode = getReviewMode(process.cwd(), null);
 AskUserQuestion({
   questions: [{
     question: "Solo mode detected. Group all stories under a single epic for simplicity? (Or keep multiple epics for planned workstream use)",
-    header: "Epic structure",
+    header: "Epics",
     options: [
       { label: "Single epic (Recommended)", description: "Consolidate all stories under one epic — simpler for solo dev" },
       { label: "Keep multiple epics", description: "Standard multi-epic grouping (e.g., for concurrent workstreams)" }
@@ -169,7 +169,7 @@ node .claude/scripts/shared/diagram-design-detect.js
 AskUserQuestion({
   questions: [{
     question: "Which diagram style should this PRD use?",
-    header: "Diagram style",
+    header: "Diagrams",
     options: [
       { label: "drawio (Rich SVG)", description: "Generate .drawio.svg files — editable in draw.io, rich visuals, stored in Diagrams/" },
       { label: "ASCII (Text-based UML)", description: "Text-based UML inline in PRD markdown — renders everywhere, clean diffs, no external tooling" },

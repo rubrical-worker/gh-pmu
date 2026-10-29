@@ -1,5 +1,5 @@
 ---
-version: "v0.113.0"
+version: "v0.114.0"
 description: Create an enhancement issue from the IDPF framework's standard template.
 argument-hint: "<title> [--prior-art] [--help]"
 copyright: "Rubrical Works (c) 2026"
