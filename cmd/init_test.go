@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -2422,6 +2423,11 @@ type fakeInitClient struct {
 
 	updateOptionsErr   error
 	updateOptionsCalls [][]api.FieldOptionUpdate
+
+	// missingFields names fields FieldExists reports absent; createFieldCalls
+	// records each CreateProjectField call (#955).
+	missingFields    map[string]bool
+	createFieldCalls []mockCreateFieldCall
 }
 
 func (f *fakeInitClient) UpdateProjectFieldOptions(fieldID string, options []api.FieldOptionUpdate) ([]api.FieldOption, error) {
@@ -2444,8 +2450,11 @@ func (f *fakeInitClient) GetProjectFields(projectID string) ([]api.ProjectField,
 }
 func (f *fakeInitClient) LabelExists(o, r, n string) (bool, error) { return true, f.labelExistsErr }
 func (f *fakeInitClient) CreateLabel(o, r, n, c, d string) error   { return f.createLabelErr }
-func (f *fakeInitClient) FieldExists(p, n string) (bool, error)    { return true, f.fieldExistsErr }
+func (f *fakeInitClient) FieldExists(p, n string) (bool, error) {
+	return !f.missingFields[n], f.fieldExistsErr
+}
 func (f *fakeInitClient) CreateProjectField(p, n, dt string, opts []string) (*api.ProjectField, error) {
+	f.createFieldCalls = append(f.createFieldCalls, mockCreateFieldCall{ProjectID: p, Name: n, DataType: dt, Options: opts})
 	return nil, f.createFieldErr
 }
 func (f *fakeInitClient) DeleteProject(projectID string) error {
@@ -2596,6 +2605,59 @@ func TestRunInitPostCreate_ReconcilesStatus(t *testing.T) {
 		if _, ok := cfg.Fields["status"].Values[alias]; !ok {
 			t.Errorf("written config missing status alias %q: %v", alias, cfg.Fields["status"].Values)
 		}
+	}
+}
+
+// TestRunInitPostCreate_NewProject_CreatesPriorityP0ToP3 (#955): a new project
+// without a Priority field gets one created with P0–P3, and the written config
+// carries the p3 alias derived from the live options.
+func TestRunInitPostCreate_NewProject_CreatesPriorityP0ToP3(t *testing.T) {
+	errBuf := &bytes.Buffer{}
+	defs, err := defaults.Load()
+	if err != nil {
+		t.Fatalf("load defaults: %v", err)
+	}
+	var status []api.FieldOption
+	for i, def := range canonicalStatusDefs(t) {
+		status = append(status, api.FieldOption{ID: fmt.Sprintf("s%d", i), Name: def.Name, Color: def.Color})
+	}
+	statusField := api.ProjectField{ID: "F", Name: "Status", DataType: "SINGLE_SELECT", Options: status}
+	priority := api.ProjectField{ID: "P", Name: "Priority", DataType: "SINGLE_SELECT", Options: []api.FieldOption{
+		{ID: "p0", Name: "P0", Color: "GRAY"}, {ID: "p1", Name: "P1", Color: "GRAY"},
+		{ID: "p2", Name: "P2", Color: "GRAY"}, {ID: "p3", Name: "P3", Color: "GRAY"},
+	}}
+	client := &fakeInitClient{
+		getFieldsResult: []api.ProjectField{statusField},
+		refetchResult:   []api.ProjectField{statusField, priority},
+		missingFields:   map[string]bool{"Priority": true},
+	}
+	in := newAtomicityInputs(t, errBuf)
+	in.Framework = "IDPF"
+	in.Defs = &defaults.Defaults{Fields: defs.Fields}
+
+	if err := runInitPostCreate(client, in); err != nil {
+		t.Fatalf("runInitPostCreate: %v\n%s", err, errBuf.String())
+	}
+
+	var created *mockCreateFieldCall
+	for i := range client.createFieldCalls {
+		if client.createFieldCalls[i].Name == "Priority" {
+			created = &client.createFieldCalls[i]
+		}
+	}
+	if created == nil {
+		t.Fatalf("expected Priority to be created, got calls %+v", client.createFieldCalls)
+	}
+	if want := []string{"P0", "P1", "P2", "P3"}; !reflect.DeepEqual(created.Options, want) {
+		t.Errorf("Priority created with options %v, want %v", created.Options, want)
+	}
+
+	cfg, err := config.Load(filepath.Join(in.Cwd, ".gh-pmu.json"))
+	if err != nil {
+		t.Fatalf("load written config: %v", err)
+	}
+	if got := cfg.Fields["priority"].Values["p3"]; got != "P3" {
+		t.Errorf("priority alias p3 = %q, want %q (values %v)", got, "P3", cfg.Fields["priority"].Values)
 	}
 }
 
