@@ -3335,3 +3335,29 @@ func TestRunMoveWithDeps_RecursiveBatchFallback_NilMap(t *testing.T) {
 		t.Errorf("Expected at least 1 field update (parent), got %d", len(mock.fieldUpdates))
 	}
 }
+
+// TestRunMoveWithDeps_PriorityP3Alias (#955): with the priority values init
+// writes for a P0–P3 field, `move --priority p3` sets the field to P3.
+func TestRunMoveWithDeps_PriorityP3Alias(t *testing.T) {
+	mock := setupMockWithIssue(123, "Test Issue", "item-123")
+	cfg := testMoveConfig()
+	cfg.Fields["priority"] = config.Field{
+		Field:  "Priority",
+		Values: map[string]string{"p0": "P0", "p1": "P1", "p2": "P2", "p3": "P3"},
+	}
+
+	cmd := &cobra.Command{}
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetErr(buf)
+
+	if err := runMoveWithDeps(cmd, []string{"123"}, &moveOptions{priority: "p3"}, cfg, mock); err != nil {
+		t.Fatalf("Unexpected error: %v", err)
+	}
+	if len(mock.fieldUpdates) != 1 {
+		t.Fatalf("Expected 1 field update, got %d", len(mock.fieldUpdates))
+	}
+	if update := mock.fieldUpdates[0]; update.fieldName != "Priority" || update.value != "P3" {
+		t.Errorf("Expected Priority=P3, got %s=%s", update.fieldName, update.value)
+	}
+}
