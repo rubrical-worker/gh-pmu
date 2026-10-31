@@ -2244,3 +2244,44 @@ func TestSave_DoesNotWriteYAMLCompanion(t *testing.T) {
 		t.Error("Expected .gh-pmu.yml to NOT be created by Save(), but it exists")
 	}
 }
+
+// TestLoad_PriorityP0ToP2Config_Unchanged (#955): a config written before P3
+// existed — priority values p0–p2 only — loads and validates as before. Adding
+// P3 to the defaults introduces no implicit p3 alias and no new requirement.
+func TestLoad_PriorityP0ToP2Config_Unchanged(t *testing.T) {
+	body := `{
+  "project": {"owner": "test", "number": 46},
+  "repositories": ["test/repo"],
+  "defaults": {"priority": "p2", "status": "backlog"},
+  "fields": {
+    "priority": {"field": "Priority", "values": {"p0": "P0", "p1": "P1", "p2": "P2"}},
+    "status": {"field": "Status", "values": {"backlog": "Backlog"}}
+  }
+}`
+	path := filepath.Join(t.TempDir(), ".gh-pmu.json")
+	if err := os.WriteFile(path, []byte(body), 0600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if err := cfg.Validate(); err != nil {
+		t.Errorf("Validate: %v", err)
+	}
+	if got := cfg.Fields["priority"].Values; len(got) != 3 {
+		t.Errorf("priority values = %v, want exactly p0–p2", got)
+	}
+	for _, alias := range []string{"p0", "p1", "p2"} {
+		if err := cfg.ValidateFieldValue("priority", alias); err != nil {
+			t.Errorf("ValidateFieldValue(priority, %s): %v", alias, err)
+		}
+	}
+	if got := cfg.ResolveFieldValue("priority", cfg.Defaults.Priority); got != "P2" {
+		t.Errorf("default priority resolves to %q, want P2", got)
+	}
+	if err := cfg.ValidateFieldValue("priority", "p3"); err == nil {
+		t.Error("p3 must stay invalid for a config that does not declare it")
+	}
+}
