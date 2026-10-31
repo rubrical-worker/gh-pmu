@@ -203,7 +203,15 @@ const (
 	// statusReconcileUpdate also sets canonical colors to the defaults and
 	// fills empty canonical descriptions. Non-empty descriptions are kept.
 	statusReconcileUpdate
+	// statusReconcileAddOnly only adds missing canonical values: an existing
+	// option matching one case-insensitively counts as present and is sent as
+	// found, never renamed. Used for Priority (#955).
+	statusReconcileAddOnly
 )
+
+// defaultAddedOptionColor colors an added option whose canonical definition
+// declares none; updateProjectV2Field requires a color on every option (#955).
+const defaultAddedOptionColor = "GRAY"
 
 // Actions recorded per option in a reconcile report.
 const (
@@ -266,7 +274,7 @@ func planStatusReconcile(existing []api.FieldOption, canonical []defaults.Option
 
 	for _, opt := range existing {
 		if opt.Color == "" {
-			return statusPlan{}, fmt.Errorf("status option %q has no color; live option data is required to update options safely", opt.Name)
+			return statusPlan{}, fmt.Errorf("option %q has no color; live option data is required to update options safely", opt.Name)
 		}
 	}
 
@@ -288,7 +296,7 @@ func planStatusReconcile(existing []api.FieldOption, canonical []defaults.Option
 
 		def := canonical[ci]
 		matchedAt[ci] = len(plan.Options)
-		if opt.Name != def.Name {
+		if opt.Name != def.Name && mode != statusReconcileAddOnly {
 			update.Name = def.Name
 			entry.Name = def.Name
 			entry.Previous = opt.Name
@@ -318,7 +326,11 @@ func planStatusReconcile(existing []api.FieldOption, canonical []defaults.Option
 			continue
 		}
 		pos := insertionPoint(matchedAt, ci, len(canonical), len(plan.Options))
-		added := api.FieldOptionUpdate{Name: def.Name, Color: def.Color, Description: def.Description}
+		color := def.Color
+		if color == "" {
+			color = defaultAddedOptionColor
+		}
+		added := api.FieldOptionUpdate{Name: def.Name, Color: color, Description: def.Description}
 		plan.Options = append(plan.Options[:pos], append([]api.FieldOptionUpdate{added}, plan.Options[pos:]...)...)
 		plan.Entries = append(plan.Entries[:pos], append([]statusPlanEntry{{Name: def.Name, Actions: []string{statusActionAdded}}}, plan.Entries[pos:]...)...)
 		for k, at := range matchedAt {

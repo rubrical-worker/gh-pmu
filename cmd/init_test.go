@@ -2730,3 +2730,127 @@ func TestRunInitPostCreate_Success_NoRollback(t *testing.T) {
 		t.Errorf("Expected .gh-pmu.json to exist after successful init: %v", err)
 	}
 }
+
+// ============================================================================
+// #955 — add-only Priority reconcile
+// ============================================================================
+
+func embeddedCreateIfMissing(t *testing.T) []defaults.FieldDef {
+	t.Helper()
+	defs, err := defaults.Load()
+	if err != nil {
+		t.Fatalf("load defaults: %v", err)
+	}
+	return defs.Fields.CreateIfMissing
+}
+
+// priorityP0ToP2 is a live project-level Priority field lacking P3, with
+// colors and descriptions that must survive the reconcile untouched.
+func priorityP0ToP2() api.ProjectField {
+	return api.ProjectField{ID: "PVTSSF_prio", Name: "Priority", DataType: "SINGLE_SELECT", Options: []api.FieldOption{
+		{ID: "op0", Name: "P0", Color: "RED", Description: "Drop everything"},
+		{ID: "op1", Name: "P1", Color: "ORANGE", Description: ""},
+		{ID: "op2", Name: "P2", Color: "YELLOW", Description: "Normal"},
+	}}
+}
+
+// TestReconcileInitPriority_AddsP3KeepingExistingIDs: for both owner types the
+// project-level Priority field gets P3 appended and every existing option is
+// sent with its ID, name, color and description unchanged — GitHub replaces
+// the whole option list, and an option sent without its ID loses its values.
+// An org-owned project's fields come back classified (a project field has no
+// IssueField); a user-owned project's fields are never classified (#932).
+func TestReconcileInitPriority_AddsP3KeepingExistingIDs(t *testing.T) {
+	orgIssueField := api.ProjectField{ID: "PVTF_sev", Name: "Severity", DataType: "SINGLE_SELECT",
+		IssueField: &api.IssueFieldInfo{ID: "IFSS_sev", DataType: "SINGLE_SELECT"}}
+	cases := map[string][]api.ProjectField{
+		"org-owned":  {orgIssueField, priorityP0ToP2()},
+		"user-owned": {priorityP0ToP2()},
+	}
+	for owner, fields := range cases {
+		field := fields[len(fields)-1]
+		t.Run(owner, func(t *testing.T) {
+			updater := &fakeStatusUpdater{}
+			var errOut strings.Builder
+			reconcileInitPriority(updater, fields, embeddedCreateIfMissing(t), &errOut)
+
+			if len(updater.calls) != 1 || updater.fieldID != "PVTSSF_prio" {
+				t.Fatalf("expected one update of the Priority field, got %d calls on %q", len(updater.calls), updater.fieldID)
+			}
+			sent := updater.calls[0]
+			if len(sent) != 4 {
+				t.Fatalf("expected 3 existing + P3, got %d: %+v", len(sent), sent)
+			}
+			for i, opt := range field.Options {
+				if want := api.FieldOptionUpdate(opt); sent[i] != want {
+					t.Errorf("option %d sent as %+v, want unchanged %+v", i, sent[i], want)
+				}
+			}
+			if p3 := sent[3]; p3.ID != "" || p3.Name != "P3" || p3.Color == "" {
+				t.Errorf("P3 must be appended as a new option with a color, got %+v", p3)
+			}
+			if !strings.Contains(errOut.String(), `Priority: added "P3"`) {
+				t.Errorf("expected the addition to be reported, got: %s", errOut.String())
+			}
+		})
+	}
+}
+
+// A field already carrying P3 — in any case — needs no update: the reconcile
+// is add-only and never renames an existing option.
+func TestReconcileInitPriority_P3PresentSendsNothing(t *testing.T) {
+	field := priorityP0ToP2()
+	field.Options = append(field.Options, api.FieldOption{ID: "op3", Name: "p3", Color: "GRAY"})
+	updater := &fakeStatusUpdater{}
+	reconcileInitPriority(updater, []api.ProjectField{field}, embeddedCreateIfMissing(t), &strings.Builder{})
+	if len(updater.calls) != 0 {
+		t.Errorf("expected no update when P3 exists, got %+v", updater.calls)
+	}
+}
+
+// No Priority field yet: ensureOptionalProjectFields creates it with P0–P3.
+func TestReconcileInitPriority_NoFieldIsNoOp(t *testing.T) {
+	updater := &fakeStatusUpdater{}
+	reconcileInitPriority(updater, nil, embeddedCreateIfMissing(t), &strings.Builder{})
+	if len(updater.calls) != 0 {
+		t.Errorf("expected no update, got %d", len(updater.calls))
+	}
+}
+
+func TestReconcileInitPriority_OrgIssueFieldSkipsWithWarning(t *testing.T) {
+	field := priorityP0ToP2()
+	field.IssueField = &api.IssueFieldInfo{ID: "IFSS_prio", DataType: "SINGLE_SELECT"}
+	updater := &fakeStatusUpdater{}
+	var errOut strings.Builder
+	reconcileInitPriority(updater, []api.ProjectField{field}, embeddedCreateIfMissing(t), &errOut)
+	if len(updater.calls) != 0 {
+		t.Error("an organization issue field's options cannot be changed through the project field")
+	}
+	if out := errOut.String(); !strings.Contains(out, "skipping Priority reconcile") || !strings.Contains(out, "organization issue field") {
+		t.Errorf("expected a warning naming the org issue field, got: %s", out)
+	}
+}
+
+func TestReconcileInitPriority_CachedFieldSkipsWithWarning(t *testing.T) {
+	field := priorityP0ToP2()
+	field.FromCache = true
+	updater := &fakeStatusUpdater{}
+	var errOut strings.Builder
+	reconcileInitPriority(updater, []api.ProjectField{field}, embeddedCreateIfMissing(t), &errOut)
+	if len(updater.calls) != 0 {
+		t.Error("no updateProjectV2Field may be sent from cached field data")
+	}
+	if out := errOut.String(); !strings.Contains(out, "skipping Priority reconcile") || !strings.Contains(out, "cached") {
+		t.Errorf("expected a warning naming cached metadata, got: %s", out)
+	}
+}
+
+// Priority is optional, so a failed update warns rather than failing init.
+func TestReconcileInitPriority_UpdateFailureWarns(t *testing.T) {
+	updater := &fakeStatusUpdater{err: fmt.Errorf("forbidden")}
+	var errOut strings.Builder
+	reconcileInitPriority(updater, []api.ProjectField{priorityP0ToP2()}, embeddedCreateIfMissing(t), &errOut)
+	if !strings.Contains(errOut.String(), "forbidden") {
+		t.Errorf("expected the update error in a warning, got: %s", errOut.String())
+	}
+}

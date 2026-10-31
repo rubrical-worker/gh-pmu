@@ -1013,6 +1013,62 @@ func reconcileInitStatus(client statusOptionsUpdater, projectFields []api.Projec
 	return nil
 }
 
+// reconcileInitPriority adds missing default Priority values (P3, #955) to an
+// existing project-level Priority field, add-only: existing options are sent
+// unchanged with their IDs, so items keep their values, and nothing is renamed,
+// recolored, reordered or removed. Works the same for org- and user-owned
+// projects.
+//
+// Skipped with a warning when Priority is an organization issue field (its
+// options are managed in organization settings), when the field is served from
+// cached metadata, or when it was fetched without issue-field classification.
+// Priority is optional, so every failure warns rather than failing init.
+func reconcileInitPriority(client statusOptionsUpdater, projectFields []api.ProjectField, createIfMissing []defaults.FieldDef, errOut io.Writer) {
+	var canonical []defaults.OptionDef
+	for _, def := range createIfMissing {
+		if def.Name == "Priority" {
+			canonical = def.OptionDefs
+		}
+	}
+	field := findFieldByName(projectFields, "Priority")
+	if len(canonical) == 0 || field == nil {
+		return
+	}
+
+	switch {
+	case field.IssueField != nil:
+		fmt.Fprintf(errOut, "Warning: skipping Priority reconcile: Priority is an organization issue field; manage its options in the organization's settings\n")
+		return
+	case field.FromCache:
+		fmt.Fprintf(errOut, "Warning: skipping Priority reconcile: live field data is unavailable (cached metadata in use); re-run 'gh pmu init' once GitHub recovers\n")
+		return
+	case field.Unclassified:
+		fmt.Fprintf(errOut, "Warning: skipping Priority reconcile: the field was fetched without organization issue field classification; re-run 'gh pmu init' once GitHub recovers\n")
+		return
+	case field.DataType != "SINGLE_SELECT":
+		fmt.Fprintf(errOut, "Warning: skipping Priority reconcile: field has type %s, expected SINGLE_SELECT\n", field.DataType)
+		return
+	}
+
+	plan, err := planStatusReconcile(field.Options, canonical, statusReconcileAddOnly)
+	if err != nil {
+		fmt.Fprintf(errOut, "Warning: skipping Priority reconcile: %v\n", err)
+		return
+	}
+	if !plan.Changed {
+		return
+	}
+	if _, err := client.UpdateProjectFieldOptions(field.ID, plan.Options); err != nil {
+		fmt.Fprintf(errOut, "Warning: failed to add default Priority values: %v\n", err)
+		return
+	}
+	for _, entry := range plan.Entries {
+		if entry.has(statusActionAdded) {
+			fmt.Fprintf(errOut, "Priority: added %q\n", entry.Name)
+		}
+	}
+}
+
 // findFieldByName searches for a field by name in a slice of ProjectFields.
 // Returns nil if not found.
 func findFieldByName(fields []api.ProjectField, name string) *api.ProjectField {
