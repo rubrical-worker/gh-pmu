@@ -225,9 +225,9 @@ func TestLoad_PriorityFieldHasOptions(t *testing.T) {
 		t.Fatal("Priority field not found in create_if_missing fields")
 	}
 
-	expectedOptions := []string{"P0", "P1", "P2"}
+	expectedOptions := []string{"P0", "P1", "P2", "P3"} // #955: P3 added as the lowest level
 	if len(priorityField.Options) != len(expectedOptions) {
-		t.Errorf("Priority field has %d options, want %d", len(priorityField.Options), len(expectedOptions))
+		t.Fatalf("Priority field has %d options, want %d", len(priorityField.Options), len(expectedOptions))
 	}
 
 	for i, opt := range priorityField.Options {
