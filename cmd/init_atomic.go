@@ -65,6 +65,8 @@ func runInitPostCreate(client initPostCreateClient, in *initPostCreateInputs) er
 		if err := reconcileInitStatus(client, projectFields, in.Defs.Fields.Required, in.ErrOut); err != nil {
 			return rollback(FailedStepValidateRequiredFields, err, false)
 		}
+		// Missing default Priority values are added; warn-only, never rolls back (#955).
+		reconcileInitPriority(client, projectFields, in.Defs.Fields.CreateIfMissing, in.ErrOut)
 
 		ensureOptionalProjectFields(client, in.NewProject.ID, in.Defs.Fields.CreateIfMissing, in.ErrOut)
 

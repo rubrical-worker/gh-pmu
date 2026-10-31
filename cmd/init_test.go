@@ -4,6 +4,9 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -2853,4 +2856,97 @@ func TestReconcileInitPriority_UpdateFailureWarns(t *testing.T) {
 	if !strings.Contains(errOut.String(), "forbidden") {
 		t.Errorf("expected the update error in a warning, got: %s", errOut.String())
 	}
+}
+
+// TestRunInitPostCreate_ReconcilesPriority (#955): the --source-project path
+// adds P3 to a copied project's existing Priority field.
+func TestRunInitPostCreate_ReconcilesPriority(t *testing.T) {
+	errBuf := &bytes.Buffer{}
+	defs, err := defaults.Load()
+	if err != nil {
+		t.Fatalf("load defaults: %v", err)
+	}
+	var status []api.FieldOption
+	for i, def := range canonicalStatusDefs(t) {
+		status = append(status, api.FieldOption{ID: fmt.Sprintf("s%d", i), Name: def.Name, Color: def.Color})
+	}
+	client := &fakeInitClient{getFieldsResult: []api.ProjectField{
+		{ID: "F", Name: "Status", DataType: "SINGLE_SELECT", Options: status},
+		priorityP0ToP2(),
+	}}
+	in := newAtomicityInputs(t, errBuf)
+	in.Framework = "IDPF"
+	in.Defs = &defaults.Defaults{Fields: defs.Fields}
+
+	if err := runInitPostCreate(client, in); err != nil {
+		t.Fatalf("runInitPostCreate: %v\n%s", err, errBuf.String())
+	}
+	if len(client.updateOptionsCalls) != 1 {
+		t.Fatalf("expected one Priority options update, got %d", len(client.updateOptionsCalls))
+	}
+	sent := client.updateOptionsCalls[0]
+	if len(sent) != 4 || sent[3].Name != "P3" {
+		t.Errorf("expected P0–P2 kept and P3 appended, got %+v", sent)
+	}
+}
+
+// TestInitPaths_PriorityReconcileParity (#955): both init paths — --project
+// (runInitExistingProject) and --source-project (runInitPostCreate) — call
+// reconcileInitPriority, after the Status reconcile and before optional fields
+// are created. runInitExistingProject builds its own API client, so parity is
+// asserted on the call graph rather than by driving it with a fake.
+func TestInitPaths_PriorityReconcileParity(t *testing.T) {
+	paths := map[string]string{
+		"runInitExistingProject": "init.go",
+		"runInitPostCreate":      "init_atomic.go",
+	}
+	for fn, file := range paths {
+		calls := callOrderIn(t, file, fn)
+		idx := func(name string) int {
+			for i, c := range calls {
+				if c == name {
+					return i
+				}
+			}
+			return -1
+		}
+		status, priority, optional := idx("reconcileInitStatus"), idx("reconcileInitPriority"), idx("ensureOptionalProjectFields")
+		if priority < 0 {
+			t.Errorf("%s (%s) does not call reconcileInitPriority", fn, file)
+			continue
+		}
+		if status > priority || priority > optional {
+			t.Errorf("%s: want reconcileInitStatus < reconcileInitPriority < ensureOptionalProjectFields, got positions %d, %d, %d", fn, status, priority, optional)
+		}
+	}
+}
+
+// callOrderIn returns the names of functions called directly by fn in file,
+// in source order.
+func callOrderIn(t *testing.T, file, fn string) []string {
+	t.Helper()
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, file, nil, 0)
+	if err != nil {
+		t.Fatalf("parse %s: %v", file, err)
+	}
+	var calls []string
+	for _, decl := range f.Decls {
+		fd, ok := decl.(*ast.FuncDecl)
+		if !ok || fd.Name.Name != fn {
+			continue
+		}
+		ast.Inspect(fd.Body, func(n ast.Node) bool {
+			if call, ok := n.(*ast.CallExpr); ok {
+				if id, ok := call.Fun.(*ast.Ident); ok {
+					calls = append(calls, id.Name)
+				}
+			}
+			return true
+		})
+	}
+	if calls == nil {
+		t.Fatalf("function %s not found in %s", fn, file)
+	}
+	return calls
 }

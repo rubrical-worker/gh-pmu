@@ -350,6 +350,7 @@ func runInitExistingProject(cmd *cobra.Command, opts *initOptions) error {
 			fmt.Fprintf(os.Stderr, "error: %v\n", err)
 			return err
 		}
+		reconcileInitPriority(client, projectFields, defs.Fields.CreateIfMissing, cmd.ErrOrStderr())
 
 		// Create optional fields if missing (Priority, Branch, …) and refetch
 		// so metadata captures any newly-created field IDs.
