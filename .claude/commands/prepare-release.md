@@ -1,5 +1,5 @@
 ---
-version: "v0.115.0"
+version: "v0.116.0"
 description: Prepare a release by opening a PR, merging to main, and tagging, using the IDPF framework.
 argument-hint: "[version] [--skip-coverage] [--skip-review] [--dry-run] [--help]"
 copyright: "Rubrical Works (c) 2026"
@@ -330,8 +330,9 @@ node .claude/scripts/shared/announce.js --event release-starting --branch "$BRAN
 Script composes the text (never hand-compose); **forced broadcast** — every addressable peer, live `/overwatch` included, whatever `broadcast` says — honoring only the master switch (`enabled: false`, `IDPF_X_SESSION=off`, `discovery: false`); announcement groups do not apply. `announcement.shouldSend` true → `SendMessage` to every `announcement.recipients` entry with `announcement.text`, then close out with the envelope's `dispatchReport` (`--dispatch-result sent|failed --ledger-id <id>`). A failed `SendMessage` is reported and recorded `failed`; the release proceeds. `shouldSend` false → report `announcement.notice` once, continue. **Advisory, never a gate:** nothing awaits delivery, no follow-up is sent.
 
 ```bash
-gh pr merge --merge
+node .claude/scripts/shared/merge-pr.js --pr "$(gh pr view --json number --jq .number)" --method merge
 ```
+**The merge is scripted (#3491).** `merge-pr.js` re-reads the PR after any failed attempt, retries transient GitHub failures (`lib/gh.js` `isTransientError`) with backoff, and falls back to the REST merge endpoint with the same method once GraphQL attempts are exhausted; a non-transient failure (not mergeable, conflict, required check, head modified) fails at once. Report its envelope: `path` (`graphql`, `rest-fallback`, `already-merged` — merged by an attempt whose response was lost, a success), `mergeCommit`, and every `attempts[]` entry with its `requestId`. `ok: false` → report `reason` and `error` verbatim and STOP — never retry by hand, never `--admin`.
 
 ### Step 4.3: Close Branch Tracker
 

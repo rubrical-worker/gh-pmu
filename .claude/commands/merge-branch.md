@@ -1,5 +1,5 @@
 ---
-version: "v0.115.0"
+version: "v0.116.0"
 description: Merge a branch to main through the IDPF framework's gated checks.
 argument-hint: "[--skip-gates] [--dry-run] [--help]"
 copyright: "Rubrical Works (c) 2026"
@@ -135,7 +135,11 @@ Append `--issue <N>` when Pre-Checks found a tracker. The script composes the te
 `announcement.shouldSend` true → `SendMessage` to every `announcement.recipients` entry with `announcement.text`, then close out with the envelope's `dispatchReport` (`--dispatch-result sent|failed --ledger-id <id>`). A failed `SendMessage` is reported and recorded `failed`; the merge proceeds. `shouldSend` false (incl. `suppressed: true`) → report `announcement.notice` once, continue. **Advisory, never a gate:** nothing awaits delivery, a throwing helper does not stop the merge, no follow-up is sent.
 ### Step 2.5: Merge
 ```bash
-gh pr merge --merge
+node .claude/scripts/shared/merge-pr.js --pr "$(gh pr view --json number --jq .number)" --method merge
+```
+**The merge is scripted (#3491).** `merge-pr.js` re-reads the PR after any failed attempt, retries transient GitHub failures (`lib/gh.js` `isTransientError`) with backoff, and falls back to the REST merge endpoint with the same method once GraphQL attempts are exhausted; a non-transient failure (not mergeable, conflict, required check, head modified) fails at once. Report its envelope: `path` (`graphql`, `rest-fallback`, `already-merged` — merged by an attempt whose response was lost, a success), `mergeCommit`, and every `attempts[]` entry with its `requestId`. `ok: false` → report `reason` and `error` verbatim and STOP — never retry by hand, never `--admin`.
+
+```bash
 git checkout main
 git pull origin main
 ```
@@ -186,7 +190,7 @@ git branch -d $BRANCH
 | `UNKNOWN` after 5 attempts at 2.2a | GitHub had not computed mergeability within ~10s. **Not a failure** — warn and continue. | None. A real conflict still fails loudly at 2.5; the gate is an early warning, not the only guard. |
 | `gh pr view` fails at 2.2a | Network failure, missing auth, or no PR for the current branch. | Report the `gh` error verbatim. Check `gh auth status` or confirm 2.2 created the PR, then re-run. |
 | Not approved at Gate 2.4 | No approving review on the PR. | Obtain a review, or re-run with `--skip-gates` if project policy allows self-merge. `--skip-gates` does **not** bypass 2.2a. |
-| `gh pr merge` fails at 2.5 | Branch protection, a required check, or a conflict introduced after 2.2a. | Report the `gh` error verbatim and STOP. Do not retry with `--admin` or force-merge. |
+| `merge-pr.js` returns `ok: false` at 2.5 | Branch protection, a required check, or a conflict introduced after 2.2a. | Report the envelope's `reason` and `error` verbatim and STOP. Do not retry by hand, and do not use `--admin` or force-merge. |
 
 ## Comparison: /merge-branch vs /prepare-release
 | Feature | /merge-branch | /prepare-release |

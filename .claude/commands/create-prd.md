@@ -1,5 +1,5 @@
 ---
-version: "v0.115.0"
+version: "v0.116.0"
 description: Transform a proposal into an Agile PRD using the IDPF framework.
 argument-hint: "<issue-number> | --extract [<directory>] [--help]"
 copyright: "Rubrical Works (c) 2026"
@@ -108,6 +108,15 @@ Context-aware questions for missing elements. Reference specific proposal detail
 ### Phase 4.5: Story Transformation
 Transform proposal requirements into Agile stories: identify USER, CAPABILITY, BENEFIT, then transform.
 **Anti-Pattern:** flag implementation details (file operations, internal changes, code-level) and move to Technical Notes.
+
+**E2E Detection (#3490).** Before transforming stories, resolve the gate e2e suites through `framework-config.js` — never a raw read of `framework-config.json`:
+```bash
+node -e "const fc=require('./.claude/scripts/shared/lib/framework-config.js');let s=[];let error=null;try{const t=(fc.read(process.cwd()).testing||{}).suites;if(t!==undefined&&!Array.isArray(t))throw new Error('testing.suites is not an array');s=(t||[]).map(fc.normalizeSuite)}catch(e){error=e.message}const e2e=s.filter((x)=>x.role === 'e2e');console.log(JSON.stringify({gate:e2e.filter((x)=>x.execution === 'gate'),manualOnly:e2e.filter((x)=>x.execution === 'manual-only'),error}))"
+```
+`normalizeSuite` applies the defaults, so an absent `execution` reads as `gate`. **`error` set → the declaration could not be read** (missing or invalid `framework-config.json`, a non-array `testing.suites`): report `E2E: testing.suites[] could not be read (<error>) — no E2E requirements added.` and continue as absent. Never report an unread declaration as `No gate e2e suite declared`.
+- **`gate` non-empty — declared.** Mark every story `**User journey:** yes | no` (prd-template field): `yes` when the story describes a user journey or UI flow a user drives end to end. The line makes the classification visible and correctable at `/review-prd`. Every `yes` story gains one acceptance criterion requiring an E2E test with the declared harness and suite id: `- [ ] An E2E test in suite \`{id}\` (\`{full}\`) covers this journey`. More than one gate e2e suite → name each one the journey crosses.
+- **Only `manual-only` records** (a `none-<key>-e2e` none-applicable record, or an install pending): a `manual-only` e2e record does not declare support. Report `E2E: <id> is manual-only — not applicable; no E2E requirements added.` and continue as absent.
+- **Neither:** report `No gate e2e suite declared — no E2E requirements added.` Stories carry no `**User journey:**` line and no E2E acceptance criterion; the PRD is unchanged from a run before #3490.
 
 <!-- USER-EXTENSION-START: post-transform -->
 <!-- USER-EXTENSION-END: post-transform -->
@@ -241,6 +250,7 @@ Create PRD at `PRD/{name}/PRD-{name}.md`. Load template `{frameworkPath}/Templat
 **Step 2: Generate** `PRD/{name}/Test-Plan-{name}.md`. Load template `{frameworkPath}/Templates/artifacts/test-plan-template.md`; populate. **Graceful degradation:** template missing — warn `"Test plan template file missing, using inline fallback."`, sections: Source, Test Strategy Overview, Epic Test Coverage, Integration Test Points, E2E Scenarios, Coverage Targets, Approval Checklist.
 **Derivation:** parse each story's ACs; generate 2-3 test cases per AC (valid, invalid, edge); identify cross-story/cross-epic integration points; extract E2E scenarios from user journeys.
 
+**E2E from the declaration (#3490).** With a gate e2e suite declared (Phase 4.5), the test plan's E2E framework row is filled from the declared suite — `{full}` (suite `{id}`) — not from Test-Strategy.md, and the E2E Scenarios table gets one row per `User journey: yes` story. Absent or `manual-only`: unchanged — Test-Strategy.md, else "TBD".
 ### Phase 6.6: Create Test Plan Approval Issue
 **Assignee:** substitute `{assignee}` from the helper: `node .claude/scripts/shared/lib/gh-pmu-config.js --assignee <login>` when the user supplied a login, else `node .claude/scripts/shared/lib/gh-pmu-config.js --assignee` (bare flag, no value). NEVER run the helper with no arguments — it exits 1 with a usage message. Returns the login, or `@me` for the bare flag; reads no config file. NEVER hardcode a login or drop the flag (omitted `--assignee` silently creates an unassigned issue). Unresolvable login → `gh pmu` exits 1 and creates nothing; report the error, do NOT retry without the flag. Applies to both `gh pmu create` calls below.
 **Body via temp file, never inline `--body`.** Gate `no-aspirational-mechanism`'s text contains backticks; inside a double-quoted `--body` bash runs them as command substitution. `05-windows-shell.md` requires `-F` regardless.

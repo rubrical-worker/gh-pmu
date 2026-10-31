@@ -1,5 +1,5 @@
 ---
-version: "v0.115.0"
+version: "v0.116.0"
 description: Safely delete a branch after confirmation, using the IDPF framework.
 argument-hint: "[branch-name] [--force] [--help]"
 copyright: "Rubrical Works (c) 2026"
