@@ -20,6 +20,11 @@
             "type": "command",
             "command": "node \"${CLAUDE_PROJECT_DIR}/.claude/hooks/shell-safety-hook.js\"",
             "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PROJECT_DIR}/.claude/hooks/task-phase-hook.js\"",
+            "timeout": 5
           }
         ]
       },
@@ -61,7 +66,7 @@
           {
             "type": "command",
             "command": "node \"${CLAUDE_PROJECT_DIR}/.claude/hooks/clear-hook.js\"",
-            "timeout": 5
+            "timeout": 60
           }
         ]
       },
@@ -106,6 +111,18 @@
             "type": "command",
             "command": "node \"${CLAUDE_PROJECT_DIR}/.claude/hooks/worktree-remove-hook.js\"",
             "timeout": 120
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PROJECT_DIR}/.claude/hooks/task-phase-hook.js\"",
+            "timeout": 5
           }
         ]
       }

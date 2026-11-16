@@ -1,5 +1,5 @@
 ---
-version: "v0.116.0"
+version: "v0.119.0"
 description: Manage GitHub Actions CI workflows interactively, using the IDPF framework.
 argument-hint: "[--list|--validate|--add <feature> [--file <workflow>] [--paths <p1,p2>]|--recommend|--watch [--sha <commit>]] (no args shows status) [--help]"
 copyright: "Rubrical Works (c) 2026"
@@ -63,7 +63,7 @@ node .claude/scripts/shared/ci-validate.js
 7. Report changes and target file
 
 **Trigger features:**
-- `paths-ignore`: patterns from the repo layout — doc dirs and IDPF artifact dirs present (`Proposal/`, `Construction/`, `Inception/`, `Mockups/`) plus root `'*.md'`; warns on any pattern (generated or existing) matching `.claude/commands/*.md` or other runtime markdown. Added only to existing `push`/`pull_request` events with no path filter — never adds a trigger. Nothing to ignore or no such event → refused, nothing written.
+- `paths-ignore`: patterns from the repo layout — doc dirs and IDPF artifact dirs present (`Proposal/`, `Construction/`, `Project/`, `Mockups/`) plus root `'*.md'`; warns on any pattern (generated or existing) matching `.claude/commands/*.md` or other runtime markdown. Added only to existing `push`/`pull_request` events with no path filter — never adds a trigger. Nothing to ignore or no such event → refused, nothing written.
 - `paths-ignore --paths '<p1>,<p2>'`: the named patterns instead of the layout, merged into each `push`/`pull_request` event's existing `paths-ignore` list without duplicates (existing entries kept), or a new list where the event has no path filter — never adds a trigger. An event with `paths:` refuses the whole edit, nothing written; a tag-only push is skipped and named. Same runtime-markdown warning; the result states what the patterns give up, including `/done` no longer waiting for CI on a push touching only them. `--paths` with any other feature → refused.
 - `trigger-scope`: narrows an audit/scanner workflow to `paths:` (manifests/lockfiles, source dirs, the workflow file), weekly `schedule` and `workflow_dispatch`. Scheduled runs check the default branch only.
 

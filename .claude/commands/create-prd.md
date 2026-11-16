@@ -1,5 +1,5 @@
 ---
-version: "v0.116.0"
+version: "v0.119.0"
 description: Transform a proposal into an Agile PRD using the IDPF framework.
 argument-hint: "<issue-number> | --extract [<directory>] [--help]"
 copyright: "Rubrical Works (c) 2026"
@@ -11,7 +11,7 @@ Transform a proposal document into an Agile PRD with user stories, acceptance cr
 
 ## Prerequisites
 Load shared from `.claude/metadata/command-boilerplate.json` -> `prerequisites.common`. **Graceful degradation when boilerplate not found:** use defaults — `gh pmu` installed, `.gh-pmu.json` configured.
-**Command-specific:** proposal issue with `proposal` label; body links `Proposal/[Name].md`; document exists in `Proposal/`; (Recommended) `CHARTER.md` + `Inception/`.
+**Command-specific:** proposal issue with `proposal` label; body links `Proposal/[Name].md`; document exists in `Proposal/`; (Recommended) `CHARTER.md` + `Project/` documents.
 
 ## Arguments
 | Argument | Description |
@@ -56,9 +56,8 @@ If not a proposal issue, error: `Issue #$issue_num does not have the 'proposal' 
 |------|----------|---------|
 | `<extracted-proposal-path>` | Yes | Source proposal |
 | `CHARTER.md` | Recommended | Project scope validation |
-| `Inception/Scope-Boundaries.md` | Recommended | In/out of scope |
-| `Inception/Constraints.md` | Optional | Technical constraints |
-| `Inception/Architecture.md` | Optional | System architecture |
+| `Project/Constraints.md` | Optional | Technical constraints |
+| `Project/Architecture.md` | Optional | System architecture |
 
 **Load Anti-Hallucination Rules:**
 | Context | Rules Path |
@@ -69,7 +68,7 @@ If not a proposal issue, error: `Issue #$issue_num does not have the 'proposal' 
 <!-- USER-EXTENSION-END: pre-analysis -->
 
 ### Phase 2: Validate Against Charter
-Write proposal title, problem statement and proposed solution to `.tmp-charter-scope-{random}.txt` (suffix shelled out); run `node .claude/scripts/shared/lib/charter-scope.js --command create-prd --text-file <file>`; `rm` after. `skipped` → one line why, continue. `ask: true` → report `alignment` + `matchedItems`, offer `resolutionOptions` from `.claude/metadata/charter-enforcement.json` via `AskUserQuestion` (`expand` follows its `expansionFlow`). Relay `warnings`. Advisory: never blocks the PRD.
+Write proposal title, problem statement and proposed solution to `.tmp-charter-scope-{random}.txt` (suffix shelled out); run `node .claude/scripts/shared/lib/charter-scope.js --command create-prd --text-file <file>`; `rm` after. `skipped` → one line why, continue. Otherwise make the **scope call** from the returned `inputs` as `scopeCall` in `.claude/metadata/charter-enforcement.json` directs — the helper decides nothing (#3645) — and report it in its one-line format, `Charter scope: <verdict> — "<bullet quoted>" — <reason in one sentence>`, with a stated reason; `boardThemes.available: false` → say the board themes were unavailable and decide on the bullets alone. When that verdict's `alignment.<verdict>.ask` is true (under `quiet`, only for `conflicts`), offer `resolutionOptions` from `.claude/metadata/charter-enforcement.json` via `AskUserQuestion` (`expand` follows its `expansionFlow`). Relay `warnings`. Advisory: never blocks the PRD.
 
 ### Phase 3: Analyze Proposal Gaps
 | Element | Detection Patterns | Gap Action |
@@ -157,6 +156,7 @@ Re-read `.claude/metadata/ac-feasibility-prompts.json`. For each AC produced in 
 | **Annotate** | Gate is genuinely load-bearing (required human review or sign-off) | `- [ ] {acText} → GATE: {phase}` per `annotationFormat`, and **name the event that resolves it** — a token that cannot name one is not a gate |
 **Do not proceed to Phase 5 until every out-of-phase AC is dropped or annotated.** Blocking rather than warning-only because a PRD AC is not authored once: `/create-backlog` materializes it into story bodies, so one unannotated out-of-phase PRD AC becomes one in every inheriting story, each deadlocking its own `in_review`. `/bug` and `/enhancement` warn instead — one issue from free text, no fan-out.
 
+**"Document updated" AC (#3646).** When each story's scope changes the project's architecture, constraints, test strategy or a key decision, **ASK USER** whether to add an AC naming the living document it updates — `Project/Architecture.md`, `Project/Constraints.md`, `Project/Test-Strategy.md` or a `Construction/Design-Decisions/` entry (e.g. `- [ ] Project/Architecture.md updated to describe <the change>`). An AC may name `CHARTER.md` only when the work introduces a new kind of entity or adopts a new technology: a new Key Entities or Tech Stack row, with no count and no version. Never an AC updating a count or a version in `CHARTER.md` — counts are derived, versions live in manifests; `/review-issue` flags one (`charter-ac-stored-value`). Declined → nothing added.
 ### Phase 5: Priority Validation
 | Priority | Distribution |
 |----------|--------------|
@@ -244,8 +244,8 @@ Create PRD at `PRD/{name}/PRD-{name}.md`. Load template `{frameworkPath}/Templat
 **Step 1: Load test configuration**
 | Source | Data |
 |--------|------|
-| `Inception/Test-Strategy.md` | Test framework, coverage targets, TDD philosophy |
-| `Inception/Tech-Stack.md` | Language (test syntax) |
+| `Project/Test-Strategy.md` | Test framework, coverage targets, TDD philosophy |
+| `CHARTER.md` § Tech Stack | Language (test syntax) |
 **Fallback if Test-Strategy.md missing:** check `{frameworkPath}/IDPF-Agile/Agile-Core.md` TDD Cycle section; warn `"No Test-Strategy.md found. Using framework defaults. Run /charter to customize."`; defaults 80% unit coverage, framework "TBD".
 **Step 2: Generate** `PRD/{name}/Test-Plan-{name}.md`. Load template `{frameworkPath}/Templates/artifacts/test-plan-template.md`; populate. **Graceful degradation:** template missing — warn `"Test plan template file missing, using inline fallback."`, sections: Source, Test Strategy Overview, Epic Test Coverage, Integration Test Points, E2E Scenarios, Coverage Targets, Approval Checklist.
 **Derivation:** parse each story's ACs; generate 2-3 test cases per AC (valid, invalid, edge); identify cross-story/cross-epic integration points; extract E2E scenarios from user journeys.
@@ -388,9 +388,9 @@ For `/create-prd` (no arguments): prompt `1. From a proposal issue (enter issue 
 For `/create-prd --extract` or `/create-prd --extract <directory>`:
 
 ### Step 1: Check Prerequisites
-Verify `.claude/skills/codebase-analysis/SKILL.md` exists. Check `Inception/`.
+Verify `.claude/skills/codebase-analysis/SKILL.md` exists. Check the `Project/` documents via `node .claude/scripts/shared/lib/charter-shape.js --locate <Architecture.md|Constraints.md|Test-Strategy.md>`.
 **If skill missing:** `codebase-analysis skill not installed. Install via px-manager or ask user to install.` -> **STOP**
-**If `Inception/` missing:** warn; offer `/charter` (non-blocking).
+**If a `Project/` document is missing:** warn; offer `/charter` (non-blocking); `legacy: true` → report its `message` (names `/charter --refresh`), never read the old path.
 
 ### Step 2: Load Skill
 Read `.claude/skills/codebase-analysis/SKILL.md` for analysis capabilities and workflow.
@@ -427,7 +427,7 @@ fi
 | Missing proposal label | "Issue #N does not have 'proposal' label." |
 | No proposal path in body | "Could not find proposal document link in issue body." |
 | Proposal file missing | "Proposal not found at <path>. Check the file exists?" |
-| No Inception/ artifacts | "No charter context. Proceeding with limited validation." |
+| No `Project/` documents | "No charter context. Proceeding with limited validation." |
 | User skips all questions | "Insufficient detail. Add more to proposal first?" |
 | Empty proposal | "Proposal needs more detail. Minimum: problem + solution." |
 

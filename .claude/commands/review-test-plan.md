@@ -1,5 +1,5 @@
 ---
-version: "v0.116.0"
+version: "v0.119.0"
 description: Review a test plan against its PRD, using the IDPF framework.
 argument-hint: "#issue [--mode ...] [--force] [--help]"
 copyright: "Rubrical Works (c) 2026"
@@ -43,7 +43,7 @@ Read both files. Either missing → **STOP**.
 ### Step 1a: Source PRD Review Gate (#2786)
 **After Step 1's early-exit/closed checks, before Step 2 evaluates any criterion.** A test plan is derived from its PRD, so a verdict taken against an unreviewed PRD can be invalidated by that PRD's own review — and nothing re-triggers the test-plan review when it is.
 **1 — Resolve the tracker.** The approval issue cites the PRD *file*, not the tracker, so the link runs the wrong way and is resolved by helper, not regex: `resolvePrdTracker({approvalIssue,body})` from `.claude/scripts/shared/lib/prd-tracker-lookup.js`. Three strategies in order — the explicit `**PRD Tracker:** #N` marker, a `prd`-labeled issue referencing this approval issue, then the PRD file path; `strategy` names which answered, and a multi-candidate `path` match warns `ambiguous-path-match`.
-**2 — Evaluate via the Phase 1c helper, never a second copy:** `review-state.js --issue $PRD`, then `evaluateReviewGate({body,reviewState})` from `.claude/scripts/shared/lib/create-backlog-review-gate.js`. `/create-backlog` Phase 1c gates on this same condition one step **later** (#2694); reusing its decision is what stops the two gates disagreeing about what "reviewed" means. **The filename is historical** — the helper takes a body and a state and knows nothing about backlogs, as `branch-review-gate.js` is named for its first consumer.
+**2 — Evaluate via the Phase 1c helper, never a second copy:** `review-state.js --issue $PRD`, then `evaluateReviewGate({body,reviewState})` from `.claude/scripts/shared/lib/create-backlog-review-gate.js`. `/create-backlog` Phase 1c gates on this same condition one step **later** (#2694); reusing its decision is what stops the two gates disagreeing about what "reviewed" means. **The filename is historical** — the helper takes a body and a state and knows nothing about backlogs, as `branch-review-gate.js` is named for its first consumer. Pass the **whole** `review-state.js` verdict as `reviewState`, not its `state` (#3637): on `reviewed-clean` it carries `signals.latestRecommendation`, so a PRD whose latest review recommended "Ready with minor revisions" (`reviewed` label, `PRD reviewed` box withheld) gates here exactly as at Phase 1c, while a "Ready for …" review whose box write failed does not; report `reason` as given.
 | Outcome | Action |
 |---|---|
 | `gate: false` | Proceed to Step 2 silently |

@@ -1,5 +1,5 @@
 ---
-version: "v0.116.0"
+version: "v0.119.0"
 description: Review a PRD with tracked history, using the IDPF framework.
 argument-hint: "#issue [--with ...] [--mode ...] [--force] [--help]"
 copyright: "Rubrical Works (c) 2026"
@@ -106,8 +106,8 @@ Non-`--with`: append the preamble's `criteria.availableTip` **verbatim** — com
 node .claude/scripts/shared/review-ac-checkoff.js --issue $ISSUE --findings .tmp-$ISSUE-findings.json
 ```
 Script reads `type` and `recommendation` from findings JSON. With `type: "prd"` it returns `skipped: true` and checks off **no review criteria** — a PRD tracker's checklist is a 3-item lifecycle gate, not the ~20 review criteria, so positional check-off would check whichever box aligned with a passing criterion (#2594).
-It DOES check the one lifecycle gate this review owns — `PRD reviewed` — matched by label, fence-aware, never by position (#2694). Gates owned by other commands (`Test plan approved`, `Ready for backlog creation`) are untouched.
-Report both: `"AC check-off skipped: #$ISSUE is a PRD tracker; checked its PRD reviewed gate, other lifecycle gates left to the commands that close them."` NEVER report `X/Y checked off` here — X is always 0. Read `lifecycleGateChecked` for what was written (`null` = nothing). No status transition — `/create-backlog` owns it.
+It DOES check the one lifecycle gate this review owns — `PRD reviewed` — matched by label, fence-aware, never by position (#2694). Lifecycle box owners (#3636; mirrors `LIFECYCLE_BOXES` in `review-ac-checkoff.js`, which every owner writes through): `PRD reviewed` → `/review-prd`, this step, on a "Ready for" recommendation; `Test plan approved (see #N)` → `/done`, when approval issue #N moves to Done; `Ready for backlog creation` → `/create-backlog` Phase 7, in the body write that prepends the banner. The other two are untouched here.
+Report both: `"AC check-off skipped: #$ISSUE is a PRD tracker; checked its PRD reviewed gate. Test plan approved is checked by /done, Ready for backlog creation by /create-backlog."` NEVER report `X/Y checked off` here — X is always 0. Read `lifecycleGateChecked` for what was written (`null` = nothing). No status transition — `/create-backlog` owns it.
 **Gate predicate is stricter than the label predicate.** `determineLabel()` tests `startsWith("Ready")`, admitting `Ready with minor revisions`; this step tests `"Ready for"`, which does not. That value earns the `reviewed` label but NOT the gate — reviewed, not yet decomposable. Passing the recommendation rather than a boolean is what stops the two being conflated at the call site.
 **Otherwise:** skip entirely.
 

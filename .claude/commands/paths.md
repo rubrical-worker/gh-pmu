@@ -1,5 +1,5 @@
 ---
-version: "v0.116.0"
+version: "v0.119.0"
 description: Analyze paths collaboratively for proposals and enhancements, using the IDPF framework.
 argument-hint: "#issue [--help]"
 copyright: "Rubrical Works (c) 2026"
@@ -126,7 +126,9 @@ const result = generateACsFromPaths(pathsByCategory, issueType, existingACs);
 1. Read body: `gh pmu view $ISSUE --body-stdout > .tmp-$ISSUE.md`
 2. Append generated ACs after existing Acceptance Criteria section (use `result.markdown`)
 3. Update: `gh pmu edit $ISSUE -F .tmp-$ISSUE.md && rm .tmp-$ISSUE.md`
-4. Report `result.report` (e.g., "Added 12 acceptance criteria from 23 paths")
+4. Report `result.report` **in full** — even when every path was a duplicate and no AC was generated.
+
+**Skipped paths are listed, never only counted (#3539).** A path is a duplicate when most of its significant words appear in one existing AC; `result.duplicates` holds each skipped path, its number and the matched AC, and `result.report` prints one `Path N "<path>" matches: <existing AC>` line per entry under the count. Print every line — a match can be contested only when named.
 
 **Categorical grouping:** When 6+ paths confirmed, ACs grouped under italic category headings (e.g., *Nominal Flow*, *Error Handling*) per px-manager#782 pattern.
 **Deduplication:** Paths fuzzy-matching existing ACs are skipped. Report includes duplicate count.

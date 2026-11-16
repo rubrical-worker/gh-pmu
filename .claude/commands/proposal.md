@@ -1,5 +1,5 @@
 ---
-version: "v0.116.0"
+version: "v0.119.0"
 description: Create a proposal document and tracking issue, using the IDPF framework.
 argument-hint: "<title> [--prior-art] [--update [changes]] [--help]"
 copyright: "Rubrical Works (c) 2026"
@@ -179,7 +179,7 @@ node -e "console.log(JSON.stringify(require('./.claude/scripts/shared/lib/prior-
 Mode `off` deliberately overrides a typed flag. Earlier revisions of this spec, its sibling, and the schema all promised `--prior-art` swept regardless; #2564 inverts that on purpose, and the refusal message is what keeps the inversion honest.
 
 ### Step 3c: Charter Scope Check (#3001)
-Runs on create and `--update`. Write title + problem statement to `.tmp-charter-scope-{random}.txt` (suffix shelled out); run `node .claude/scripts/shared/lib/charter-scope.js --command proposal --text-file <file>`; `rm` after. `skipped` → one line why, continue. `ask: true` → report `alignment` + `matchedItems`, offer `resolutionOptions` from `.claude/metadata/charter-enforcement.json` via `AskUserQuestion` (`expand` follows its `expansionFlow`). Relay `warnings`. Advisory: never blocks creation.
+Runs on create and `--update`. Write title + problem statement to `.tmp-charter-scope-{random}.txt` (suffix shelled out); run `node .claude/scripts/shared/lib/charter-scope.js --command proposal --text-file <file>`; `rm` after. `skipped` → one line why, continue. Otherwise make the **scope call** from the returned `inputs` as `scopeCall` in `.claude/metadata/charter-enforcement.json` directs — the helper decides nothing (#3645) — and report it in its one-line format, `Charter scope: <verdict> — "<bullet quoted>" — <reason in one sentence>`, with a stated reason; `boardThemes.available: false` → say the board themes were unavailable and decide on the bullets alone. When that verdict's `alignment.<verdict>.ask` is true (under `quiet`, only for `conflicts`), offer `resolutionOptions` from `.claude/metadata/charter-enforcement.json` via `AskUserQuestion` (`expand` follows its `expansionFlow`). Relay `warnings`. Advisory: never blocks creation.
 
 <!-- USER-EXTENSION-START: pre-create -->
 <!-- USER-EXTENSION-END: pre-create -->
@@ -234,6 +234,7 @@ Ensure `Proposal/` directory exists. Create `Proposal/[Name].md`:
 
 **Diagrams:** When a diagram path is specified, update `**Diagrams:**` from "None" to the path(s). Create `Proposal/Diagrams/` lazily. Naming: `Proposal/Diagrams/[Name]-*.drawio.svg`.
 
+**"Document updated" AC (#3646).** Scope changes architecture, constraints, test strategy or a key decision → **ASK USER** whether to add an AC naming the living document it updates (`Project/Architecture.md`, `Project/Constraints.md`, `Project/Test-Strategy.md`, a `Construction/Design-Decisions/` entry). `CHARTER.md` only when the work introduces a new kind of entity or adopts a new technology — a new row, no count and no version; never an AC updating a count or a version there (`/review-issue` flags it: `charter-ac-stored-value`).
 ### Step 5: Create Tracking Issue
 
 Build issue body:

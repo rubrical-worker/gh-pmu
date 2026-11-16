@@ -1,5 +1,5 @@
 ---
-version: "v0.116.0"
+version: "v0.119.0"
 description: Prepare a release by opening a PR, merging to main, and tagging, using the IDPF framework.
 argument-hint: "[version] [--skip-coverage] [--skip-review] [--dry-run] [--help]"
 copyright: "Rubrical Works (c) 2026"
@@ -32,7 +32,7 @@ Validate, create PR to main, merge, and tag for deployment.
 
 **Task Rules:** One task per numbered phase/step; one per active extension; skip commented-out extensions.
 
-**Prompt shape (#3233).** Every **ASK USER** below follows `{frameworkPath}/Reference/AskUserQuestion-Shape.md`: context printed first as markdown (a results table where there are results), then an options table whose first column is `{n}.{label}`, a one-line question, unprefixed option labels, and for a single-select prompt a `preview` per option stating what that choice does. Each prompt names its context, question, options and previews; `.claude/hooks/ask-question-shape-hook.js` blocks only the tool's hard limits (4 options, a 12-character header); the rest of the shape is convention.
+**Prompt shape (#3233).** Every **ASK USER** below follows `{frameworkPath}/Reference/AskUserQuestion-Shape.md`: context printed first as markdown (a results table where there are results), then an options table whose first column is `{n}.{label}`, a one-line question, unprefixed option labels (the `{n}.` is the printed table's only: Claude Code numbers options itself, so a prefixed label renders doubled, `1. 1.Proceed`), and for a single-select prompt a `preview` per option stating what that choice does. Each prompt names its context, question, options and previews; `.claude/hooks/ask-question-shape-hook.js` acts only on the tool's hard limits (blocks more than 4 options, trims a header over 12 characters); the rest of the shape is convention.
 
 ## Pre-Checks
 ### Check for Uncommitted Changes
@@ -41,7 +41,7 @@ Validate, create PR to main, merge, and tag for deployment.
 git status --porcelain
 ```
 
-**If empty (clean):** Proceed silently. **If non-empty (dirty):** print the changes as a table (`Status`, `Path`), then options table `1.Stage and commit all`, `2.Let me review first`, `3.Continue anyway`, then present via `AskUserQuestion`:
+**If empty (clean):** Proceed silently. **If non-empty (dirty):** print the changes as a table (`Status`, `Path`), then options table `1.Stage and commit all`, `2.Let me review first`, `3.Continue anyway` (labels unprefixed, as in the call below), then present via `AskUserQuestion`:
 
 ```javascript
 AskUserQuestion({
@@ -75,7 +75,7 @@ Record as `$BRANCH`.
 **If `$BRANCH` is `main`:**
 1. Analyze commits: `git log $(git describe --tags --abbrev=0)..HEAD --oneline`
 2. Recommend version based on commit analysis
-3. **ASK USER:** Confirm version (e.g., `v0.26.0`) — print the commit analysis (commits by type, recommended bump) as a table, then options `1.Use <version>`, `2.Another version`, `3.Stop`; question `Create release/<version> from main?`; previews: *Use <version>* creates and checks out `release/<version>` locally and continues; *Another version* asks for the version, then creates that branch; *Stop* creates nothing.
+3. **ASK USER:** Confirm version (e.g., `v0.26.0`) — print the commit analysis (commits by type, recommended bump) as a table, then the options table `1.Use <version>`, `2.Another version`, `3.Stop` (labels unprefixed: *Use <version>*, *Another version*, *Stop*); question `Create release/<version> from main?`; previews: *Use <version>* creates and checks out `release/<version>` locally and continues; *Another version* asks for the version, then creates that branch; *Stop* creates nothing.
 4. **If `--dry-run`:** Report "Would create branch: release/v0.26.0" and stop.
 5. Create release branch:
    ```bash
@@ -99,7 +99,7 @@ gh pmu branch close "$BRANCH" --dry-run
 Name `$BRANCH` explicitly (required when more than one branch is active). **Show the output verbatim; do not parse it or add `--json`.** It prints `Would move N incomplete issue(s) to backlog:` then one `#N - title` line per issue, and changes nothing. The close moves every open tracker sub-issue except Parking Lot, keyed on open/closed and tracker membership — not board Status — so a `gh pmu list --status` filter answers a different question; `--status` also takes one value, and the comma-separated query this step used to run matched nothing while Step 4.3 moved everything.
 
 - **No issues listed:** say so explicitly — "No incomplete issues: Step 4.3's close will move nothing." — and proceed. Never infer an empty result from silence.
-- **Issues listed:** **ASK USER** via `AskUserQuestion`, naming them: print them as a table (`#`, `Title`, `Status`), then options `1.Transfer`, `2.Continue anyway`, `3.Stop`; question `<N> incomplete issues move to Backlog at Step 4.3: how to proceed?`; each option's preview states its effect:
+- **Issues listed:** **ASK USER** via `AskUserQuestion`, naming them: print them as a table (`#`, `Title`, `Status`), then the options table `1.Transfer`, `2.Continue anyway`, `3.Stop` (labels unprefixed: *Transfer*, *Continue anyway*, *Stop*); question `<N> incomplete issues move to Backlog at Step 4.3: how to proceed?`; each option's preview states its effect:
   - **Transfer** — `/transfer-issue` to another branch, re-run the dry-run, ask again.
   - **Continue anyway** — first state: "Step 4.3 will move #N, #N… to Backlog and clear their Branch field." Then proceed.
   - **Stop** — halt now, before Phase 1; nothing has changed.
@@ -162,7 +162,7 @@ The script analyzes which E2E tests may be impacted by changes:
 
 <!-- USER-EXTENSION-END: post-analysis -->
 
-**ASK USER:** Confirm version before proceeding. Print the Phase 1 analysis (commits by type, recommended version) as a table, then options `1.Proceed`, `2.Stop`; question `Proceed with <version>?`; previews: *Proceed* continues to Phase 2 validation; *Stop* ends here, nothing changed.
+**ASK USER:** Confirm version before proceeding. Print the Phase 1 analysis (commits by type, recommended version) as a table, then the options table `1.Proceed`, `2.Stop` (labels unprefixed: *Proceed*, *Stop*); question `Proceed with <version>?`; previews: *Proceed* continues to Phase 2 validation; *Stop* ends here, nothing changed.
 
 ## Phase 2: Validation
 
@@ -242,7 +242,7 @@ Refuses a release with an unreviewed change or an introduced high-severity findi
 - Otherwise read `{frameworkPath}/Reference/code-review-execution.md` and execute its § Release Review Gate with `<command>` = `prepare-release` — the whole gate (base, empty diff, `lastDiffReview` freshness, inline `/code-review --diff` on a missing/stale record, `--dry-run`, severity policy), shared with `/prepare-beta`.
 - The file cannot be read → **STOP** with `Review gate could not read {frameworkPath}/Reference/code-review-execution.md; /prepare-release stopped.` The gate never passes unread.
 
-**ASK USER:** Confirm validation passed. Print the Phase 2 results as a table (check, result: Step 2.0 helpers, the validation phases, coverage, the review gate), then options `1.Continue`, `2.Stop`; question `Validation for <version> passed: continue to Phase 3?`; previews: *Continue* lets Phase 3 edit the version files and CHANGELOG; *Stop* ends before any file is edited.
+**ASK USER:** Confirm validation passed. Print the Phase 2 results as a table (check, result: Step 2.0 helpers, the validation phases, coverage, the review gate), then the options table `1.Continue`, `2.Stop` (labels unprefixed: *Continue*, *Stop*); question `Validation for <version> passed: continue to Phase 3?`; previews: *Continue* lets Phase 3 edit the version files and CHANGELOG; *Stop* ends before any file is edited.
 
 ## Phase 3: Prepare
 
@@ -274,6 +274,20 @@ for path in CHANGELOG.md README.md README-DIST.md Docs/; do
   if [ -e "$path" ]; then git add "$path"; fi
 done
 git commit -m "chore: prepare release $VERSION"
+```
+**Pre-push test run (#3677).** Before the push, run the tests covering every file this branch's unpushed commits changed — the release test plan's commit and the prep commit together, not the prep commit alone. With no upstream yet, compare against the merge-base with the default branch:
+```bash
+if git rev-parse --abbrev-ref --symbolic-full-name @{u} >/dev/null 2>&1; then
+  PREP_BASE=$(git rev-parse '@{u}')
+else
+  PREP_BASE=$(git merge-base HEAD origin/HEAD)
+fi
+git diff --name-only "$PREP_BASE"..HEAD
+```
+Resolve the suites with `resolveSuites()` from `.claude/scripts/shared/lib/test-runner.js`, run `selectorInvocations()` over those files (a suite declaring `sweepSelect` is narrowed by its own selector), pass each result to `sweepInvocations()` as `selections`, and run every invocation it returns, reporting each line as `/work` Step 4f does. The commands come from the declared suites; this step names no runner.
+- **A failing selected test STOPs before the push.** Name each failing test and its suite, fix it in the prep commit (`git commit --amend`), and re-run this step. Nothing is pushed yet, so no CI run is spent on the defect.
+- **No declared suite (`source: "none"`), or a suite whose selector chose no test (`selectedNone`), is reported, never treated as a pass.** Name the untested files and continue to the push: the PR run is their first test. An unreadable `framework-config.json` (`source: "unreadable"`) STOPs, as at Step 4f.
+```bash
 if git rev-parse --abbrev-ref --symbolic-full-name @{u} >/dev/null 2>&1; then
   git push
 else
@@ -321,7 +335,7 @@ node .claude/scripts/shared/wait-for-ci.js
 
 ### Step 4.2: Merge PR
 
-**ASK USER:** Approve and merge. Print the PR (number, URL, checks) as a table, then options `1.Approve and merge`, `2.Stop`; question `Merge PR #<N> into main?`; previews: *Approve and merge* announces the release, merges, then closes the tracker and tags; *Stop* leaves the PR open, nothing merged.
+**ASK USER:** Approve and merge. Print the PR (number, URL, checks) as a table, then the options table `1.Approve and merge`, `2.Stop` (labels unprefixed: *Approve and merge*, *Stop*); question `Merge PR #<N> into main?`; previews: *Approve and merge* announces the release, merges, then closes the tracker and tags; *Stop* leaves the PR open, nothing merged.
 
 **Once approved, announce the release to every peer before merging (#2960).** The merge to `main`, tracker close, tag push that starts the distribution deploy and branch deletion all follow, and none can be undone:
 ```bash
@@ -376,17 +390,26 @@ node .claude/scripts/shared/wait-for-ci.js --pr-tested --pr "$BRANCH" --sha "$ME
 ```
 It prints `{ path, reason, runId, runs, workflows }` and waits nothing:
 - **`path` is `skip`** → report "Merge commit $MERGE_SHA carries the PR-tested tree — verdict from PR run(s):" with each `runs[]` workflow, `runId` and `url`; continue to the pre-tag extension point without waiting.
-- **`path` is `wait`** → report its `reason`, then wait on the push-triggered run for **that** commit before tagging:
+- **`path` is `wait`** → report its `reason`, then make sure every workflow that gated the merge runs on **that** commit before tagging (#3676). The decision also prints `dispatch` and `undispatchable`: file names of workflows that run on `pull_request` into the default branch but not on a push to it, so no push run tests the merge commit.
+  - **`planKnown` is `false` → STOP before tagging.** The decision could not tell which workflows gated the merge (a lookup failed, or a workflow could not be read), so an empty `dispatch` proves nothing. Report its `reason`, fix the cause, and re-run from this step.
+  - **`undispatchable` is non-empty → STOP before tagging.** Name each: the merge commit's tree was never tested by it and it has no `workflow_dispatch` trigger to start it on `main`. Add the trigger or run it on `main` another way, then re-run from this step.
+  - **For each `dispatch` entry** (`WF`), start it on `main` and wait on that workflow's run for the merge commit:
+```bash
+gh workflow run "$WF" --ref main
+node .claude/scripts/shared/wait-for-ci.js --sha "$MERGE_SHA" --workflow "$WF" --timeout 900
+```
+  **Exit 3 on a dispatched wait STOPs before tagging** — the run was started and never appeared on `MERGE_SHA` (`main` moved again, or the dispatch failed), so the commit to be tagged is untested. `--workflow` keeps a push run that finishes first from standing in for it. Exit 1, 2 or 5 is handled as below.
+  - Then wait on the push-triggered runs for the commit:
 ```bash
 node .claude/scripts/shared/wait-for-ci.js --sha "$MERGE_SHA" --timeout 900
 ```
 **If `MERGE_SHA` differs from `PR_MERGE_SHA`, report both SHAs before waiting** — `main` moved after the merge, and the decision returns `wait`. Wait on `MERGE_SHA` regardless: it is what Step 4.6 tags.
 
-**Why the wait can be skipped (#3444).** When `main` did not move between the PR run and the merge, the merge commit's tree is the tree the `pull_request` runs passed, so the push run re-tests it. The decision skips only on evidence: `MERGE_SHA` is the PR's merge commit, its tree equals the PR head's, and every workflow the merged tree runs on push to the default branch also runs on `pull_request` and passed on the PR head with no skipped job. Workflows pair with runs by workflow id, never by name. A push-only workflow, a skipped PR job, a missing or unsuccessful PR run, or a failed `gh`/`git` lookup returns `wait` with that reason — it never skips on missing evidence. Step 4.7's tag-scoped wait is unaffected.
+**Why the wait can be skipped (#3444).** When `main` did not move between the PR run and the merge, the merge commit's tree is the tree the `pull_request` runs passed, so the push run re-tests it. The decision skips only on evidence: `MERGE_SHA` is the PR's merge commit, its tree equals the PR head's, and every workflow the merged tree runs on push to the default branch also runs on `pull_request` and passed on the PR head with no skipped job — as did every workflow that runs only on a pull_request into the default branch, the run that gated the merge (#3676). Workflows pair with runs by workflow id, never by name. A push-only workflow, a skipped PR job, a missing or unsuccessful PR run, or a failed `gh`/`git` lookup returns `wait` with that reason — it never skips on missing evidence. Step 4.7's tag-scoped wait is unaffected.
 
 **On exit 1, 2 or 5 (failed, timed out, or still running at the cap), STOP before tagging.** Report the payload's `runId` and `conclusion` (or `status`) and the run's URL (`gh run view <runId> --json url --jq .url`). Do not continue to Step 4.6: the tag push is irreversible and starts any distribution deploy.
 
-**On exit 3 (`no_runs` / `no_executing_runs`): report "No CI run on merge commit $MERGE_SHA — continuing without a post-merge gate." and continue.**
+**On exit 3 (`no_runs` / `no_executing_runs`) from the push-run wait: report "No CI run on merge commit $MERGE_SHA — continuing without a post-merge gate." and continue.** Since #3676 exit 3 here never hides a workflow that gated the PR: with the plan known, each was dispatched above, or the step stopped, so exit 3 means no workflow covers `main` at all.
 
 **Why exit 3 continues here when Step 4.7 STOPs (#3255, #2952).** Step 4.7 first establishes that a tag-triggered workflow exists; this step makes no such check. Many projects run CI on pull requests only, and for them no run on the merge commit is the honest, expected outcome. `wait-for-ci.js` waits out a 90-second registration window before returning `no_runs`, so a late-registering push run is still gated; the notice keeps the absence visible.
 
@@ -411,7 +434,7 @@ node .claude/scripts/shared/lib/active-label.js remove [TRACKER_NUMBER]
 
 ### Step 4.6: Tag and Push
 
-**ASK USER:** Confirm ready to tag. Print the tag, commit and merge-commit CI result as a table, then options `1.Tag and push`, `2.Stop`; question `Tag and push <version>?`; previews: *Tag and push* creates the annotated tag and pushes it, starting the distribution deploy; *Stop* creates no tag.
+**ASK USER:** Confirm ready to tag. Print the tag, commit and merge-commit CI result as a table, then the options table `1.Tag and push`, `2.Stop` (labels unprefixed: *Tag and push*, *Stop*); question `Tag and push <version>?`; previews: *Tag and push* creates the annotated tag and pushes it, starting the distribution deploy; *Stop* creates no tag.
 
 ```bash
 git tag -a $VERSION -m "Release $VERSION"
@@ -519,7 +542,7 @@ Do NOT auto-close issues just because they shipped.
 
 ## Phase 5: Close & Cleanup
 
-**ASK USER:** Confirm deployment verified and ready to close release. Print the deploy and CI results as a table, then options `1.Close release`, `2.Stop`; question `<version> deployment verified: close the release?`; previews: *Close release* comments on the tracker, deletes the working branch and verifies the GitHub release; *Stop* leaves the branch and tracker as they are.
+**ASK USER:** Confirm deployment verified and ready to close release. Print the deploy and CI results as a table, then the options table `1.Close release`, `2.Stop` (labels unprefixed: *Close release*, *Stop*); question `<version> deployment verified: close the release?`; previews: *Close release* comments on the tracker, deletes the working branch and verifies the GitHub release; *Stop* leaves the branch and tracker as they are.
 
 ### Step 5.1: Add Deployment Comment
 

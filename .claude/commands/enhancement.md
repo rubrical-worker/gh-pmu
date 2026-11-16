@@ -1,5 +1,5 @@
 ---
-version: "v0.116.0"
+version: "v0.119.0"
 description: Create an enhancement issue from the IDPF framework's standard template.
 argument-hint: "<title> [--prior-art] [--help]"
 copyright: "Rubrical Works (c) 2026"
@@ -55,6 +55,7 @@ If AC text in description mentions a verification mechanism (see `.claude/metada
 | **Drop** | AC restates the project's test command passing ("`npm test` passes", "the test suite passes") — `dischargedByWorkflow`; the `/work` Step 4f sweep already runs it | Do not author the AC; tell the user `/work` Step 4f owns it. **Keep it** when `keptWhen` holds (no verification set declared, so Step 4f runs nothing) |
 | **Annotate** | Gate is genuinely load-bearing (required human review or sign-off) | `- [ ] {acText} → GATE: {phase}` per `annotationFormat`, and **name the event that resolves it** — a token that cannot name one is not a gate |
 Prefer annotation over deletion when the requirement is real: the goal is to stop the gate deadlocking `in_review`, not to remove the requirement. **Warning-only, as `verificationGate` is** — do **not** block creation. `/bug` and `/enhancement` take free text and often carry no ACs, so blocking would stop capture over an AC nobody wrote.
+**"Document updated" AC (#3646).** When the enhancement's scope changes the project's architecture, constraints, test strategy or a key decision, **ASK USER** whether to add an AC naming the living document it updates — `Project/Architecture.md`, `Project/Constraints.md`, `Project/Test-Strategy.md` or a `Construction/Design-Decisions/` entry (e.g. `- [ ] Project/Architecture.md updated to describe <the change>`). An AC may name `CHARTER.md` only when the work introduces a new kind of entity or adopts a new technology: a new Key Entities or Tech Stack row, with no count and no version. Never an AC updating a count or a version in `CHARTER.md` — counts are derived, versions live in manifests; `/review-issue` flags one (`charter-ac-stored-value`). Declined → nothing added.
 ### Step 2b: Prior-Art Sweep (`--prior-art` only)
 **Trigger:** sweep flag from Step 1. Absent the flag, skip this step entirely.
 Runs **before** the body is composed, so findings change what gets written rather than annotating a body already wrong.
@@ -90,7 +91,7 @@ node -e "console.log(JSON.stringify(require('./.claude/scripts/shared/lib/prior-
 Mode `off` deliberately overrides a typed flag. Earlier revisions of this spec, its sibling, and the schema all promised `--prior-art` swept regardless; #2564 inverts that on purpose, and the refusal message is what keeps the inversion honest.
 
 ### Step 2c: Charter Scope Check (#3001)
-Write title + description to `.tmp-charter-scope-{random}.txt` (suffix shelled out); run `node .claude/scripts/shared/lib/charter-scope.js --command enhancement --text-file <file>`; `rm` after. `skipped` → one line why, continue. `ask: true` → report `alignment` + `matchedItems`, offer `resolutionOptions` from `.claude/metadata/charter-enforcement.json` via `AskUserQuestion` (`expand` follows its `expansionFlow`). Relay `warnings`. Advisory: never blocks creation.
+Write title + description to `.tmp-charter-scope-{random}.txt` (suffix shelled out); run `node .claude/scripts/shared/lib/charter-scope.js --command enhancement --text-file <file>`; `rm` after. `skipped` → one line why, continue. Otherwise make the **scope call** from the returned `inputs` as `scopeCall` in `.claude/metadata/charter-enforcement.json` directs — the helper decides nothing (#3645) — and report it in its one-line format, `Charter scope: <verdict> — "<bullet quoted>" — <reason in one sentence>`, with a stated reason; `boardThemes.available: false` → say the board themes were unavailable and decide on the bullets alone. When that verdict's `alignment.<verdict>.ask` is true (under `quiet`, only for `conflicts`), offer `resolutionOptions` from `.claude/metadata/charter-enforcement.json` via `AskUserQuestion` (`expand` follows its `expansionFlow`). Relay `warnings`. Advisory: never blocks creation.
 
 <!-- USER-EXTENSION-START: pre-create -->
 <!-- USER-EXTENSION-END: pre-create -->
