@@ -21,6 +21,9 @@ Multi-layer testing with emphasis on table-driven unit tests against mocked API 
 | integration | go test -tags=integration (`go-test-integration`) | `go test -tags=integration ./...` | manual-only — live GitHub API calls; never run from CI or `/work` (#876) |
 | compile-check | go vet (`go-vet`) | `go vet -tags "integration e2e" ./...` | gate |
 | compile-check | golangci-lint (`golangci-lint`) | `golangci-lint run --timeout=5m ./...` | gate |
+| unit | go test -race (`go-test-race`) | `go test -race ./...` | gate — needs cgo |
+| compile-check | go build (`go-build`) | `go build ./...` | gate |
+| compile-check | verify-config.js (`verify-config`) | `node .claude/scripts/open-release/verify-config.js` | gate |
 
 ---
 

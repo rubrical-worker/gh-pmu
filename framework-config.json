@@ -84,6 +84,45 @@
         "scoped": {
           "mode": "package"
         }
+      },
+      {
+        "id": "go-test-race",
+        "role": "unit",
+        "kind": "framework",
+        "match": [
+          "**/*.go"
+        ],
+        "full": "go test -race ./...",
+        "scoped": {
+          "mode": "package"
+        },
+        "concurrency": "parallel",
+        "note": "Race detector; needs cgo (gcc on Windows). CI skips -race on Windows runners."
+      },
+      {
+        "id": "go-build",
+        "role": "compile-check",
+        "kind": "script",
+        "match": [
+          "**/*.go"
+        ],
+        "full": "go build ./...",
+        "scoped": {
+          "mode": "package"
+        },
+        "concurrency": "parallel"
+      },
+      {
+        "id": "verify-config",
+        "role": "compile-check",
+        "kind": "script",
+        "match": [
+          "**/*.go",
+          ".gh-pmu.json"
+        ],
+        "full": "node .claude/scripts/open-release/verify-config.js",
+        "concurrency": "parallel",
+        "note": "Checks tests did not corrupt config files (ci.yml)."
       }
     ]
   }

@@ -115,3 +115,11 @@ User Input → Cobra Parsing → Config Load → API Call → Format Output
 ---
 
 *See also: Tech-Stack.md, Constraints.md*
+
+## Inventory Notes
+
+Explanatory notes copied from the `CHARTER.md` tables by the in-place repair, keyed by entity or layer name.
+
+### Tech Stack
+
+- **API** — GitHub GraphQL (go-gh, shurcooL-graphql)

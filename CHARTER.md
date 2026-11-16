@@ -1,23 +1,30 @@
 # Project Charter: GitHub Praxis Management Utility
 
 **Status:** Active
-**Last Updated:** 2026-10-19
+**Last Updated:** 2026-11-16
 
 ## Vision
 
-A GitHub CLI extension that streamlines project workflows by unifying issue tracking, sub-issue hierarchy, and workflow automation into a single cohesive tool.
+A GitHub CLI extension that streamlines Kanban-style GitHub Projects workflows by unifying issue tracking, project field values, sub-issue hierarchy, and workflow automation into a single cohesive tool.
 
-## Current Focus
+## Problem Statement
 
-v1.6.x - Stabilize v1.6.0 (2026-09-14): faster batched intake, Status field reconcile (`status --update`), and terms acceptance that persists across 1.x releases
+Managing GitHub Projects through the `gh` CLI is fragmented. Project field updates, sub-issue relationships, and workflow automation require multiple tools or hand-written GraphQL queries. Developers need one interface that updates an issue and its project metadata in a single command.
+
+## Target Users
+
+- Developers using GitHub Projects for issue tracking
+- Teams managing issue hierarchies (epics, stories, tasks)
+- Solo developers and small teams wanting CLI-first project management
+- AI-assisted development workflows driving the board from the terminal
 
 ## Tech Stack
 
 | Layer | Technology |
 |-------|------------|
-| Language | Go 1.23 |
+| Language | Go |
 | Framework | Cobra CLI |
-| API | GitHub GraphQL (go-gh, shurcooL-graphql) |
+| API | GitHub GraphQL |
 
 ## In Scope (Current)
 
@@ -39,15 +46,27 @@ v1.6.x - Stabilize v1.6.0 (2026-09-14): faster batched intake, Status field reco
 - Status field value reconcile (`status --update`; `init` adds missing required values)
 - Custom field creation and listing (`field create`, `field list`)
 - Issue comment, git history and piped-JSON filter utilities (`comment`, `history`, `filter`)
+- Terms acceptance gate
+- Organization-level issue fields alongside project fields
+- Targeting another project board from create commands (`--project`)
+- Checkbox gate markers for intentionally open acceptance criteria
+- Dry-run previews for create and branch-start commands
+
+## Out of Scope
+
+- Web UI — gh-pmu is terminal-first
+- Replacing the base `gh` issue and PR commands
+- Multiple organizations' projects in one configuration
+- Notifications
 
 ## Key Entities
 
-| Entity | Count | Location |
-|--------|-------|----------|
-| Internal packages | 8 | internal/ |
-| E2E test files | 11 | test/e2e/ |
-| CI workflows | 3 | .github/workflows/ |
-| Design decision records | 14 | Construction/Design-Decisions/ |
+| Entity | Location |
+|--------|----------|
+| Internal packages | internal/ |
+| E2E test files | test/e2e/ |
+| CI workflows | .github/workflows/ |
+| Design decision records | Construction/Design-Decisions/ |
 
 ## Companion Repositories
 
@@ -55,11 +74,11 @@ Repositories this project works alongside. `Searchable` governs whether prior-ar
 sweeps read that repo's issues; `File Issues` governs whether `--target` may file
 into it. Both default to false — nothing becomes filable by omission.
 
-| Repository | Responsibility | Relationship | Repo | Board | Searchable | File Issues |
-|---|---|---|---|---|---|---|
-| idpf-praxis-dev | IDPF framework development — commands, rules, scripts and references deployed into this project | Upstream framework; gh-pmu consumes its releases through the hub | rubrical-worker/idpf-praxis-dev | rubrical-worker/7 | yes | yes |
-| idpf-skills-dev | Claude Code skill development for the idpf-praxis-skills distribution repository; the skills this project installs per project | Upstream skills source; gh-pmu installs its published skills into this project | rubrical-works/idpf-skills-dev | rubrical-works/6 | yes | yes |
-| idpf-phm-project-templates | Catalog of project templates (pre-filled charter, skill assignments, lock files, configuration) for new IDPF projects | Template source for IDPF project creation | rubrical-works/idpf-phm-project-templates | rubrical-works/7 | yes | yes |
+| Repository | Responsibility | Relationship | Repo | Board | Searchable | File Issues | Direction |
+|---|---|---|---|---|---|---|---|
+| idpf-praxis-dev | IDPF framework development — commands, rules, scripts and references deployed into this project | Upstream framework; gh-pmu consumes its releases through the hub | rubrical-worker/idpf-praxis-dev | rubrical-worker/7 | yes | yes | bidirectional |
+| idpf-skills-dev | Claude Code skill development for the idpf-praxis-skills distribution repository; the skills this project installs per project | Upstream skills source; gh-pmu installs its published skills into this project | rubrical-works/idpf-skills-dev | rubrical-works/6 | yes | yes | upstream |
+| idpf-phm-project-templates | Catalog of project templates (pre-filled charter, skill assignments, lock files, configuration) for new IDPF projects | Template source for IDPF project creation | rubrical-works/idpf-phm-project-templates | rubrical-works/7 | yes | yes | upstream |
 
 ---
-*See Inception/ for full specifications*
+*See Project/ for architecture, constraints and test strategy*
