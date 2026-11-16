@@ -26,7 +26,16 @@ Managing GitHub Projects through the `gh` CLI is fragmented. Project field updat
 | Framework | Cobra CLI |
 | API | GitHub GraphQL |
 
-## In Scope (Current)
+## Key Entities
+
+| Entity | Location |
+|--------|----------|
+| Internal packages | internal/ |
+| E2E test files | test/e2e/ |
+| CI workflows | .github/workflows/ |
+| Design decision records | Construction/Design-Decisions/ |
+
+## In Scope
 
 - Project field management (status, priority, custom fields)
 - Sub-issue hierarchy with progress tracking
@@ -58,15 +67,6 @@ Managing GitHub Projects through the `gh` CLI is fragmented. Project field updat
 - Replacing the base `gh` issue and PR commands
 - Multiple organizations' projects in one configuration
 - Notifications
-
-## Key Entities
-
-| Entity | Location |
-|--------|----------|
-| Internal packages | internal/ |
-| E2E test files | test/e2e/ |
-| CI workflows | .github/workflows/ |
-| Design decision records | Construction/Design-Decisions/ |
 
 ## Companion Repositories
 
